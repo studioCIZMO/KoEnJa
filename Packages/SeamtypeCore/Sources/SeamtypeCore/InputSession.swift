@@ -479,6 +479,22 @@ public final class InputSession {
     }
 
     /// Commits candidate `index` of the open conversion (e.g. clicked in the candidate window).
+    /// REA (iOS): the candidates for the Japanese phrase being typed, before Space, for a
+    /// candidate bar that shows them as you type, like the system's Japanese keyboard.
+    public var typingCandidates: [ConversionCandidate] {
+        guard conversion == nil, converter != nil, !keys.isEmpty,
+              forced == .japanese || (forced == nil && previewLanguage == .japanese) else { return [] }
+        let kana = japaneseReading(partial: false)
+        return kana.isEmpty ? [] : conversionCandidates(for: kana)
+    }
+
+    /// REA (iOS): picks one of `typingCandidates`, as Space then a tap on it would.
+    public func choose(typing candidate: ConversionCandidate, client: TextClient) {
+        startConversion(client)
+        guard let index = conversion?.candidates.firstIndex(of: candidate) else { return }
+        choose(index, client: client)
+    }
+
     public func choose(_ index: Int, client: TextClient) {
         guard let conversion, conversion.candidates.indices.contains(index) else { return }
         self.conversion?.selected = index

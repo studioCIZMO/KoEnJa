@@ -46,18 +46,18 @@ final class KeyboardViewController: UIInputViewController {
         heuristic.japaneseOffset += preferences.japaneseOffsetDelta
         let engine = LearningEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
                                                           japanese: heuristic.segmenter))
-        // Live conversion: kanji while typing (にほんご shows 日本語), as on the system keyboard;
-        // Space moves to the next candidate.
-        return InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil,
-                            liveConversion: converter != nil)
+        // Kana while typing, candidates in the bar above, as on the system's Japanese keyboard
+        // (no live conversion: it guessed whole phrases wrong, はなしま → 話魔).
+        return InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil)
     }
 
     // MARK: - Layout
 
     /// Every key is a multiple of one key width (a tenth of the keyboard), and as tall and as far
     /// apart as the system keyboard's (measured on an iPhone 17 Pro screenshot: 43pt keys, 54pt
-    /// from row to row, 24pt above the first row, where the kanji candidates go).
-    private static let gap: CGFloat = 6, keyHeight: CGFloat = 43, rowGap: CGFloat = 11, candidateHeight: CGFloat = 24
+    /// from row to row, 24pt above the first row; with Japanese on, a taller bar for the kanji candidates).
+    private static let gap: CGFloat = 6, keyHeight: CGFloat = 43, rowGap: CGFloat = 11
+    private lazy var candidateHeight = candidateRow.superview!.heightAnchor.constraint(equalToConstant: 24)
 
     /// What the letter keys type in 123 mode, like the system keyboard's first symbol page.
     static let symbols: [Character: Character] = Dictionary(uniqueKeysWithValues: zip(
@@ -92,7 +92,7 @@ final class KeyboardViewController: UIInputViewController {
             stack.topAnchor.constraint(equalTo: view.topAnchor),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -3),
             candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.gap * 2),
-            candidates.heightAnchor.constraint(equalToConstant: Self.candidateHeight),
+            candidateHeight,
             candidateRow.leadingAnchor.constraint(equalTo: candidates.contentLayoutGuide.leadingAnchor),
             candidateRow.trailingAnchor.constraint(equalTo: candidates.contentLayoutGuide.trailingAnchor),
             candidateRow.topAnchor.constraint(equalTo: candidates.contentLayoutGuide.topAnchor),
@@ -110,6 +110,7 @@ final class KeyboardViewController: UIInputViewController {
             converter = current.japanese ? AzooKeyConverter() : nil
             session = Self.makeSession(converter: converter, preferences: current)
             switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
+            candidateHeight.constant = current.japanese ? 44 : 24
         }
         TraceLog.write("APPEAR \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
         session.activate(app: nil) // iOS doesn't tell a keyboard which app it's in
@@ -236,21 +237,30 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - Kanji candidates
 
+    /// Kanji candidates: while typing Japanese (tap one to pick it), and after Space (the
+    /// selected one highlighted; Space moves on).
     private func refreshCandidates() {
         candidateRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
-        guard let conversion = session.conversion else { return }
-        for (index, candidate) in conversion.candidates.enumerated() {
-            var config = index == conversion.selected ? UIButton.Configuration.filled() : UIButton.Configuration.plain()
-            config.attributedTitle = AttributedString(candidate.text, attributes: .init([.font: UIFont.systemFont(ofSize: 18)]))
-            config.baseForegroundColor = index == conversion.selected ? .systemBackground : .label
+        let conversion = session.conversion
+        let candidates = conversion?.candidates ?? Array(session.typingCandidates.prefix(30))
+        for (index, candidate) in candidates.enumerated() {
+            let selected = index == conversion?.selected
+            var config = selected ? UIButton.Configuration.filled() : UIButton.Configuration.plain()
+            config.attributedTitle = AttributedString(candidate.text, attributes: .init([.font: UIFont.systemFont(ofSize: 20)]))
+            config.baseForegroundColor = selected ? .systemBackground : .label
             config.baseBackgroundColor = .label
             let button = UIButton(configuration: config)
             button.addAction(UIAction { [unowned self] _ in
-                session.choose(index, client: client)
+                if conversion != nil {
+                    session.choose(index, client: client)
+                } else {
+                    session.choose(typing: candidate, client: client)
+                }
                 refreshCandidates()
             }, for: .touchUpInside)
             candidateRow.addArrangedSubview(button)
         }
+        (candidateRow.superview as? UIScrollView)?.contentOffset = .zero
     }
 }
 

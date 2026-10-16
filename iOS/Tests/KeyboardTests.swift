@@ -98,9 +98,14 @@ final class KeyboardTests: XCTestCase {
         let proxy = FakeProxy(), client = ProxyClient(proxy: proxy)
         session.activate(app: nil)
 
+        // While typing: kana on screen, candidates for the bar.
         type("nihongo", into: session, client)
-        XCTAssertEqual(proxy.text, "日本語", "live conversion while typing")
-        session.commit(client: client)
+        XCTAssertEqual(proxy.text, "にほんご")
+        let typing = session.typingCandidates
+        let nihongo = try XCTUnwrap(typing.first { $0.text == "日本語" }, "\(typing.prefix(5).map(\.text))")
+        session.choose(typing: nihongo, client: client)
+        XCTAssertEqual(proxy.text, "日本語")
+        XCTAssertTrue(session.typingCandidates.isEmpty)
         proxy.text = ""
 
         type("kanjihenkan ", into: session, client)
