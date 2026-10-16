@@ -1,0 +1,19 @@
+// swift-tools-version:6.1
+// Vendored from https://github.com/aimdevlee/seamtype (MIT, see LICENSE and UPSTREAM).
+// Local changes: iOS platform added, Data excluded from the target (shipped as app resources).
+import PackageDescription
+
+let package = Package(
+    name: "SeamtypeCore",
+    platforms: [.macOS(.v13), .iOS(.v16)],
+    products: [.library(name: "SeamtypeCore", targets: ["SeamtypeCore"])],
+    dependencies: [
+        .package(url: "https://github.com/azooKey/AzooKeyKanaKanjiConverter", .upToNextMinor(from: "0.8.0")),
+    ],
+    targets: [
+        .target(name: "SeamtypeCore", dependencies: [
+            .product(name: "KanaKanjiConverterModule", package: "AzooKeyKanaKanjiConverter"),
+        ], exclude: ["Data"]),
+    ],
+    swiftLanguageModes: [.v5]
+)

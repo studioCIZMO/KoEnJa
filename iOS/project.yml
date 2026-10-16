@@ -1,0 +1,62 @@
+name: REA
+options:
+  bundleIdPrefix: com.netmaru.rea
+  deploymentTarget: { iOS: "16.0" }
+packages:
+  SeamtypeCore: { path: ../Packages/SeamtypeCore }
+settings:
+  base:
+    SWIFT_VERSION: "5"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: 5V9JS5722P
+targets:
+  REA:
+    type: application
+    platform: iOS
+    sources: [App]
+    settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: com.netmaru.rea } }
+    dependencies:
+      - target: REAKeyboard
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: REA
+        UILaunchScreen: {}
+  REAKeyboard:
+    type: app-extension
+    platform: iOS
+    sources: [Keyboard]
+    settings: { base: { PRODUCT_BUNDLE_IDENTIFIER: com.netmaru.rea.keyboard } }
+    postBuildScripts:
+      # Models SeamtypeCore reads from Bundle.main.resourceURL (Resources.swift).
+      - name: Copy language models
+        script: cp "$SRCROOT"/../Packages/SeamtypeCore/Sources/SeamtypeCore/Data/*.txt "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
+        basedOnDependencyAnalysis: false
+    dependencies:
+      - package: SeamtypeCore
+    info:
+      path: Keyboard/Info.plist
+      properties:
+        CFBundleDisplayName: REA
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.keyboard-service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController
+          NSExtensionAttributes:
+            IsASCIICapable: true
+            PrefersRightToLeft: false
+            PrimaryLanguage: ko-KR
+            RequestsOpenAccess: false
+  REAKeyboardTests:
+    type: bundle.unit-test
+    platform: iOS
+    settings: { base: { GENERATE_INFOPLIST_FILE: YES } }
+    sources:
+      - Tests
+      - Keyboard/ProxyClient.swift
+      - Keyboard/KeyboardViewController.swift
+    dependencies:
+      - package: SeamtypeCore
+schemes:
+  REA:
+    build: { targets: { REA: all } }
+    test: { targets: [REAKeyboardTests] }
