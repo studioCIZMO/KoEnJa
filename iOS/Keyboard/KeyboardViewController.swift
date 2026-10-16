@@ -46,7 +46,10 @@ final class KeyboardViewController: UIInputViewController {
         heuristic.japaneseOffset += preferences.japaneseOffsetDelta
         let engine = LearningEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
                                                           japanese: heuristic.segmenter))
-        return InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil)
+        // Live conversion: kanji while typing (にほんご shows 日本語), as on the system keyboard;
+        // Space moves to the next candidate.
+        return InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil,
+                            liveConversion: converter != nil)
     }
 
     // MARK: - Layout

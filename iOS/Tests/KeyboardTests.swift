@@ -98,6 +98,11 @@ final class KeyboardTests: XCTestCase {
         let proxy = FakeProxy(), client = ProxyClient(proxy: proxy)
         session.activate(app: nil)
 
+        type("nihongo", into: session, client)
+        XCTAssertEqual(proxy.text, "日本語", "live conversion while typing")
+        session.commit(client: client)
+        proxy.text = ""
+
         type("kanjihenkan ", into: session, client)
         let candidates = try XCTUnwrap(session.conversion?.candidates.map(\.text))
         XCTAssertTrue(candidates.contains("漢字変換"), "\(candidates.prefix(5))")
