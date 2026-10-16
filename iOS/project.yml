@@ -30,7 +30,12 @@ targets:
     postBuildScripts:
       # Models SeamtypeCore reads from Bundle.main.resourceURL (Resources.swift).
       - name: Copy language models
-        script: cp "$SRCROOT"/../Packages/SeamtypeCore/Sources/SeamtypeCore/Data/*.txt "$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/"
+        script: |
+          out="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+          cp "$SRCROOT"/../Packages/SeamtypeCore/Sources/SeamtypeCore/Data/*.txt "$out/"
+          # AzooKey's kanji dictionary (Apache-2.0), found by Resources.japaneseDictionary
+          rm -rf "$out/Dictionary"
+          cp -R "${BUILD_DIR%/Build/*}/SourcePackages/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/Dictionary" "$out/"
         basedOnDependencyAnalysis: false
     dependencies:
       - package: SeamtypeCore
