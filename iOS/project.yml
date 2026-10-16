@@ -23,7 +23,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: REA
+        CFBundleDisplayName: KoEnJa
         UILaunchScreen: {}
   REAKeyboard:
     type: app-extension
@@ -48,7 +48,7 @@ targets:
     info:
       path: Keyboard/Info.plist
       properties:
-        CFBundleDisplayName: REA
+        CFBundleDisplayName: KoEnJa
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).KeyboardViewController

@@ -71,6 +71,18 @@ final class ProxyClient: TextClient {
         return all.substring(with: range)
     }
 
+    /// After the app says the text or selection changed: whether the word being composed is
+    /// no longer right before the cursor (the user moved it, an undo, autofill). Then it's
+    /// forgotten as typed, so the session can start afresh without deleting anything.
+    /// ponytail: a suffix check, not azooKey's log of expected edits; the cursor moved to
+    /// right after the same text again isn't noticed.
+    func resetIfMovedAway() -> Bool {
+        guard !marked.isEmpty, let before = proxy.documentContextBeforeInput, !before.hasSuffix(marked) else { return false }
+        TraceLog.write("moved away from [\(marked)] \(context)")
+        marked = ""
+        return true
+    }
+
     /// Turns the word on screen into `text`, touching only the end that differs (거 → 건: one
     /// delete, one insert). If the text before the cursor no longer ends with the word (the
     /// cursor moved, another field), the word is left alone; `text` is still typed if the user

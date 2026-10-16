@@ -51,6 +51,14 @@ final class KeyboardViewController: UIInputViewController {
         return InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil)
     }
 
+    /// One converter for every controller: iOS keeps old keyboard controllers alive, and each
+    /// would hold its own dictionary (azooKey keeps everything but the controller static).
+    private static var converter: JapaneseConverter?
+    private static func sharedConverter() -> JapaneseConverter? {
+        if converter == nil { converter = AzooKeyConverter() }
+        return converter
+    }
+
     // MARK: - Layout
 
     /// Every key is a multiple of one key width (a tenth of the keyboard), and as tall and as far
@@ -107,7 +115,7 @@ final class KeyboardViewController: UIInputViewController {
         if current != preferences {
             preferences = current
             converter?.save()
-            converter = current.japanese ? AzooKeyConverter() : nil
+            converter = current.japanese ? Self.sharedConverter() : nil
             session = Self.makeSession(converter: converter, preferences: current)
             switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
             candidateHeight.constant = current.japanese ? 44 : 24
@@ -124,6 +132,17 @@ final class KeyboardViewController: UIInputViewController {
 
     override func textDidChange(_ textInput: UITextInput?) {
         TraceLog.write("textDidChange ctx=[\(textDocumentProxy.documentContextBeforeInput ?? "nil")] client.marked=[\(client.marked)]")
+        documentChanged()
+    }
+
+    override func selectionDidChange(_ textInput: UITextInput?) { documentChanged() }
+
+    /// The cursor moved away from the word being composed: it stays as typed, the next key
+    /// starts a new word there (like azooKey, which ends the composition on a cursor jump).
+    private func documentChanged() {
+        guard session != nil, client.resetIfMovedAway() else { return }
+        session.commitForNewContext(client: nil)
+        refreshCandidates()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -171,8 +190,24 @@ final class KeyboardViewController: UIInputViewController {
             // down before this one is up) dropped and reordered keys (안되었다 came in as 안뇠다).
             // ponytail: no slide-off to cancel; delete doesn't repeat yet.
             button.addAction(UIAction { [unowned self] _ in tap(title) }, for: .touchDown)
+            if title == "⌫" { repeatWhileHeld(button) }
         }
         return button
+    }
+
+    /// Delete repeats while held: after 0.4s, every 0.1s (azooKey's timing).
+    private func repeatWhileHeld(_ button: UIButton) {
+        var repeating: Task<Void, Never>?
+        button.addAction(UIAction { [unowned self] _ in
+            repeating = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 400_000_000)
+                while !Task.isCancelled {
+                    tap("⌫")
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+            }
+        }, for: .touchDown)
+        button.addAction(UIAction { _ in repeating?.cancel() }, for: [.touchUpInside, .touchUpOutside, .touchCancel])
     }
 
     /// English letter, with its 2-set jamo below: "q / ㅂ", shifted "Q / ㅃ"; in 123 mode the symbol.

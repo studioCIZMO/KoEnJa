@@ -86,7 +86,22 @@ final class KeyboardTests: XCTestCase {
         XCTAssertEqual(proxy.text, "")
     }
 
-    func testConvertsKanjiWithSpace() throws {
+    /// The cursor moved away mid-word: the word stays, the next key starts a new one there
+    /// (it doesn't delete what's now before the cursor).
+    func testCursorMovedAwayMidWord() {
+        let session = KeyboardViewController.makeSession(converter: nil, preferences: Self.all)
+        let proxy = FakeProxy(), client = ProxyClient(proxy: proxy)
+        session.activate(app: nil)
+        type("rk", into: session, client)
+        XCTAssertEqual(proxy.text, "가")
+        proxy.text = "hello" // the text before the cursor after a tap elsewhere
+        XCTAssertTrue(client.resetIfMovedAway())
+        session.commitForNewContext(client: nil)
+        type("s", into: session, client)
+        XCTAssertEqual(proxy.text, "helloㄴ")
+    }
+
+        func testConvertsKanjiWithSpace() throws {
         // DerivedData/Build/Products/<config>/REAKeyboardTests.xctest → DerivedData/SourcePackages
         let derived = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()

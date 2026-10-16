@@ -37,8 +37,8 @@ struct SettingsView: View {
                 .environment(\.editMode, .constant(.active))
 
                 Section("키보드 켜기") {
-                    Text("설정 → 일반 → 키보드 → 키보드 → 새로운 키보드 추가… → REA")
-                    Text("REA → 전체 접근 허용: 위 언어 설정을 키보드가 읽으려면 필요합니다. 입력한 내용은 어디로도 보내지 않습니다.")
+                    Text("설정 → 일반 → 키보드 → 키보드 → 새로운 키보드 추가… → 한영일")
+                    Text("한영일 → 전체 접근 허용: 위 언어 설정을 키보드가 읽으려면 필요합니다. 입력한 내용은 어디로도 보내지 않습니다.")
                     Button("설정 열기") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
                 }
                 Section("써 보기") {
@@ -46,7 +46,7 @@ struct SettingsView: View {
                         .accessibilityIdentifier("tryField")
                 }
             }
-            .navigationTitle("REA")
+            .navigationTitle("한영일")
             .onChange(of: preferences) { $0.save() }
             .sheet(isPresented: $choosingSetup) { setupSheet }
         }
