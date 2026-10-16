@@ -12,6 +12,9 @@ final class KeyboardViewController: UIInputViewController {
     private var session: InputSession!
     private weak var switchKey: UIButton?
     private var shifted = false
+    /// 123 mode: the letter keys type digits and symbols.
+    private var numbers = false
+    private weak var numbersKey: UIButton?
     private var letterKeys: [(button: UIButton, letter: Character)] = []
     private let candidateRow = UIStackView()
     /// Key sizes, activated once the keys are in the view (they're relative to its width).
@@ -48,18 +51,23 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - Layout
 
-    /// Every key is a multiple of one key width (a tenth of the keyboard), like the system keyboard.
-    private static let gap: CGFloat = 6, keyHeight: CGFloat = 44
+    /// Every key is a multiple of one key width (a tenth of the keyboard), and as tall and as far
+    /// apart as the system keyboard's (measured on an iPhone 17 Pro screenshot: 43pt keys, 54pt
+    /// from row to row, 24pt above the first row, where the kanji candidates go).
+    private static let gap: CGFloat = 6, keyHeight: CGFloat = 43, rowGap: CGFloat = 11, candidateHeight: CGFloat = 24
+
+    /// What the letter keys type in 123 mode, like the system keyboard's first symbol page.
+    static let symbols: [Character: Character] = Dictionary(uniqueKeysWithValues: zip(
+        "qwertyuiopasdfghjklzxcvbnm", "1234567890-/:;()₩&@.,?!'\"~"))
 
     override func viewDidLoad() {
         super.viewDidLoad()
         let globe = needsInputModeSwitchKey
         let rows: [[(String, CGFloat)]] = [
-            "1234567890".map { (String($0), 1) },
             "qwertyuiop".map { (String($0), 1) },
             "asdfghjkl".map { (String($0), 1) },
             [("⇧", 1.5)] + "zxcvbnm".map { (String($0), 1) } + [("⌫", 1.5)],
-            (globe ? [("🌐", 1.25)] : []) + [("한あA", 1.5), (",", 1), ("space", globe ? 3.25 : 4.5), (".", 1), ("return", 2)],
+            [("123", 1.25)] + (globe ? [("🌐", 1.25)] : []) + [("한あA", 1.25), ("space", globe ? 3.25 : 4.5), (".", 1), ("return", 2)],
         ]
         candidateRow.spacing = 4
         let candidates = UIScrollView()
@@ -71,16 +79,17 @@ final class KeyboardViewController: UIInputViewController {
         stack.keys = keyButtons
         stack.axis = .vertical
         stack.alignment = .center
-        stack.spacing = 10
+        stack.spacing = Self.rowGap
+        stack.setCustomSpacing(0, after: candidates)
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate(keyConstraints + [
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 4),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
+            stack.topAnchor.constraint(equalTo: view.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -3),
             candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.gap * 2),
-            candidates.heightAnchor.constraint(equalToConstant: 36),
+            candidates.heightAnchor.constraint(equalToConstant: Self.candidateHeight),
             candidateRow.leadingAnchor.constraint(equalTo: candidates.contentLayoutGuide.leadingAnchor),
             candidateRow.trailingAnchor.constraint(equalTo: candidates.contentLayoutGuide.trailingAnchor),
             candidateRow.topAnchor.constraint(equalTo: candidates.contentLayoutGuide.topAnchor),
@@ -150,6 +159,7 @@ final class KeyboardViewController: UIInputViewController {
             button.configuration?.attributedTitle = Self.functionTitle(title, size: isCharacter ? 22 : 16)
         }
         if title == "한あA" { switchKey = button }
+        if title == "123" { numbersKey = button }
         if title == "🌐" {
             button.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
         } else {
@@ -161,8 +171,13 @@ final class KeyboardViewController: UIInputViewController {
         return button
     }
 
-    /// English letter, with its 2-set jamo below: "q / ㅂ", shifted "Q / ㅃ".
+    /// English letter, with its 2-set jamo below: "q / ㅂ", shifted "Q / ㅃ"; in 123 mode the symbol.
     private func label(_ button: UIButton, _ letter: Character) {
+        if numbers {
+            button.configuration?.attributedTitle = Self.functionTitle(String(Self.symbols[letter]!), size: 22)
+            button.configuration?.attributedSubtitle = nil
+            return
+        }
         let jamo = Self.jamo[letter].map { shifted ? ($0.1 ?? $0.0) : $0.0 } ?? ""
         button.configuration?.attributedTitle = AttributedString(shifted ? letter.uppercased() : String(letter),
                                                                  attributes: .init([.font: UIFont.systemFont(ofSize: 20)]))
@@ -180,10 +195,18 @@ final class KeyboardViewController: UIInputViewController {
             shifted.toggle()
             letterKeys.forEach { label($0.button, $0.letter) }
             return
+        case "123":
+            numbers.toggle()
+            if shifted { shifted = false }
+            numbersKey?.configuration?.attributedTitle = Self.functionTitle(numbers ? "ABC" : "123")
+            letterKeys.forEach { label($0.button, $0.letter) }
+            return
         case "⌫": key = .delete
         case "한あA": key = .cycle // always a switch key, unlike Esc (AppPolicy.standardSwitchKeys)
         case "space": key = .printable(" ")
         case "return": key = .enter
+        case _ where numbers && Self.symbols[title.first!] != nil:
+            key = .printable(Self.symbols[title.first!]!)
         default:
             let c = Character(shifted ? title.uppercased() : title)
             key = c.isLetter ? .letter(c) : .printable(c)

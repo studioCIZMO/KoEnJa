@@ -72,6 +72,20 @@ final class KeyboardTests: XCTestCase {
         print("REA memory: engine + models ≈ \(footprintMB() - start) MB (process total \(footprintMB()) MB)")
     }
 
+    /// The word being composed is plain text: a web form moving to the next field keeps it,
+    /// and the late commit doesn't type it again into the new field.
+    func testComposingWordSurvivesFocusChange() {
+        let session = KeyboardViewController.makeSession(converter: nil, preferences: Self.all)
+        let proxy = FakeProxy(), client = ProxyClient(proxy: proxy)
+        session.activate(app: nil)
+        type("dlgusdn", into: session, client)
+        XCTAssertEqual(proxy.text, "이현우")
+        XCTAssertEqual(proxy.marked, "", "no marked text for the app to drop")
+        proxy.text = "" // the next field
+        session.commit(client: client)
+        XCTAssertEqual(proxy.text, "")
+    }
+
     func testConvertsKanjiWithSpace() throws {
         // DerivedData/Build/Products/<config>/REAKeyboardTests.xctest → DerivedData/SourcePackages
         let derived = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent()
@@ -95,7 +109,7 @@ final class KeyboardTests: XCTestCase {
     /// Renders the keyboard at iPhone 17 Pro width; REA_SNAPSHOT=<path> saves it as PNG.
     func testLayoutKeysLineUp() throws {
         let keyboard = KeyboardViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 316))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 232))
         window.backgroundColor = UIColor(white: 0.82, alpha: 1)
         window.rootViewController = keyboard
         window.makeKeyAndVisible()

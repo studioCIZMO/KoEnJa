@@ -3,6 +3,11 @@ import UIKit
 
 /// SeamtypeCore's `TextClient` on top of iOS's `UITextDocumentProxy`.
 ///
+/// The word being composed goes in as ordinary text, not marked text: web forms drop marked
+/// text when the focus moves to the next field (a name typed in Safari vanished), and the
+/// keyboard only hears about it afterwards. Each change deletes the end of the word that
+/// differs and types the new end, like the system's Korean keyboard does.
+///
 /// A keyboard extension can't address the document by absolute position, so ranges are
 /// measured in the text before the cursor that the proxy shares (UTF-16, like NSString).
 /// InputSession only ever replaces ranges that end at the cursor (the digits before a phrase,
@@ -12,12 +17,12 @@ import UIKit
 @MainActor
 final class ProxyClient: TextClient {
     let proxy: UITextDocumentProxy
-    /// The marked text we set; the proxy doesn't tell us.
+    /// The word being composed, already in the document before the cursor.
     private(set) var marked = ""
 
     init(proxy: UITextDocumentProxy) { self.proxy = proxy }
 
-    /// Committed text before the cursor (the proxy may or may not include marked text in its context).
+    /// Committed text before the cursor.
     private var committed: String {
         let before = proxy.documentContextBeforeInput ?? ""
         return !marked.isEmpty && before.hasSuffix(marked) ? String(before.dropLast(marked.count)) : before
@@ -28,14 +33,13 @@ final class ProxyClient: TextClient {
 
     func setMarkedText(_ text: String) {
         TraceLog.write("setMarked [\(text)] \(context)")
+        replaceMarked(with: text, typingOn: true)
         marked = text
-        proxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
-        if text.isEmpty { proxy.unmarkText() }
     }
 
     func setMarkedText(_ text: String, replacing range: NSRange) {
         TraceLog.write("setMarked [\(text)] replacing \(range) \(context)")
-        clearMarked()
+        replaceMarked(with: "")
         deleteBack(range)
         setMarkedText(text)
     }
@@ -44,16 +48,11 @@ final class ProxyClient: TextClient {
         TraceLog.write("insert [\(text)] replacing \(range.map { "\($0)" } ?? "nil") \(context)")
         defer { TraceLog.write("  after \(context)") }
         if let range {
-            clearMarked()
+            replaceMarked(with: "")
             deleteBack(range)
             proxy.insertText(text)
-        } else if !marked.isEmpty {
-            // Marked text turns into the committed text.
-            proxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
-            proxy.unmarkText()
-            marked = ""
         } else {
-            proxy.insertText(text)
+            replaceMarked(with: text) // the word turns into the committed text
         }
     }
 
@@ -72,11 +71,25 @@ final class ProxyClient: TextClient {
         return all.substring(with: range)
     }
 
-    private func clearMarked() {
-        guard !marked.isEmpty else { return }
-        marked = ""
-        proxy.setMarkedText("", selectedRange: NSRange(location: 0, length: 0))
-        proxy.unmarkText()
+    /// Turns the word on screen into `text`, touching only the end that differs (거 → 건: one
+    /// delete, one insert). If the text before the cursor no longer ends with the word (the
+    /// cursor moved, another field), the word is left alone; `text` is still typed if the user
+    /// is typing on, but not for a commit (the keyboard closing after the focus moved).
+    private func replaceMarked(with text: String, typingOn: Bool = false) {
+        defer { marked = "" }
+        guard !marked.isEmpty else {
+            if !text.isEmpty { proxy.insertText(text) }
+            return
+        }
+        if let before = proxy.documentContextBeforeInput, !before.hasSuffix(marked) {
+            TraceLog.write("  stale marked [\(marked)] \(context)")
+            if typingOn, !text.isEmpty { proxy.insertText(text) }
+            return
+        }
+        let same = zip(marked, text).prefix { $0 == $1 }.count
+        for _ in 0..<(marked.count - same) { proxy.deleteBackward() }
+        let rest = String(text.dropFirst(same))
+        if !rest.isEmpty { proxy.insertText(rest) }
     }
 
     /// deleteBackward removes one character (grapheme) at a time.
