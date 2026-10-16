@@ -2,22 +2,76 @@ import SwiftUI
 
 @main
 struct REAApp: App {
+    var body: some Scene {
+        WindowGroup { SettingsView() }
+    }
+}
+
+struct SettingsView: View {
+    @State private var preferences = LanguagePreferences.load()
+    @State private var choosingSetup = !LanguagePreferences.isConfigured
     @State private var text = ""
 
-    var body: some Scene {
-        WindowGroup {
-            NavigationStack {
-                Form {
-                    Section("키보드 켜기") {
-                        Text("설정 → 일반 → 키보드 → 키보드 → 새로운 키보드 추가… → REA")
-                        Button("설정 열기") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    ForEach(Array(preferences.order.enumerated()), id: \.element) { rank, language in
+                        HStack {
+                            Text("\(rank + 1)").foregroundStyle(.secondary).monospacedDigit()
+                            Text(language.name)
+                        }
+                        .deleteDisabled(language == .english)
                     }
-                    Section("써 보기") {
-                        TextField("dkssudgktpdy / hello / kyouhagoogledekensaku", text: $text, axis: .vertical)
+                    .onMove { preferences.order.move(fromOffsets: $0, toOffset: $1) }
+                    .onDelete { preferences.order.remove(atOffsets: $0) }
+                    ForEach(LanguagePreferences.Language.allCases.filter { !preferences.order.contains($0) }) { language in
+                        Button("\(language.name) 추가", systemImage: "plus.circle") { preferences.order.append(language) }
+                    }
+                    Button("주 사용 환경 다시 고르기") { choosingSetup = true }
+                } header: {
+                    Text("주 사용 언어")
+                } footer: {
+                    Text("위에 있는 언어일수록 애매한 단어(go → 해)가 그 언어로 입력됩니다. 영어는 항상 켜져 있습니다.")
+                }
+                .environment(\.editMode, .constant(.active))
+
+                Section("키보드 켜기") {
+                    Text("설정 → 일반 → 키보드 → 키보드 → 새로운 키보드 추가… → REA")
+                    Text("REA → 전체 접근 허용: 위 언어 설정을 키보드가 읽으려면 필요합니다. 입력한 내용은 어디로도 보내지 않습니다.")
+                    Button("설정 열기") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
+                }
+                Section("써 보기") {
+                    TextField("dkssudgktpdy / hello / kanjihenkan", text: $text, axis: .vertical)
+                        .accessibilityIdentifier("tryField")
+                }
+            }
+            .navigationTitle("REA")
+            .onChange(of: preferences) { $0.save() }
+            .sheet(isPresented: $choosingSetup) { setupSheet }
+        }
+    }
+
+    /// First run: pick the usual setup; the order can be fine-tuned afterwards.
+    private var setupSheet: some View {
+        NavigationStack {
+            List(LanguagePreferences.presets, id: \.title) { preset in
+                Button {
+                    preferences.order = preset.order
+                    preferences.save()
+                    choosingSetup = false
+                } label: {
+                    HStack {
+                        Text(preset.title).foregroundStyle(.primary)
+                        Spacer()
+                        if preset.order == preferences.order && LanguagePreferences.isConfigured { Image(systemName: "checkmark") }
                     }
                 }
-                .navigationTitle("REA")
             }
+            .navigationTitle("주로 어떻게 입력하나요?")
+            .navigationBarTitleDisplayMode(.inline)
         }
+        .presentationDetents([.medium])
+        .interactiveDismissDisabled(!LanguagePreferences.isConfigured)
     }
 }

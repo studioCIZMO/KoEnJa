@@ -27,9 +27,30 @@ final class KeyboardTests: XCTestCase {
         }
     }
 
+    static let all = LanguagePreferences(order: [.korean, .english, .japanese])
+
+    /// The same keys go to whichever language the user ranked first.
+    func testLanguageOrderDecidesAmbiguousWords() {
+        func typed(_ keys: String, _ order: [LanguagePreferences.Language]) -> String {
+            let session = KeyboardViewController.makeSession(converter: nil, preferences: LanguagePreferences(order: order))
+            let proxy = FakeProxy(), client = ProxyClient(proxy: proxy)
+            session.activate(app: nil)
+            type(keys, into: session, client)
+            return proxy.text
+        }
+        for word in ["go ", "so ", "do "] {
+            print("REA order: \(word) ko>en=\(typed(word, [.korean, .english])) en>ko=\(typed(word, [.english, .korean]))")
+        }
+        XCTAssertEqual(typed("go ", [.korean, .english]), "해 ")
+        XCTAssertEqual(typed("go ", [.english, .korean]), "go ")
+        // Japanese left out: romaji stays out of kana.
+        XCTAssertFalse(typed("watashiha ", [.korean, .english]).contains("わ"))
+        XCTAssertEqual(typed("watashiha ", [.japanese, .english]).prefix(4), "わたしは")
+    }
+
     func testTypesThreeLanguagesOnOneLayout() {
         let start = footprintMB()
-        let session = KeyboardViewController.makeSession(converter: nil)
+        let session = KeyboardViewController.makeSession(converter: nil, preferences: Self.all)
         let proxy = FakeProxy()
         let client = ProxyClient(proxy: proxy)
         session.activate(app: nil)
@@ -59,7 +80,7 @@ final class KeyboardTests: XCTestCase {
         let memory = FileManager.default.temporaryDirectory.appendingPathComponent("rea-azookey")
         let start = footprintMB()
         let converter = try XCTUnwrap(AzooKeyConverter(dictionary: dictionary, memory: memory))
-        let session = KeyboardViewController.makeSession(converter: converter)
+        let session = KeyboardViewController.makeSession(converter: converter, preferences: Self.all)
         let proxy = FakeProxy(), client = ProxyClient(proxy: proxy)
         session.activate(app: nil)
 
@@ -91,6 +112,12 @@ final class KeyboardTests: XCTestCase {
         let letters = buttons.filter { $0.configuration?.attributedSubtitle != nil }
         XCTAssertEqual(letters.count, 26)
         XCTAssertEqual(Set(letters.map { Int($0.bounds.width) }).count, 1, "all letter keys one width")
+        // A touch between q and w, or between the q and a rows, still lands on a key.
+        let q = letters.first { $0.accessibilityLabel == "q" }!.convert(CGRect.zero, to: keyboard.view).origin
+        let w = letters.first { $0.accessibilityLabel == "w" }!.convert(CGRect.zero, to: keyboard.view).origin
+        let gapX = CGPoint(x: (q.x + w.x) / 2 + letters[0].bounds.width / 2, y: q.y + 20)
+        XCTAssertEqual(keyboard.view.hitTest(gapX, with: nil)?.accessibilityLabel.map { "qw".contains($0) }, true)
+        XCTAssertEqual(keyboard.view.hitTest(CGPoint(x: q.x + 10, y: q.y + 44 + 5), with: nil)?.accessibilityLabel.map { "qa".contains($0) }, true)
         if let path = ProcessInfo.processInfo.environment["REA_SNAPSHOT"] {
             let image = UIGraphicsImageRenderer(bounds: keyboard.view.bounds).image { keyboard.view.layer.render(in: $0.cgContext) }
             try image.pngData()!.write(to: URL(fileURLWithPath: path))

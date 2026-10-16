@@ -23,19 +23,26 @@ final class ProxyClient: TextClient {
         return !marked.isEmpty && before.hasSuffix(marked) ? String(before.dropLast(marked.count)) : before
     }
 
+    /// The proxy's view of the text before the cursor, for the trace.
+    private var context: String { "ctx=[\(proxy.documentContextBeforeInput ?? "nil")] marked=[\(marked)]" }
+
     func setMarkedText(_ text: String) {
+        TraceLog.write("setMarked [\(text)] \(context)")
         marked = text
         proxy.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0))
         if text.isEmpty { proxy.unmarkText() }
     }
 
     func setMarkedText(_ text: String, replacing range: NSRange) {
+        TraceLog.write("setMarked [\(text)] replacing \(range) \(context)")
         clearMarked()
         deleteBack(range)
         setMarkedText(text)
     }
 
     func insertText(_ text: String, replacing range: NSRange?) {
+        TraceLog.write("insert [\(text)] replacing \(range.map { "\($0)" } ?? "nil") \(context)")
+        defer { TraceLog.write("  after \(context)") }
         if let range {
             clearMarked()
             deleteBack(range)
@@ -74,7 +81,8 @@ final class ProxyClient: TextClient {
 
     /// deleteBackward removes one character (grapheme) at a time.
     private func deleteBack(_ range: NSRange) {
-        guard let text = text(in: range) else { return }
+        guard let text = text(in: range) else { return TraceLog.write("  deleteBack \(range) NO TEXT \(context)") }
+        TraceLog.write("  deleteBack \(text.count) [\(text)]")
         for _ in 0..<text.count { proxy.deleteBackward() }
     }
 }

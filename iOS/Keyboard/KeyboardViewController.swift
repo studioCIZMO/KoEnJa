@@ -6,13 +6,17 @@ import UIKit
 /// Japanese converts to kanji with Space (AzooKey); the bar above the keys shows the candidates.
 final class KeyboardViewController: UIInputViewController {
     private lazy var client = ProxyClient(proxy: textDocumentProxy)
-    private lazy var converter: JapaneseConverter? = AzooKeyConverter()
-    private lazy var session = Self.makeSession(converter: converter)
+    /// What the session was built for; the app may have changed it since.
+    private var preferences: LanguagePreferences?
+    private var converter: JapaneseConverter?
+    private var session: InputSession!
+    private weak var switchKey: UIButton?
     private var shifted = false
     private var letterKeys: [(button: UIButton, letter: Character)] = []
     private let candidateRow = UIStackView()
     /// Key sizes, activated once the keys are in the view (they're relative to its width).
     private var keyConstraints: [NSLayoutConstraint] = []
+    private var keyButtons: [UIButton] = []
 
     /// 2-set (두벌식) jamo on each QWERTY key: lower case, then shifted where it differs.
     static let jamo: [Character: (String, String?)] = [
@@ -24,11 +28,19 @@ final class KeyboardViewController: UIInputViewController {
         "n": ("ㅜ", nil), "m": ("ㅡ", nil),
     ]
 
+    /// Character keys and function keys, like the system keyboard in light and dark.
+    static let keyColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.42, alpha: 1) : .white }
+    static let functionKeyColor = UIColor {
+        $0.userInterfaceStyle == .dark ? UIColor(white: 0.27, alpha: 1) : UIColor(red: 0.67, green: 0.69, blue: 0.73, alpha: 1)
+    }
+
     /// Same engine stack as Seamtype's macOS Runtime: learned corrections, then mixed words
-    /// (github에, githubで), then the heuristic.
-    static func makeSession(converter: JapaneseConverter?) -> InputSession {
-        let japanese = JapaneseModel.shared
+    /// (github에, githubで), then the heuristic. The user's language order weights the heuristic.
+    static func makeSession(converter: JapaneseConverter?, preferences: LanguagePreferences) -> InputSession {
+        let japanese = preferences.japanese ? JapaneseModel.shared : nil
         let heuristic = HeuristicEngine(japanese: japanese)
+        heuristic.koreanOffset = preferences.koreanOffset
+        heuristic.japaneseOffset += preferences.japaneseOffsetDelta
         let engine = LearningEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
                                                           japanese: heuristic.segmenter))
         return InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil)
@@ -55,7 +67,8 @@ final class KeyboardViewController: UIInputViewController {
         candidates.addSubview(candidateRow)
         candidateRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = UIStackView(arrangedSubviews: [candidates] + rows.map(makeRow))
+        let stack = KeyStack(arrangedSubviews: [candidates] + rows.map(makeRow))
+        stack.keys = keyButtons
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = 10
@@ -78,7 +91,26 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        let current = LanguagePreferences.load()
+        if current != preferences {
+            preferences = current
+            converter?.save()
+            converter = current.japanese ? AzooKeyConverter() : nil
+            session = Self.makeSession(converter: converter, preferences: current)
+            switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
+        }
+        TraceLog.write("APPEAR \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
         session.activate(app: nil) // iOS doesn't tell a keyboard which app it's in
+        // Apps can ask for a dark keyboard even in light mode (password fields, dark UIs).
+        view.overrideUserInterfaceStyle = textDocumentProxy.keyboardAppearance == .dark ? .dark : .unspecified
+    }
+
+    private static func functionTitle(_ title: String, size: CGFloat = 16) -> AttributedString {
+        AttributedString(title, attributes: .init([.font: UIFont.systemFont(ofSize: size)]))
+    }
+
+    override func textDidChange(_ textInput: UITextInput?) {
+        TraceLog.write("textDidChange ctx=[\(textDocumentProxy.documentContextBeforeInput ?? "nil")] client.marked=[\(client.marked)]")
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -99,11 +131,12 @@ final class KeyboardViewController: UIInputViewController {
         let isCharacter = letter.map { !"⇧⌫".contains($0) } ?? false
         var config = UIButton.Configuration.filled()
         config.baseForegroundColor = .label
-        config.baseBackgroundColor = isCharacter ? .systemBackground : .systemGray3
+        config.baseBackgroundColor = isCharacter ? Self.keyColor : Self.functionKeyColor
         config.background.cornerRadius = 6
         config.contentInsets = .zero
         config.titleAlignment = .center
         let button = UIButton(configuration: config)
+        keyButtons.append(button)
         button.accessibilityLabel = ["⇧": "shift", "⌫": "delete", "🌐": "next keyboard", "한あA": "switch language"][title] ?? title
         keyConstraints += [
             // units of a tenth of the width, minus one gap: every row adds up to width − gap
@@ -114,12 +147,16 @@ final class KeyboardViewController: UIInputViewController {
             letterKeys.append((button, letter))
             label(button, letter)
         } else {
-            button.configuration?.attributedTitle = AttributedString(title, attributes: .init([.font: UIFont.systemFont(ofSize: isCharacter ? 22 : 16)]))
+            button.configuration?.attributedTitle = Self.functionTitle(title, size: isCharacter ? 22 : 16)
         }
+        if title == "한あA" { switchKey = button }
         if title == "🌐" {
             button.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
         } else {
-            button.addAction(UIAction { [unowned self] _ in tap(title) }, for: .touchUpInside)
+            // On touch-down, in the order keys are pressed: on release, fast typing (the next key
+            // down before this one is up) dropped and reordered keys (안되었다 came in as 안뇠다).
+            // ponytail: no slide-off to cancel; delete doesn't repeat yet.
+            button.addAction(UIAction { [unowned self] _ in tap(title) }, for: .touchDown)
         }
         return button
     }
@@ -152,7 +189,12 @@ final class KeyboardViewController: UIInputViewController {
             key = c.isLetter ? .letter(c) : .printable(c)
             if shifted { tap("⇧") } // one-shot shift
         }
-        if !session.handle(key, client: client) { passToApp(key) }
+        TraceLog.write("KEY \(title) \(key)")
+        if !session.handle(key, client: client) {
+            TraceLog.write("  passToApp")
+            passToApp(key)
+        }
+        if let trace = session.lastTrace { TraceLog.write("  decided \(trace.decision.language) [\(trace.keys)] \(trace.decision.explanation)") }
         refreshCandidates()
     }
 
@@ -183,5 +225,28 @@ final class KeyboardViewController: UIInputViewController {
             }, for: .touchUpInside)
             candidateRow.addArrangedSubview(button)
         }
+    }
+}
+
+/// The keys with no dead space: a touch in a gap between keys goes to the nearest key, as on
+/// the system keyboard (the gaps are a fifth of the keyboard's area; touches there were lost).
+final class KeyStack: UIStackView {
+    var keys: [UIButton] = []
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        // Only the gaps: the stack itself or a row, not the candidate bar.
+        guard hit === self || hit?.superview === self && hit is UIStackView else { return hit }
+        let nearest = keys.min { distance(point, $0) < distance(point, $1) }
+        if let nearest, distance(point, nearest) < 12 {
+            TraceLog.write("NEAR \(nearest.accessibilityLabel ?? "")")
+            return nearest
+        }
+        return hit
+    }
+
+    private func distance(_ point: CGPoint, _ key: UIView) -> CGFloat {
+        let frame = key.convert(key.bounds, to: self)
+        return hypot(max(frame.minX - point.x, 0, point.x - frame.maxX), max(frame.minY - point.y, 0, point.y - frame.maxY))
     }
 }
