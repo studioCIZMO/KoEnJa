@@ -1,2 +1,2 @@
 aimdevlee/seamtype@cb22ee7972cee9ab730708c3ec57f4021b02004b
-Local changes: InputSession.typingCandidates and choose(typing:client:) for the iOS candidate bar (marked "REA (iOS)").
+Local changes, marked "REA (iOS)": InputSession.typingCandidates and choose(typing:client:), AzooKeyConverter.nextWords() and forgetNextWords(), for the iOS candidate bar.

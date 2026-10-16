@@ -112,7 +112,22 @@ public final class AzooKeyConverter: JapaneseConverter {
     public func learn(_ candidate: ConversionCandidate, for kana: String) {
         guard let original = lastCandidates[Self.key(candidate.text, candidate.kanaCount)] else { return }
         converter.updateLearningData(original)
+        lastCommitted = original
     }
+
+    /// REA (iOS): the candidate committed last, while nothing else has been typed since.
+    private var lastCommitted: Candidate?
+
+    /// REA (iOS): what usually follows the phrase just committed (東京 → で, に, 都…), for the
+    /// candidate bar, as azooKey shows after a commit. Empty once anything else is typed.
+    public func nextWords() -> [String] {
+        guard let lastCommitted else { return [] }
+        return converter.requestPostCompositionPredictionCandidates(leftSideCandidate: lastCommitted, options: options)
+            .map(\.text).filter { !$0.isEmpty }
+    }
+
+    /// REA (iOS): something else was typed; no next words until the next commit.
+    public func forgetNextWords() { lastCommitted = nil }
 
     /// Writes learning data to disk (call when the input method is deactivated).
     public func save() {

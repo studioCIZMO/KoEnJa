@@ -10,6 +10,8 @@ final class KeyboardViewController: UIInputViewController {
     private var preferences: LanguagePreferences?
     private var converter: JapaneseConverter?
     private var session: InputSession!
+    private var heuristic: HeuristicEngine!
+    private var keyStack: KeyStack!
     private weak var switchKey: UIButton?
     private var shifted = false
     /// 123 mode: the letter keys type digits and symbols.
@@ -39,11 +41,17 @@ final class KeyboardViewController: UIInputViewController {
 
     /// Same engine stack as Seamtype's macOS Runtime: learned corrections, then mixed words
     /// (github에, githubで), then the heuristic. The user's language order weights the heuristic.
-    static func makeSession(converter: JapaneseConverter?, preferences: LanguagePreferences) -> InputSession {
-        let japanese = preferences.japanese ? JapaneseModel.shared : nil
-        let heuristic = HeuristicEngine(japanese: japanese)
+    static func makeHeuristic(preferences: LanguagePreferences) -> HeuristicEngine {
+        let heuristic = HeuristicEngine(japanese: preferences.japanese ? JapaneseModel.shared : nil)
         heuristic.koreanOffset = preferences.koreanOffset
         heuristic.japaneseOffset += preferences.japaneseOffsetDelta
+        return heuristic
+    }
+
+    static func makeSession(converter: JapaneseConverter?, preferences: LanguagePreferences,
+                            heuristic: HeuristicEngine? = nil) -> InputSession {
+        let heuristic = heuristic ?? makeHeuristic(preferences: preferences)
+        let japanese = heuristic.japanese
         let engine = LearningEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
                                                           japanese: heuristic.segmenter))
         // Kana while typing, candidates in the bar above, as on the system's Japanese keyboard
@@ -88,6 +96,7 @@ final class KeyboardViewController: UIInputViewController {
 
         let stack = KeyStack(arrangedSubviews: [candidates] + rows.map(makeRow))
         stack.keys = keyButtons
+        keyStack = stack
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = Self.rowGap
@@ -116,7 +125,8 @@ final class KeyboardViewController: UIInputViewController {
             preferences = current
             converter?.save()
             converter = current.japanese ? Self.sharedConverter() : nil
-            session = Self.makeSession(converter: converter, preferences: current)
+            heuristic = Self.makeHeuristic(preferences: current)
+            session = Self.makeSession(converter: converter, preferences: current, heuristic: heuristic)
             switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
             candidateHeight.constant = current.japanese ? 44 : 24
         }
@@ -247,11 +257,13 @@ final class KeyboardViewController: UIInputViewController {
         case _ where numbers && Self.symbols[title.first!] != nil:
             key = .printable(Self.symbols[title.first!]!)
         default:
-            let c = Character(shifted ? title.uppercased() : title)
+            let letter = Character(title).isLetter ? corrected(Character(title)) : Character(title)
+            let c = Character(shifted ? letter.uppercased() : String(letter))
             key = c.isLetter ? .letter(c) : .printable(c)
             if shifted { tap("⇧") } // one-shot shift
         }
         TraceLog.write("KEY \(title) \(key)")
+        (converter as? AzooKeyConverter)?.forgetNextWords() // a commit by this key brings new ones
         if !session.handle(key, client: client) {
             TraceLog.write("  passToApp")
             passToApp(key)
@@ -270,32 +282,78 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    // MARK: - Typing correction
+
+    /// A touch near the edge of a letter key, mid-word: the neighbor wins when it makes the word
+    /// much more likely (fgem → fhem, 로드). Mozc and azooKey also correct by touch position.
+    /// ponytail: one key at a time, a fixed band and margin; tune them with traces.
+    private func corrected(_ letter: Character) -> Character {
+        guard !numbers, !session.keys.isEmpty, let point = keyStack.lastTouch,
+              let typed = letterKeys.first(where: { $0.letter == letter }) else { return letter }
+        let neighbor = letterKeys.filter { $0.letter != letter }
+            .map { (letter: $0.letter, distance: keyStack.distance(point, $0.button)) }
+            .min { $0.distance < $1.distance }
+        guard let neighbor, neighbor.distance < Self.gap + typed.button.bounds.width * Self.correctionBand else { return letter }
+        let keys = session.keys
+        let shift: (Character) -> String = { [shifted] in shifted ? $0.uppercased() : String($0) }
+        let typedScore = Self.plausibility(keys + shift(letter), heuristic)
+        let neighborScore = Self.plausibility(keys + shift(neighbor.letter), heuristic)
+        TraceLog.write("NEAR-EDGE \(letter)/\(neighbor.letter) \(typedScore) \(neighborScore)")
+        return neighborScore > typedScore + Self.correctionMargin ? neighbor.letter : letter
+    }
+
+    /// How close to the neighbor counts as "near the edge" (share of a key's width past the gap),
+    /// and how much more likely (log-probability per key) the neighbor's word must be.
+    static let correctionBand: CGFloat = 0.25, correctionMargin = 1.0
+
+    /// How likely the keys are as a word in any enabled language (average log-probability per key).
+    static func plausibility(_ keys: String, _ heuristic: HeuristicEngine) -> Double {
+        [heuristic.english.averageLogProbability(keys.lowercased()),
+         heuristic.korean.score(keys: keys, partial: true)?.averageLogProbability,
+         heuristic.japanese?.score(keys: keys, partial: true)?.averageLogProbability]
+            .compactMap { $0 }.max() ?? -.infinity
+    }
+
     // MARK: - Kanji candidates
 
-    /// Kanji candidates: while typing Japanese (tap one to pick it), and after Space (the
-    /// selected one highlighted; Space moves on).
+    /// Kanji candidates: while typing Japanese (tap one to pick it), after Space (the selected
+    /// one highlighted; Space moves on), and after a commit what usually comes next (東京 → で).
     private func refreshCandidates() {
         candidateRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let conversion = session.conversion
         let candidates = conversion?.candidates ?? Array(session.typingCandidates.prefix(30))
         for (index, candidate) in candidates.enumerated() {
-            let selected = index == conversion?.selected
-            var config = selected ? UIButton.Configuration.filled() : UIButton.Configuration.plain()
-            config.attributedTitle = AttributedString(candidate.text, attributes: .init([.font: UIFont.systemFont(ofSize: 20)]))
-            config.baseForegroundColor = selected ? .systemBackground : .label
-            config.baseBackgroundColor = .label
-            let button = UIButton(configuration: config)
-            button.addAction(UIAction { [unowned self] _ in
+            addCandidate(candidate.text, selected: index == conversion?.selected) { [unowned self] in
                 if conversion != nil {
                     session.choose(index, client: client)
                 } else {
                     session.choose(typing: candidate, client: client)
                 }
-                refreshCandidates()
-            }, for: .touchUpInside)
-            candidateRow.addArrangedSubview(button)
+            }
+        }
+        if candidates.isEmpty, session.keys.isEmpty, let azooKey = converter as? AzooKeyConverter {
+            // ponytail: one step; azooKey chains predictions (learning each pick with the last).
+            for word in azooKey.nextWords().prefix(30) {
+                addCandidate(word, selected: false) { [unowned self] in
+                    textDocumentProxy.insertText(word)
+                    azooKey.forgetNextWords()
+                }
+            }
         }
         (candidateRow.superview as? UIScrollView)?.contentOffset = .zero
+    }
+
+    private func addCandidate(_ text: String, selected: Bool, action: @escaping () -> Void) {
+        var config = selected ? UIButton.Configuration.filled() : UIButton.Configuration.plain()
+        config.attributedTitle = AttributedString(text, attributes: .init([.font: UIFont.systemFont(ofSize: 20)]))
+        config.baseForegroundColor = selected ? .systemBackground : .label
+        config.baseBackgroundColor = .label
+        let button = UIButton(configuration: config)
+        button.addAction(UIAction { [unowned self] _ in
+            action()
+            refreshCandidates()
+        }, for: .touchUpInside)
+        candidateRow.addArrangedSubview(button)
     }
 }
 
@@ -303,8 +361,11 @@ final class KeyboardViewController: UIInputViewController {
 /// the system keyboard (the gaps are a fifth of the keyboard's area; touches there were lost).
 final class KeyStack: UIStackView {
     var keys: [UIButton] = []
+    /// Where the latest touch went down, for typing correction.
+    private(set) var lastTouch: CGPoint?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        lastTouch = point
         let hit = super.hitTest(point, with: event)
         // Only the gaps: the stack itself or a row, not the candidate bar.
         guard hit === self || hit?.superview === self && hit is UIStackView else { return hit }
@@ -316,7 +377,7 @@ final class KeyStack: UIStackView {
         return hit
     }
 
-    private func distance(_ point: CGPoint, _ key: UIView) -> CGFloat {
+    func distance(_ point: CGPoint, _ key: UIView) -> CGFloat {
         let frame = key.convert(key.bounds, to: self)
         return hypot(max(frame.minX - point.x, 0, point.x - frame.maxX), max(frame.minY - point.y, 0, point.y - frame.maxY))
     }

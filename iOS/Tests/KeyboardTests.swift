@@ -101,6 +101,20 @@ final class KeyboardTests: XCTestCase {
         XCTAssertEqual(proxy.text, "helloㄴ")
     }
 
+        /// Typing correction: the neighbor key wins only when it makes a much likelier word.
+    func testNeighborKeyPlausibility() {
+        let heuristic = KeyboardViewController.makeHeuristic(preferences: Self.all)
+        let p = { KeyboardViewController.plausibility($0, heuristic) }
+        let margin = KeyboardViewController.correctionMargin
+        XCTAssertGreaterThan(p("fh"), p("fg") + margin, "로 over ㄹㅎ")      // 로드스타 typed as fgem…
+        // Not caught: 하능 for 하늘, both common syllables; that takes whole words.
+        XCTAssertLessThan(p("gksmf"), p("gksmd") + margin)
+        XCTAssertLessThan(p("gksk"), p("gksl") + margin, "하나 stays: both are words")
+        for (word, typo) in [("fh", "fg"), ("gksmf", "gksmd"), ("gksk", "gksl")] {
+            print("REA plausibility \(word)=\(p(word)) \(typo)=\(p(typo))")
+        }
+    }
+
         func testConvertsKanjiWithSpace() throws {
         // DerivedData/Build/Products/<config>/REAKeyboardTests.xctest → DerivedData/SourcePackages
         let derived = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent()
@@ -128,6 +142,12 @@ final class KeyboardTests: XCTestCase {
         XCTAssertTrue(candidates.contains("漢字変換"), "\(candidates.prefix(5))")
         session.choose(try XCTUnwrap(candidates.firstIndex(of: "漢字変換")), client: client)
         XCTAssertEqual(proxy.text, "漢字変換")
+        // After a commit: what usually comes next.
+        let next = converter.nextWords()
+        XCTAssertFalse(next.isEmpty)
+        print("REA next words after 漢字変換: \(next.prefix(8))")
+        converter.forgetNextWords()
+        XCTAssertTrue(converter.nextWords().isEmpty)
         print("REA memory: kanji converter ≈ \(footprintMB() - start) MB (process total \(footprintMB()) MB)")
     }
 
