@@ -69,11 +69,10 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - Layout
 
-    /// Every key is a multiple of one key width (a tenth of the keyboard), and as tall and as far
-    /// apart as the system keyboard's (measured on an iPhone 17 Pro screenshot: 43pt keys, 54pt
-    /// from row to row, 24pt above the first row; with Japanese on, a taller bar for the kanji candidates).
-    private static let gap: CGFloat = 6, keyHeight: CGFloat = 43, rowGap: CGFloat = 11
-    private lazy var candidateHeight = candidateRow.superview!.heightAnchor.constraint(equalToConstant: 24)
+    /// Measured on the system keyboards (Korean, English, Japanese) on an iPhone 17 Pro: 43pt keys
+    /// 6pt apart, 6⅔pt from the screen edge, 54pt from row to row, a 53pt candidate bar.
+    /// Every key is a multiple of one key pitch (a tenth of the width inside the margins).
+    private static let gap: CGFloat = 6, margin: CGFloat = 20 / 3, keyHeight: CGFloat = 43, rowGap: CGFloat = 11
 
     /// What the letter keys type in 123 mode, like the system keyboard's first symbol page.
     static let symbols: [Character: Character] = Dictionary(uniqueKeysWithValues: zip(
@@ -85,16 +84,27 @@ final class KeyboardViewController: UIInputViewController {
         let rows: [[(String, CGFloat)]] = [
             "qwertyuiop".map { (String($0), 1) },
             "asdfghjkl".map { (String($0), 1) },
-            [("⇧", 1.5)] + "zxcvbnm".map { (String($0), 1) } + [("⌫", 1.5)],
+            "zxcvbnm".map { (String($0), 1) },
             [("123", 1.25)] + (globe ? [("🌐", 1.25)] : []) + [("한あA", 1.25), ("space", globe ? 3.25 : 4.5), (".", 1), ("return", 2)],
         ]
         candidateRow.spacing = 4
         let candidates = UIScrollView()
         candidates.showsHorizontalScrollIndicator = false
+        if #available(iOS 26, *) {
+            // iOS 26 blurs scroll view edges next to bars; in a keyboard that blurred the whole bar.
+            for edge in [candidates.topEdgeEffect, candidates.bottomEdgeEffect, candidates.leftEdgeEffect, candidates.rightEdgeEffect] {
+                edge.isHidden = true
+            }
+        }
         candidates.addSubview(candidateRow)
         candidateRow.translatesAutoresizingMaskIntoConstraints = false
 
-        let stack = KeyStack(arrangedSubviews: [candidates] + rows.map(makeRow))
+        // The third row's letters line up under the others; shift and delete take what's left.
+        var views: [UIView] = [candidates, makeRow(rows[0]), makeRow(rows[1])]
+        let thirdRow = UIStackView(arrangedSubviews: [makeKey("⇧", units: 1.3), makeRow(rows[2]), makeKey("⌫", units: 1.3)])
+        thirdRow.distribution = .equalSpacing
+        views += [thirdRow, makeRow(rows[3])]
+        let stack = KeyStack(arrangedSubviews: views)
         stack.keys = keyButtons
         keyStack = stack
         stack.axis = .vertical
@@ -107,9 +117,10 @@ final class KeyboardViewController: UIInputViewController {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stack.topAnchor.constraint(equalTo: view.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -3),
-            candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.gap * 2),
-            candidateHeight,
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
+            candidates.heightAnchor.constraint(equalToConstant: 53),
+            thirdRow.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
             candidateRow.leadingAnchor.constraint(equalTo: candidates.contentLayoutGuide.leadingAnchor),
             candidateRow.trailingAnchor.constraint(equalTo: candidates.contentLayoutGuide.trailingAnchor),
             candidateRow.topAnchor.constraint(equalTo: candidates.contentLayoutGuide.topAnchor),
@@ -128,7 +139,6 @@ final class KeyboardViewController: UIInputViewController {
             heuristic = Self.makeHeuristic(preferences: current)
             session = Self.makeSession(converter: converter, preferences: current, heuristic: heuristic)
             switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
-            candidateHeight.constant = current.japanese ? 44 : 24
         }
         TraceLog.write("APPEAR \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
         session.activate(app: nil) // iOS doesn't tell a keyboard which app it's in
@@ -181,8 +191,9 @@ final class KeyboardViewController: UIInputViewController {
         keyButtons.append(button)
         button.accessibilityLabel = ["⇧": "shift", "⌫": "delete", "🌐": "next keyboard", "한あA": "switch language"][title] ?? title
         keyConstraints += [
-            // units of a tenth of the width, minus one gap: every row adds up to width − gap
-            button.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: units / 10, constant: -Self.gap),
+            // units of a pitch, minus one gap: a row of 10 units spans the width inside the margins
+            button.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: units / 10,
+                                          constant: (Self.gap - 2 * Self.margin) * units / 10 - Self.gap),
             button.heightAnchor.constraint(equalToConstant: Self.keyHeight),
         ]
         if let letter, letter.isLetter {

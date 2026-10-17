@@ -154,7 +154,7 @@ final class KeyboardTests: XCTestCase {
     /// Renders the keyboard at iPhone 17 Pro width; REA_SNAPSHOT=<path> saves it as PNG.
     func testLayoutKeysLineUp() throws {
         let keyboard = KeyboardViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 232))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 258))
         window.backgroundColor = UIColor(white: 0.82, alpha: 1)
         window.rootViewController = keyboard
         window.makeKeyAndVisible()
@@ -171,6 +171,13 @@ final class KeyboardTests: XCTestCase {
         let letters = buttons.filter { $0.configuration?.attributedSubtitle != nil }
         XCTAssertEqual(letters.count, 26)
         XCTAssertEqual(Set(letters.map { Int($0.bounds.width) }).count, 1, "all letter keys one width")
+        // The system keyboard's measurements (pt, 402 wide): 33.5 keys, 6⅔ from the edge, 53 bar.
+        func frame(_ name: String) -> CGRect { let b = buttons.first { $0.accessibilityLabel == name }!; return b.convert(b.bounds, to: nil) }
+        XCTAssertEqual(frame("q").width, 33.5, accuracy: 0.3)
+        XCTAssertEqual(frame("q").minX, 20 / 3, accuracy: 0.3)
+        XCTAssertEqual(frame("q").minY, 53, accuracy: 0.5)
+        XCTAssertEqual(frame("shift").width, 45.3, accuracy: 0.5)
+        XCTAssertEqual(frame("z").minX, frame("q").minX + (frame("w").minX - frame("q").minX) * 1.5, accuracy: 0.5, "z under the q/w gap")
         // A touch between q and w, or between the q and a rows, still lands on a key.
         let q = letters.first { $0.accessibilityLabel == "q" }!.convert(CGRect.zero, to: keyboard.view).origin
         let w = letters.first { $0.accessibilityLabel == "w" }!.convert(CGRect.zero, to: keyboard.view).origin
