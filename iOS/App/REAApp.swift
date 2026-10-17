@@ -19,6 +19,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             Form {
+                if Self.screenshot { trySection }
                 Section {
                     ForEach(Array(preferences.order.enumerated()), id: \.element) { rank, language in
                         HStack {
@@ -54,16 +55,22 @@ struct SettingsView: View {
                     Text("한영일 → 전체 접근 허용: 위 언어 설정을 키보드가 읽으려면 필요합니다. 입력한 내용은 어디로도 보내지 않습니다.")
                     Button("설정 열기") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
                 }
-                Section("써 보기") {
-                    TextField("dkssudgktpdy / hello / kanjihenkan", text: $text, axis: .vertical)
-                        .accessibilityIdentifier("tryField")
-                        .focused($trying)
-                }
+                if !Self.screenshot { trySection }
             }
             .navigationTitle("한영일")
             .onChange(of: preferences) { $0.save() }
             .sheet(isPresented: $choosingSetup) { setupSheet }
-            .onAppear { trying = ProcessInfo.processInfo.arguments.contains("-focusTry") }
+            .onAppear { trying = Self.screenshot }
+        }
+    }
+
+    private static let screenshot = ProcessInfo.processInfo.arguments.contains("-focusTry")
+
+    private var trySection: some View {
+        Section("써 보기") {
+            TextField("dkssudgktpdy / hello / kanjihenkan", text: $text, axis: .vertical)
+                .accessibilityIdentifier("tryField")
+                .focused($trying)
         }
     }
 
