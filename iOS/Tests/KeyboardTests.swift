@@ -115,7 +115,32 @@ final class KeyboardTests: XCTestCase {
         }
     }
 
-        func testConvertsKanjiWithSpace() throws {
+    /// Suggestions: a one-slip typo is fixed on Space, a real word is left alone.
+    func testSuggestions() {
+        let korean = KeyboardViewController.makeHeuristic(preferences: Self.all).korean
+        func ko(_ keys: String) -> Suggestions {
+            Suggestions.korean(word: HangulComposer.compose(keys: keys)!.text, keys: keys, model: korean)
+        }
+        XCTAssertEqual(ko("wlagodgksek").autocorrect, "진행한다")   // 짐행한다
+        XCTAssertEqual(ko("wlsgodgkske").autocorrect, "진행한다")   // 진행하낟
+        XCTAssertNil(ko("xptmxmfmf").autocorrect)                   // 테스트를
+        XCTAssertNil(ko("zlqhemrk").autocorrect)                    // 키보드가: unknown, no one-slip fix
+        XCTAssertTrue(ko("xptmxmfm").words.contains("테스트를"), "\(ko("xptmxmfm").words)") // 테스트르 completes
+        let english = KeyboardViewController.makeHeuristic(preferences: Self.all).english
+        XCTAssertEqual(Suggestions.english(word: "teh", model: english).autocorrect, "the")
+        XCTAssertNil(Suggestions.english(word: "hello", model: english).autocorrect)
+        XCTAssertEqual(Set(Suggestions.neighbors["g"]!), Set("fhtyv"))
+        XCTAssertTrue(Suggestions.oneSlip(String(repeating: "a", count: 65)).isEmpty)
+        for word in ["teh", "wrold", "hellp"] {
+            let result = Suggestions.english(word: word, model: english)
+            if let fix = result.autocorrect { XCTAssertEqual(result.words.first, fix) }
+        }
+        let client = ProxyClient(proxy: FakeProxy())
+        XCTAssertNil(client.text(in: NSRange(location: -1, length: 1)))
+        XCTAssertNil(client.text(in: NSRange(location: 1, length: Int.max)))
+    }
+
+    func testConvertsKanjiWithSpace() throws {
         // DerivedData/Build/Products/<config>/REAKeyboardTests.xctest → DerivedData/SourcePackages
         let derived = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
@@ -195,6 +220,17 @@ final class KeyboardTests: XCTestCase {
         // The gap between z and x (a row inside a row) lands on one of them.
         let z = frame("z"), x = frame("x")
         XCTAssertEqual(keyboard.view.hitTest(CGPoint(x: (z.maxX + x.minX) / 2, y: z.midY), with: nil)?.accessibilityLabel.map { "zx".contains($0) }, true)
+        // Releasing the previous finger must not hide the next key's popup.
+        let qButton = try XCTUnwrap(letters.first { $0.accessibilityLabel == "q" })
+        let wButton = try XCTUnwrap(letters.first { $0.accessibilityLabel == "w" })
+        qButton.sendActions(for: .touchDown)
+        wButton.sendActions(for: .touchDown)
+        qButton.sendActions(for: .touchUpInside)
+        let popup = keyboard.view.subviews.compactMap { $0 as? UILabel }.first
+        XCTAssertEqual(popup?.text, "w")
+        XCTAssertEqual(popup?.isHidden, false)
+        wButton.sendActions(for: .touchUpInside)
+        XCTAssertEqual(popup?.isHidden, true)
         if let path = ProcessInfo.processInfo.environment["REA_SNAPSHOT"] {
             let image = UIGraphicsImageRenderer(bounds: keyboard.view.bounds).image { keyboard.view.layer.render(in: $0.cgContext) }
             try image.pngData()!.write(to: URL(fileURLWithPath: path))

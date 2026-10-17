@@ -67,7 +67,8 @@ final class ProxyClient: TextClient {
 
     func text(in range: NSRange) -> String? {
         let all = (committed + marked) as NSString
-        guard range.location != NSNotFound, NSMaxRange(range) <= all.length else { return nil }
+        guard range.location >= 0, range.location <= all.length,
+              range.length >= 0, range.length <= all.length - range.location else { return nil }
         return all.substring(with: range)
     }
 

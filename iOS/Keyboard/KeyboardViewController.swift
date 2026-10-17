@@ -34,16 +34,20 @@ final class KeyboardViewController: UIInputViewController {
         "n": ("ㅜ", nil), "m": ("ㅡ", nil),
     ]
 
-    /// Character keys and function keys, like the system keyboard in light and dark.
+    /// Keys, like the system keyboard in light and dark (iOS 26: every key the same), and a
+    /// function key while pressed (a character key shows its popup instead).
     static let keyColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.42, alpha: 1) : .white }
-    static let functionKeyColor = UIColor {
+    static let pressedKeyColor = UIColor {
         $0.userInterfaceStyle == .dark ? UIColor(white: 0.27, alpha: 1) : UIColor(red: 0.67, green: 0.69, blue: 0.73, alpha: 1)
     }
+
+    /// Immutable syllable tables shared by every controller and splitter.
+    private static let korean = KoreanModel()
 
     /// Same engine stack as Seamtype's macOS Runtime: learned corrections, then mixed words
     /// (github에, githubで), then the heuristic. The user's language order weights the heuristic.
     static func makeHeuristic(preferences: LanguagePreferences) -> HeuristicEngine {
-        let heuristic = HeuristicEngine(japanese: preferences.japanese ? JapaneseModel.shared : nil)
+        let heuristic = HeuristicEngine(korean: korean, japanese: preferences.japanese ? JapaneseModel.shared : nil)
         heuristic.koreanOffset = preferences.koreanOffset
         heuristic.japaneseOffset += preferences.japaneseOffsetDelta
         return heuristic
@@ -54,7 +58,7 @@ final class KeyboardViewController: UIInputViewController {
         let heuristic = heuristic ?? makeHeuristic(preferences: preferences)
         let japanese = heuristic.japanese
         let engine = LearningEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
-                                                          japanese: heuristic.segmenter))
+                                                          korean: heuristic.korean, japanese: heuristic.segmenter))
         // Kana while typing, candidates in the bar above, as on the system's Japanese keyboard
         // (no live conversion: it guessed whole phrases wrong, はなしま → 話魔).
         return InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil)
@@ -143,7 +147,7 @@ final class KeyboardViewController: UIInputViewController {
         }
         sound = KeyFeedback.sound
         haptics = KeyFeedback.haptics
-        TraceLog.write("APPEAR \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
+        TraceLog.write("APPEAR \(TraceLog.footprint) \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
         session.activate(app: nil) // iOS doesn't tell a keyboard which app it's in
         // Apps can ask for a dark keyboard even in light mode (password fields, dark UIs).
         view.overrideUserInterfaceStyle = textDocumentProxy.keyboardAppearance == .dark ? .dark : .unspecified
@@ -169,9 +173,13 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     override func viewWillDisappear(_ animated: Bool) {
+        repeating?.cancel()
+        repeating = nil
+        popup.isHidden = true
         session.commit(client: client)
         converter?.save()
         refreshCandidates()
+        TraceLog.write("DISAPPEAR \(TraceLog.footprint)")
         super.viewWillDisappear(animated)
     }
 
@@ -186,11 +194,13 @@ final class KeyboardViewController: UIInputViewController {
         let isCharacter = letter.map { !"⇧⌫".contains($0) } ?? false
         var config = UIButton.Configuration.filled()
         config.baseForegroundColor = .label
-        config.baseBackgroundColor = isCharacter ? Self.keyColor : Self.functionKeyColor
         config.background.cornerRadius = 6
         config.contentInsets = .zero
         config.titleAlignment = .center
         let button = UIButton(configuration: config)
+        button.configurationUpdateHandler = { button in
+            button.configuration?.background.backgroundColor = button.isHighlighted && !isCharacter ? Self.pressedKeyColor : Self.keyColor
+        }
         keyButtons.append(button)
         button.accessibilityLabel = ["⇧": "shift", "⌫": "delete", "🌐": "next keyboard", "한あA": "switch language"][title] ?? title
         keyConstraints += [
@@ -216,11 +226,44 @@ final class KeyboardViewController: UIInputViewController {
             button.addAction(UIAction { [unowned self, unowned button] _ in
                 if let o = keyStack?.offset(of: button) { TraceLog.write(String(format: "TOUCH %@ %.1f %.1f", title, o.dx, o.dy)) }
                 feedback(title)
+                if isCharacter { showPopup(over: button) }
                 tap(title)
             }, for: .touchDown)
+            if isCharacter {
+                button.addAction(UIAction { [unowned self, unowned button] _ in
+                    if popupKey === button { popup.isHidden = true }
+                }, for: [.touchUpInside, .touchUpOutside, .touchCancel])
+            }
             if title == "⌫" { repeatWhileHeld(button) }
         }
         return button
+    }
+
+    /// The pressed character, enlarged above the key, as on the system keyboard.
+    private weak var popupKey: UIButton?
+    private lazy var popup: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 32)
+        label.textAlignment = .center
+        label.layer.backgroundColor = Self.keyColor.resolvedColor(with: traitCollection).cgColor
+        label.layer.cornerRadius = 8
+        label.layer.shadowOpacity = 0.3
+        label.layer.shadowRadius = 1
+        label.layer.shadowOffset = CGSize(width: 0, height: 1)
+        label.isHidden = true
+        view.addSubview(label)
+        return label
+    }()
+
+    private func showPopup(over key: UIButton) {
+        popupKey = key
+        let frame = key.convert(key.bounds, to: view)
+        let width = frame.width + 16
+        popup.text = key.configuration?.attributedTitle.map { String($0.characters) }
+        popup.layer.backgroundColor = Self.keyColor.resolvedColor(with: view.traitCollection).cgColor
+        popup.frame = CGRect(x: min(max(frame.midX - width / 2, 2), view.bounds.width - width - 2),
+                             y: frame.minY - 52, width: width, height: 48)
+        popup.isHidden = false
     }
 
     /// The system keyboard's click sounds (as azooKey found them: 1104 letters, 1155 delete, 1156
@@ -239,19 +282,22 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// Delete repeats while held: after 0.4s, every 0.1s (azooKey's timing).
+    private var repeating: Task<Void, Never>?
+
     private func repeatWhileHeld(_ button: UIButton) {
-        var repeating: Task<Void, Never>?
         button.addAction(UIAction { [unowned self] _ in
-            repeating = Task { @MainActor in
+            repeating?.cancel()
+            repeating = Task { @MainActor [weak self] in
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 while !Task.isCancelled {
-                    feedback("⌫")
-                    tap("⌫")
+                    guard self != nil else { return }
+                    self?.feedback("⌫")
+                    self?.tap("⌫")
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
             }
         }, for: .touchDown)
-        button.addAction(UIAction { _ in repeating?.cancel() }, for: [.touchUpInside, .touchUpOutside, .touchCancel])
+        button.addAction(UIAction { [unowned self] _ in repeating?.cancel(); repeating = nil }, for: [.touchUpInside, .touchUpOutside, .touchCancel])
     }
 
     /// English letter, with its 2-set jamo below: "q / ㅂ", shifted "Q / ㅃ"; in 123 mode the symbol.
@@ -286,7 +332,12 @@ final class KeyboardViewController: UIInputViewController {
             return
         case "⌫": key = .delete
         case "한あA": key = .cycle // always a switch key, unlike Esc (AppPolicy.standardSwitchKeys)
-        case "space": key = .printable(" ")
+        case "space":
+            if let fix = suggestions.autocorrect {
+                TraceLog.write("AUTOCORRECT \(client.marked) → \(fix)")
+                replaceWord(with: fix)
+            }
+            key = .printable(" ")
         case "return":
             // Japanese being typed: return takes the first candidate (highlighted), like the
             // system keyboard; the kana alone stays a tap on that candidate away.
@@ -357,7 +408,7 @@ final class KeyboardViewController: UIInputViewController {
             .compactMap { $0 }.max() ?? -.infinity
     }
 
-    // MARK: - Kanji candidates
+    // MARK: - Candidates
 
     /// Kanji candidates: while typing Japanese (tap one to pick it), after Space (the selected
     /// one highlighted; Space moves on), and after a commit what usually comes next (東京 → で).
@@ -374,6 +425,28 @@ final class KeyboardViewController: UIInputViewController {
                 }
             }
         }
+        suggestions = Suggestions()
+        let word = client.marked
+        if candidates.isEmpty, !word.isEmpty, let trace = session.lastTrace, trace.keys == session.keys {
+            switch trace.decision.language {
+            case .korean where HangulComposer.compose(keys: session.keys)?.text == word: suggestions = .korean(word: word, keys: session.keys, model: heuristic.korean)
+            case .english where word == session.keys: suggestions = .english(word: word, model: heuristic.english)
+            default: break
+            }
+            if !suggestions.words.isEmpty {
+                // The word as typed, then the suggestions; a tap puts the word in with a space.
+                addCandidate("“\(word)”", selected: false) { [unowned self] in
+                    replaceWord(with: word)
+                    textDocumentProxy.insertText(" ")
+                }
+                for suggestion in suggestions.words {
+                    addCandidate(suggestion, selected: suggestion == suggestions.autocorrect) { [unowned self] in
+                        replaceWord(with: suggestion)
+                        textDocumentProxy.insertText(" ")
+                    }
+                }
+            }
+        }
         if candidates.isEmpty, session.keys.isEmpty, let azooKey = converter as? AzooKeyConverter {
             // ponytail: one step; azooKey chains predictions (learning each pick with the last).
             for word in azooKey.nextWords().prefix(30) {
@@ -384,6 +457,17 @@ final class KeyboardViewController: UIInputViewController {
             }
         }
         (candidateRow.superview as? UIScrollView)?.contentOffset = .zero
+    }
+
+    private var suggestions = Suggestions()
+
+    /// Finish the session, replacing only the differing end of the displayed word.
+    private func replaceWord(with text: String) {
+        guard !client.marked.isEmpty,
+              textDocumentProxy.documentContextBeforeInput?.hasSuffix(client.marked) == true else { return }
+        session.commit(client: nil) // finish without replacing the displayed word with a new decision
+        session.commit(client: nil) // and close the 한あA window on the word as typed
+        client.insertText(text, replacing: nil)
     }
 
     private func addCandidate(_ text: String, selected: Bool, action: @escaping () -> Void) {
@@ -407,10 +491,10 @@ final class KeyStack: UIStackView {
     /// Where the latest touch went down, for typing correction.
     private(set) var lastTouch: CGPoint?
 
-    /// Fingers land below and right of the key they aim at (traces: 9 of 11 neighbor typos were
-    /// the key below or to the right); the system keyboard shifts touches the same way.
+    /// Fingers land below the key they aim at (traced: 3.2pt below the center on average, no
+    /// steady sideways offset); the system keyboard shifts touches the same way.
     /// ponytail: one fixed shift; calibrate from the touch offsets traced with each key.
-    static let touchShift = CGVector(dx: -1.5, dy: -3)
+    static let touchShift = CGVector(dx: 0, dy: -3.5)
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
