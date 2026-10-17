@@ -75,15 +75,17 @@ final class KeyboardViewController: UIInputViewController {
 
     /// Measured on the system keyboards (Korean, English, Japanese) on an iPhone 17 Pro, in a
     /// screen recording: 42⅓pt keys 6pt apart, 6⅔pt from the screen edge, 54pt from row to row,
-    /// a 35pt candidate bar. The system's last row reaches 3⅔pt lower than iOS puts the bottom of
-    /// a third-party keyboard, so the rows hang that far below the view (`overhang`).
+    /// a 36pt candidate bar. The system's last row reaches 3⅔pt lower than iOS lets a third-party
+    /// keyboard draw (it clips there), so our last row is that much shorter (`clipped`).
     /// Every key is a multiple of one key pitch (a tenth of the width inside the margins).
     private static let gap: CGFloat = 6, margin: CGFloat = 20 / 3, keyHeight: CGFloat = 127 / 3,
-                       rowGap: CGFloat = 54 - 127 / 3, barHeight: CGFloat = 35, overhang: CGFloat = 11 / 3
+                       rowGap: CGFloat = 54 - 127 / 3, barHeight: CGFloat = 36, clipped: CGFloat = 11 / 3
 
     /// What the letter keys type in 123 mode, like the system keyboard's first symbol page.
     static let symbols: [Character: Character] = Dictionary(uniqueKeysWithValues: zip(
         "qwertyuiopasdfghjklzxcvbnm", "1234567890-/:;()₩&@.,?!'\"~"))
+
+    private static let bottomRow: Set = ["123", "🌐", "한あA", "space", ".", "return"]
 
     private func buildKeys() {
         let globe = needsInputModeSwitchKey
@@ -112,7 +114,6 @@ final class KeyboardViewController: UIInputViewController {
         views += [thirdRow, makeRow(rows[3])]
         let stack = KeyStack(arrangedSubviews: views)
         stack.keys = keyButtons
-        view.clipsToBounds = false // the overhang
         keyStack = stack
         stack.axis = .vertical
         stack.alignment = .center
@@ -124,7 +125,7 @@ final class KeyboardViewController: UIInputViewController {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stack.topAnchor.constraint(equalTo: view.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: Self.overhang),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
             candidates.heightAnchor.constraint(equalToConstant: Self.barHeight),
             thirdRow.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
@@ -223,7 +224,7 @@ final class KeyboardViewController: UIInputViewController {
             // units of a pitch, minus one gap: a row of 10 units spans the width inside the margins
             button.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: units / 10,
                                           constant: (Self.gap - 2 * Self.margin) * units / 10 - Self.gap),
-            button.heightAnchor.constraint(equalToConstant: Self.keyHeight),
+            button.heightAnchor.constraint(equalToConstant: Self.bottomRow.contains(title) ? Self.keyHeight - Self.clipped : Self.keyHeight),
         ]
         if let letter, letter.isLetter {
             letterKeys.append((button, letter))

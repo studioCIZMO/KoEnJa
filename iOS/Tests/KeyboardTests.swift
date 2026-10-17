@@ -186,7 +186,7 @@ final class KeyboardTests: XCTestCase {
     /// Renders the keyboard at iPhone 17 Pro width; REA_SNAPSHOT=<path> saves it as PNG.
     func testLayoutKeysLineUp() throws {
         let keyboard = KeyboardViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 236))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 237))
         window.backgroundColor = UIColor(white: 0.82, alpha: 1)
         window.rootViewController = keyboard
         window.makeKeyAndVisible()
@@ -207,7 +207,7 @@ final class KeyboardTests: XCTestCase {
         func frame(_ name: String) -> CGRect { let b = buttons.first { $0.accessibilityLabel == name }!; return b.convert(b.bounds, to: nil) }
         XCTAssertEqual(frame("q").width, 33.5, accuracy: 0.3)
         XCTAssertEqual(frame("q").minX, 20 / 3, accuracy: 0.3)
-        XCTAssertEqual(frame("q").minY, 35, accuracy: 0.5)
+        XCTAssertEqual(frame("q").minY, 36, accuracy: 0.5)
         XCTAssertEqual(frame("q").height, 127 / 3, accuracy: 0.3)
         XCTAssertEqual(frame("a").minY - frame("q").minY, 54, accuracy: 0.3)
         XCTAssertEqual(frame("shift").width, 45.3, accuracy: 0.5)
@@ -248,7 +248,7 @@ final class KeyboardTests: XCTestCase {
         for _ in 0..<20 {
             autoreleasepool {
                 let keyboard = KeyboardViewController()
-                let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 236))
+                let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 237))
                 window.rootViewController = keyboard
                 window.makeKeyAndVisible()
                 keyboard.view.layoutIfNeeded()
