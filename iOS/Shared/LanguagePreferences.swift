@@ -16,6 +16,17 @@ struct LanguagePreferences: Equatable {
     /// Enabled languages, first = most used. Always contains English.
     var order: [Language]
 
+    /// Seamtype's input options (its settings.json keys and defaults), applied to the keyboard.
+    /// Live conversion is off by default here: the bar shows the kanji candidates instead.
+    var returnConfirmsOnly = true
+    var fullWidthDigits = false
+    var fullWidthSpace = false
+    var liveConversion = false
+    private static let options: [(String, WritableKeyPath<Self, Bool>)] = [
+        ("returnConfirmsOnly", \.returnConfirmsOnly), ("fullWidthDigits", \.fullWidthDigits),
+        ("fullWidthSpace", \.fullWidthSpace), ("liveConversion", \.liveConversion),
+    ]
+
     /// The usual setups: who you talk to decides the pair.
     static let presets: [(title: String, order: [Language])] = [
         ("한국어 + 영어", [.korean, .english]),
@@ -38,10 +49,17 @@ struct LanguagePreferences: Equatable {
         let saved = (defaults?.stringArray(forKey: key) ?? []).compactMap(Language.init(rawValue:))
         var order = saved.isEmpty ? [.korean, .english, .japanese] : saved
         if !order.contains(.english) { order.append(.english) }
-        return Self(order: order)
+        var preferences = Self(order: order)
+        for (key, path) in options {
+            if let value = defaults?.object(forKey: key) as? Bool { preferences[keyPath: path] = value }
+        }
+        return preferences
     }
 
-    func save() { Self.defaults?.set(order.map(\.rawValue), forKey: Self.key) }
+    func save() {
+        Self.defaults?.set(order.map(\.rawValue), forKey: Self.key)
+        for (key, path) in Self.options { Self.defaults?.set(self[keyPath: path], forKey: key) }
+    }
 
     var japanese: Bool { order.contains(.japanese) }
 

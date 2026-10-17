@@ -48,6 +48,19 @@ final class KeyboardTests: XCTestCase {
         XCTAssertEqual(typed("watashiha ", [.japanese, .english]).prefix(4), "わたしは")
     }
 
+    /// Seamtype's options reach the session: Return after a word only confirms it, or goes on.
+    func testSeamtypeOptions() {
+        for confirmsOnly in [true, false] {
+            var preferences = Self.all
+            preferences.returnConfirmsOnly = confirmsOnly
+            let session = KeyboardViewController.makeSession(converter: nil, preferences: preferences)
+            let client = ProxyClient(proxy: FakeProxy())
+            session.activate(app: nil)
+            type("hello", into: session, client)
+            XCTAssertEqual(session.handle(.enter, client: client), confirmsOnly, "Return taken by the keyboard")
+        }
+    }
+
     func testTypesThreeLanguagesOnOneLayout() {
         let start = footprintMB()
         let session = KeyboardViewController.makeSession(converter: nil, preferences: Self.all)

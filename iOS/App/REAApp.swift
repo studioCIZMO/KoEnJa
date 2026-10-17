@@ -42,6 +42,17 @@ struct SettingsView: View {
                 .environment(\.editMode, .constant(.active))
 
                 Section {
+                    Toggle("Return은 입력 중인 단어만 확정", isOn: $preferences.returnConfirmsOnly)
+                    Toggle("일본어 뒤 숫자를 전각으로 (１２３)", isOn: $preferences.fullWidthDigits)
+                    Toggle("일본어 뒤 스페이스를 전각으로", isOn: $preferences.fullWidthSpace)
+                    Toggle("일본어 라이브 변환", isOn: $preferences.liveConversion)
+                } header: {
+                    Text("입력 옵션")
+                } footer: {
+                    Text("Mac용 Seamtype과 같은 옵션입니다. 라이브 변환을 켜면 치는 동안 한자로 바뀌고, 끄면 위쪽 막대에서 한자를 고릅니다.")
+                }
+
+                Section {
                     Toggle("키 소리", isOn: $sound)
                     Toggle("햅틱", isOn: $haptics)
                 } header: {

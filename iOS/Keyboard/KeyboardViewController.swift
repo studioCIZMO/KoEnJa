@@ -65,8 +65,13 @@ final class KeyboardViewController: UIInputViewController {
         let engine = LearningEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
                                                           korean: heuristic.korean, japanese: heuristic.segmenter))
         // Kana while typing, candidates in the bar above, as on the system's Japanese keyboard
-        // (no live conversion: it guessed whole phrases wrong, はなしま → 話魔).
-        return InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil)
+        // (live conversion off by default: it guessed whole phrases wrong, はなしま → 話魔).
+        let session = InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil,
+                                   liveConversion: preferences.liveConversion,
+                                   returnConfirmsOnly: preferences.returnConfirmsOnly)
+        session.fullWidthDigits = preferences.fullWidthDigits
+        session.fullWidthSpace = preferences.fullWidthSpace
+        return session
     }
 
     private static var converter: JapaneseConverter?
