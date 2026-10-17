@@ -137,6 +137,12 @@ final class KeyboardTests: XCTestCase {
         XCTAssertTrue(session.typingCandidates.isEmpty)
         proxy.text = ""
 
+        // Return takes the first candidate, so it should be the whole phrase converted.
+        type("nihonngonotesutoha", into: session, client)
+        print("REA first candidates: \(session.typingCandidates.prefix(5).map(\.text))")
+        XCTAssertEqual(session.typingCandidates.first?.text, "日本語のテストは")
+        proxy.text = ""; session.commitForNewContext(client: nil)
+
         type("kanjihenkan ", into: session, client)
         let candidates = try XCTUnwrap(session.conversion?.candidates.map(\.text))
         XCTAssertTrue(candidates.contains("漢字変換"), "\(candidates.prefix(5))")
@@ -184,6 +190,11 @@ final class KeyboardTests: XCTestCase {
         let gapX = CGPoint(x: (q.x + w.x) / 2 + letters[0].bounds.width / 2, y: q.y + 20)
         XCTAssertEqual(keyboard.view.hitTest(gapX, with: nil)?.accessibilityLabel.map { "qw".contains($0) }, true)
         XCTAssertEqual(keyboard.view.hitTest(CGPoint(x: q.x + 10, y: q.y + 44 + 5), with: nil)?.accessibilityLabel.map { "qa".contains($0) }, true)
+        // Touches count a little higher: 3pt above the a key still types q.
+        XCTAssertEqual(keyboard.view.hitTest(CGPoint(x: q.x + 10, y: q.y + 54 - 3), with: nil)?.accessibilityLabel, "q")
+        // The gap between z and x (a row inside a row) lands on one of them.
+        let z = frame("z"), x = frame("x")
+        XCTAssertEqual(keyboard.view.hitTest(CGPoint(x: (z.maxX + x.minX) / 2, y: z.midY), with: nil)?.accessibilityLabel.map { "zx".contains($0) }, true)
         if let path = ProcessInfo.processInfo.environment["REA_SNAPSHOT"] {
             let image = UIGraphicsImageRenderer(bounds: keyboard.view.bounds).image { keyboard.view.layer.render(in: $0.cgContext) }
             try image.pngData()!.write(to: URL(fileURLWithPath: path))

@@ -209,8 +209,11 @@ final class KeyboardViewController: UIInputViewController {
         } else {
             // On touch-down, in the order keys are pressed: on release, fast typing (the next key
             // down before this one is up) dropped and reordered keys (안되었다 came in as 안뇠다).
-            // ponytail: no slide-off to cancel; delete doesn't repeat yet.
-            button.addAction(UIAction { [unowned self] _ in tap(title) }, for: .touchDown)
+            // ponytail: no slide-off to cancel.
+            button.addAction(UIAction { [unowned self, unowned button] _ in
+                if let o = keyStack?.offset(of: button) { TraceLog.write(String(format: "TOUCH %@ %.1f %.1f", title, o.dx, o.dy)) }
+                tap(title)
+            }, for: .touchDown)
             if title == "⌫" { repeatWhileHeld(button) }
         }
         return button
@@ -264,7 +267,16 @@ final class KeyboardViewController: UIInputViewController {
         case "⌫": key = .delete
         case "한あA": key = .cycle // always a switch key, unlike Esc (AppPolicy.standardSwitchKeys)
         case "space": key = .printable(" ")
-        case "return": key = .enter
+        case "return":
+            // Japanese being typed: return takes the first candidate (highlighted), like the
+            // system keyboard; the kana alone stays a tap on that candidate away.
+            if let first = session.typingCandidates.first {
+                TraceLog.write("KEY return → \(first.text)")
+                session.choose(typing: first, client: client)
+                refreshCandidates()
+                return
+            }
+            key = .enter
         case _ where numbers && Self.symbols[title.first!] != nil:
             key = .printable(Self.symbols[title.first!]!)
         default:
@@ -334,7 +346,7 @@ final class KeyboardViewController: UIInputViewController {
         let conversion = session.conversion
         let candidates = conversion?.candidates ?? Array(session.typingCandidates.prefix(30))
         for (index, candidate) in candidates.enumerated() {
-            addCandidate(candidate.text, selected: index == conversion?.selected) { [unowned self] in
+            addCandidate(candidate.text, selected: index == (conversion?.selected ?? 0)) { [unowned self] in
                 if conversion != nil {
                     session.choose(index, client: client)
                 } else {
@@ -375,17 +387,30 @@ final class KeyStack: UIStackView {
     /// Where the latest touch went down, for typing correction.
     private(set) var lastTouch: CGPoint?
 
+    /// Fingers land below and right of the key they aim at (traces: 9 of 11 neighbor typos were
+    /// the key below or to the right); the system keyboard shifts touches the same way.
+    /// ponytail: one fixed shift; calibrate from the touch offsets traced with each key.
+    static let touchShift = CGVector(dx: -1.5, dy: -3)
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        lastTouch = point
         let hit = super.hitTest(point, with: event)
-        // Only the gaps: the stack itself or a row, not the candidate bar.
-        guard hit === self || hit?.superview === self && hit is UIStackView else { return hit }
-        let nearest = keys.min { distance(point, $0) < distance(point, $1) }
-        if let nearest, distance(point, nearest) < 12 {
-            TraceLog.write("NEAR \(nearest.accessibilityLabel ?? "")")
-            return nearest
-        }
-        return hit
+        // On a key or in a gap between keys (a row), not the candidate bar: the key nearest the
+        // shifted point.
+        guard hit is UIButton || hit is UIStackView, let bar = arrangedSubviews.first,
+              hit?.isDescendant(of: bar) == false else { return hit }
+        let shifted = CGPoint(x: point.x + Self.touchShift.dx, y: point.y + Self.touchShift.dy)
+        lastTouch = shifted
+        guard let nearest = keys.min(by: { distance(shifted, $0) < distance(shifted, $1) }),
+              distance(shifted, nearest) < 12 else { return hit }
+        if nearest !== hit { TraceLog.write("NEAR \(nearest.accessibilityLabel ?? "") (was \((hit as? UIButton)?.accessibilityLabel ?? "gap"))") }
+        return nearest
+    }
+
+    /// Where the touch was from the key's center, for calibrating `touchShift`.
+    func offset(of key: UIView) -> CGVector? {
+        guard let lastTouch else { return nil }
+        let frame = key.convert(key.bounds, to: self)
+        return CGVector(dx: lastTouch.x - Self.touchShift.dx - frame.midX, dy: lastTouch.y - Self.touchShift.dy - frame.midY)
     }
 
     func distance(_ point: CGPoint, _ key: UIView) -> CGFloat {
