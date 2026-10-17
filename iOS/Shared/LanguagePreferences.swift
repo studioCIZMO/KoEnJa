@@ -57,3 +57,10 @@ struct LanguagePreferences: Equatable {
     /// The switch key's label: the enabled languages in order (한あA, あA…).
     var switchLabel: String { order.map(\.mark).joined() }
 }
+
+/// Key click sound and haptic tap, set in the app (on by default, like the system keyboard's sound).
+enum KeyFeedback {
+    static let soundKey = "keySound", hapticsKey = "keyHaptics"
+    static var sound: Bool { LanguagePreferences.defaults?.object(forKey: soundKey) as? Bool ?? true }
+    static var haptics: Bool { LanguagePreferences.defaults?.object(forKey: hapticsKey) as? Bool ?? true }
+}

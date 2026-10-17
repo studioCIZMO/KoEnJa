@@ -1,3 +1,4 @@
+import AudioToolbox
 import SeamtypeCore
 import UIKit
 
@@ -140,6 +141,8 @@ final class KeyboardViewController: UIInputViewController {
             session = Self.makeSession(converter: converter, preferences: current, heuristic: heuristic)
             switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
         }
+        sound = KeyFeedback.sound
+        haptics = KeyFeedback.haptics
         TraceLog.write("APPEAR \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
         session.activate(app: nil) // iOS doesn't tell a keyboard which app it's in
         // Apps can ask for a dark keyboard even in light mode (password fields, dark UIs).
@@ -212,11 +215,27 @@ final class KeyboardViewController: UIInputViewController {
             // ponytail: no slide-off to cancel.
             button.addAction(UIAction { [unowned self, unowned button] _ in
                 if let o = keyStack?.offset(of: button) { TraceLog.write(String(format: "TOUCH %@ %.1f %.1f", title, o.dx, o.dy)) }
+                feedback(title)
                 tap(title)
             }, for: .touchDown)
             if title == "⌫" { repeatWhileHeld(button) }
         }
         return button
+    }
+
+    /// The system keyboard's click sounds (as azooKey found them: 1104 letters, 1155 delete, 1156
+    /// other keys) and a light tap, on touch-down. Sound follows the silent switch; haptics need
+    /// Full Access. Both can be turned off in the app.
+    private static let haptic = UIImpactFeedbackGenerator(style: .light)
+    private var sound = true, haptics = true
+
+    private func feedback(_ title: String) {
+        if sound {
+            let id: SystemSoundID = title == "⌫" ? 1155 : title.count == 1 && title != "⇧" || title == "space" ? 1104 : 1156
+            // played off the main thread: azooKey found it sometimes came out very loud otherwise
+            Task.detached { AudioServicesPlaySystemSound(id) }
+        }
+        if haptics, hasFullAccess { Self.haptic.impactOccurred(intensity: 0.7) }
     }
 
     /// Delete repeats while held: after 0.4s, every 0.1s (azooKey's timing).
@@ -226,6 +245,7 @@ final class KeyboardViewController: UIInputViewController {
             repeating = Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 400_000_000)
                 while !Task.isCancelled {
+                    feedback("⌫")
                     tap("⌫")
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }

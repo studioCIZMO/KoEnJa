@@ -11,6 +11,8 @@ struct SettingsView: View {
     @State private var preferences = LanguagePreferences.load()
     @State private var choosingSetup = !LanguagePreferences.isConfigured
     @State private var text = ""
+    @AppStorage(KeyFeedback.soundKey, store: LanguagePreferences.defaults) private var sound = true
+    @AppStorage(KeyFeedback.hapticsKey, store: LanguagePreferences.defaults) private var haptics = true
 
     var body: some View {
         NavigationStack {
@@ -35,6 +37,15 @@ struct SettingsView: View {
                     Text("위에 있는 언어일수록 애매한 단어(go → 해)가 그 언어로 입력됩니다. 영어는 항상 켜져 있습니다.")
                 }
                 .environment(\.editMode, .constant(.active))
+
+                Section {
+                    Toggle("키 소리", isOn: $sound)
+                    Toggle("햅틱", isOn: $haptics)
+                } header: {
+                    Text("키 피드백")
+                } footer: {
+                    Text("소리는 무음 모드에서 나지 않습니다. 햅틱은 전체 접근 허용이 필요합니다.")
+                }
 
                 Section("키보드 켜기") {
                     Text("설정 → 일반 → 키보드 → 키보드 → 새로운 키보드 추가… → 한영일")
