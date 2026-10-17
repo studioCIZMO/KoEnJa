@@ -170,7 +170,7 @@ final class KeyboardViewController: UIInputViewController {
     /// The cursor moved away from the word being composed: it stays as typed, the next key
     /// starts a new word there (like azooKey, which ends the composition on a cursor jump).
     private func documentChanged() {
-        guard session != nil, client.resetIfMovedAway() else { return }
+        guard Self.session != nil, client.resetIfMovedAway() else { return }
         session.commitForNewContext(client: nil)
         refreshCandidates()
     }
