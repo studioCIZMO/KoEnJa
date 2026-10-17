@@ -69,7 +69,14 @@ targets:
       - Shared
     dependencies:
       - package: SeamtypeCore
+  REAUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    settings: { base: { GENERATE_INFOPLIST_FILE: YES } }
+    sources: [UITests]
+    dependencies:
+      - target: REA
 schemes:
   REA:
     build: { targets: { REA: all } }
-    test: { targets: [REAKeyboardTests] }
+    test: { targets: [REAKeyboardTests, REAUITests] }

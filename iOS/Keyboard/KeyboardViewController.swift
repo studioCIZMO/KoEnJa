@@ -351,7 +351,9 @@ final class KeyboardViewController: UIInputViewController {
         case "⌫": key = .delete
         case "한あA": key = .cycle // always a switch key, unlike Esc (AppPolicy.standardSwitchKeys)
         case "space":
-            if let fix = suggestions.autocorrect {
+            // Kana with romaji left over (てh) goes in as English on Space: its typo fix too.
+            let leftover = session.lastTrace?.decision.language == .japanese && client.marked.contains(where: \.isASCII)
+            if let fix = suggestions.autocorrect ?? (leftover ? Suggestions.english(word: session.keys, model: heuristic.english).autocorrect : nil) {
                 TraceLog.write("AUTOCORRECT \(client.marked) → \(fix)")
                 replaceWord(with: fix)
             }
@@ -446,15 +448,19 @@ final class KeyboardViewController: UIInputViewController {
         suggestions = Suggestions()
         let word = client.marked
         if candidates.isEmpty, !word.isEmpty, let trace = session.lastTrace, trace.keys == session.keys {
+            var typed = word
             switch trace.decision.language {
-            case .korean where HangulComposer.compose(keys: session.keys)?.text == word: suggestions = .korean(word: word, keys: session.keys, model: heuristic.korean)
-            case .english where word == session.keys: suggestions = .english(word: word, model: heuristic.english)
+            // The word in the language decided (the preview may still show another: てh for teh).
+            case .korean: typed = HangulComposer.compose(keys: session.keys)?.text ?? word
+                suggestions = .korean(word: typed, keys: session.keys, model: heuristic.korean)
+            case .english: typed = session.keys
+                suggestions = .english(word: typed, model: heuristic.english)
             default: break
             }
             if !suggestions.words.isEmpty {
                 // The word as typed, then the suggestions; a tap puts the word in with a space.
-                addCandidate("“\(word)”", selected: false) { [unowned self] in
-                    replaceWord(with: word)
+                addCandidate("“\(typed)”", selected: false) { [unowned self] in
+                    replaceWord(with: typed)
                     textDocumentProxy.insertText(" ")
                 }
                 for suggestion in suggestions.words {
