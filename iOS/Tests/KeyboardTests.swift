@@ -125,6 +125,7 @@ final class KeyboardTests: XCTestCase {
         XCTAssertEqual(ko("wlsgodgkske").autocorrect, "진행한다")   // 진행하낟
         XCTAssertNil(ko("xptmxmfmf").autocorrect)                   // 테스트를
         XCTAssertNil(ko("zlqhemrk").autocorrect)                    // 키보드가: unknown, no one-slip fix
+        XCTAssertNil(ko("snffu").autocorrect)                       // 눌려: missing from our lists, iOS knows it
         XCTAssertTrue(ko("xptmxmfm").words.contains("테스트를"), "\(ko("xptmxmfm").words)") // 테스트르 completes
         let english = KeyboardViewController.makeHeuristic(preferences: Self.all).english
         XCTAssertEqual(Suggestions.english(word: "teh", model: english).autocorrect, "the")
@@ -185,7 +186,7 @@ final class KeyboardTests: XCTestCase {
     /// Renders the keyboard at iPhone 17 Pro width; REA_SNAPSHOT=<path> saves it as PNG.
     func testLayoutKeysLineUp() throws {
         let keyboard = KeyboardViewController()
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 258))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 236))
         window.backgroundColor = UIColor(white: 0.82, alpha: 1)
         window.rootViewController = keyboard
         window.makeKeyAndVisible()
@@ -206,7 +207,9 @@ final class KeyboardTests: XCTestCase {
         func frame(_ name: String) -> CGRect { let b = buttons.first { $0.accessibilityLabel == name }!; return b.convert(b.bounds, to: nil) }
         XCTAssertEqual(frame("q").width, 33.5, accuracy: 0.3)
         XCTAssertEqual(frame("q").minX, 20 / 3, accuracy: 0.3)
-        XCTAssertEqual(frame("q").minY, 53, accuracy: 0.5)
+        XCTAssertEqual(frame("q").minY, 35, accuracy: 0.5)
+        XCTAssertEqual(frame("q").height, 127 / 3, accuracy: 0.3)
+        XCTAssertEqual(frame("a").minY - frame("q").minY, 54, accuracy: 0.3)
         XCTAssertEqual(frame("shift").width, 45.3, accuracy: 0.5)
         XCTAssertEqual(frame("z").minX, frame("q").minX + (frame("w").minX - frame("q").minX) * 1.5, accuracy: 0.5, "z under the q/w gap")
         // A touch between q and w, or between the q and a rows, still lands on a key.
@@ -215,8 +218,8 @@ final class KeyboardTests: XCTestCase {
         let gapX = CGPoint(x: (q.x + w.x) / 2 + letters[0].bounds.width / 2, y: q.y + 20)
         XCTAssertEqual(keyboard.view.hitTest(gapX, with: nil)?.accessibilityLabel.map { "qw".contains($0) }, true)
         XCTAssertEqual(keyboard.view.hitTest(CGPoint(x: q.x + 10, y: q.y + 44 + 5), with: nil)?.accessibilityLabel.map { "qa".contains($0) }, true)
-        // Touches count a little higher: 3pt above the a key still types q.
-        XCTAssertEqual(keyboard.view.hitTest(CGPoint(x: q.x + 10, y: q.y + 54 - 3), with: nil)?.accessibilityLabel, "q")
+        // A touch in the gap goes to the nearer key: 3pt above the a key types a.
+        XCTAssertEqual(keyboard.view.hitTest(CGPoint(x: frame("a").midX, y: frame("a").minY - 3), with: nil)?.accessibilityLabel, "a")
         // The gap between z and x (a row inside a row) lands on one of them.
         let z = frame("z"), x = frame("x")
         XCTAssertEqual(keyboard.view.hitTest(CGPoint(x: (z.maxX + x.minX) / 2, y: z.midY), with: nil)?.accessibilityLabel.map { "zx".contains($0) }, true)
@@ -235,6 +238,28 @@ final class KeyboardTests: XCTestCase {
             let image = UIGraphicsImageRenderer(bounds: keyboard.view.bounds).image { keyboard.view.layer.render(in: $0.cgContext) }
             try image.pngData()!.write(to: URL(fileURLWithPath: path))
         }
+    }
+
+    /// iOS makes a new controller each time the keyboard comes up and may keep the old ones:
+    /// off screen, a controller drops its keys, and the engine is shared.
+    func testControllerDropsKeysOffScreen() {
+        let start = footprintMB()
+        weak var button: UIView?
+        for _ in 0..<20 {
+            autoreleasepool {
+                let keyboard = KeyboardViewController()
+                let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 236))
+                window.rootViewController = keyboard
+                window.makeKeyAndVisible()
+                keyboard.view.layoutIfNeeded()
+                button = keyboard.view.allSubviews.first { $0 is UIButton }
+                keyboard.beginAppearanceTransition(false, animated: false)
+                keyboard.endAppearanceTransition()
+                window.rootViewController = nil
+            }
+        }
+        XCTAssertNil(button, "keys kept off screen")
+        print("REA memory: 20 keyboards ≈ \(footprintMB() - start) MB")
     }
 
     private func footprintMB() -> Int {

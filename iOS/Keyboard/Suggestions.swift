@@ -57,8 +57,10 @@ struct Suggestions: Equatable {
     }
 
     static func korean(word: String, keys: String, model: KoreanModel) -> Suggestions {
+        // iOS's lexicon knows words our lists miss (눌려 was "fixed" to 물려): a word it can
+        // complete is a word, not a typo.
         let completions = complete(word, language: "ko_KR")
-        guard word.count >= 2, !model.isVocabularyWord(word),
+        guard word.count >= 2, !model.isVocabularyWord(word), completions.isEmpty,
               HangulComposer.compose(keys: keys)?.isBroken == false else { return Suggestions(words: completions) }
         // Fixes ranked: a word seen in real text first, then by how common its syllables are.
         let fixes = Set(oneSlip(keys).compactMap { HangulComposer.compose(keys: $0)?.text })
@@ -69,7 +71,7 @@ struct Suggestions: Equatable {
                 let (sa, sb) = (syllableScore(a, model), syllableScore(b, model))
                 return sa != sb ? sa > sb : a < b
             }
-        return Suggestions(words: Array((fixes + completions.filter { !fixes.contains($0) }).prefix(2)), autocorrect: fixes.first)
+        return Suggestions(words: Array(fixes.prefix(2)), autocorrect: fixes.first)
     }
 
     private static func syllableScore(_ word: String, _ model: KoreanModel) -> Double {

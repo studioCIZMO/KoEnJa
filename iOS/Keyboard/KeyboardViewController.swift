@@ -7,12 +7,17 @@ import UIKit
 /// Japanese converts to kanji with Space (AzooKey); the bar above the keys shows the candidates.
 final class KeyboardViewController: UIInputViewController {
     private lazy var client = ProxyClient(proxy: textDocumentProxy)
-    /// What the session was built for; the app may have changed it since.
-    private var preferences: LanguagePreferences?
-    private var converter: JapaneseConverter?
-    private var session: InputSession!
-    private var heuristic: HeuristicEngine!
-    private var keyStack: KeyStack!
+    /// The engine is shared by every controller: iOS keeps old keyboard controllers alive (each
+    /// coming up of the keyboard made a new one, +1-2 MB each on device), so a controller holds
+    /// only its keys, and drops them when it goes off screen (azooKey keeps all but the controller
+    /// static too). `preferences` is what the engine was built for; the app may have changed it.
+    private static var preferences: LanguagePreferences?
+    private static var session: InputSession!
+    private static var heuristic: HeuristicEngine!
+    private var session: InputSession { Self.session }
+    private var heuristic: HeuristicEngine { Self.heuristic }
+    private var converter: JapaneseConverter? { Self.preferences?.japanese == true ? Self.converter : nil }
+    private var keyStack: KeyStack?
     private weak var switchKey: UIButton?
     private var shifted = false
     /// 123 mode: the letter keys type digits and symbols.
@@ -64,27 +69,23 @@ final class KeyboardViewController: UIInputViewController {
         return InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil)
     }
 
-    /// One converter for every controller: iOS keeps old keyboard controllers alive, and each
-    /// would hold its own dictionary (azooKey keeps everything but the controller static).
     private static var converter: JapaneseConverter?
-    private static func sharedConverter() -> JapaneseConverter? {
-        if converter == nil { converter = AzooKeyConverter() }
-        return converter
-    }
 
     // MARK: - Layout
 
-    /// Measured on the system keyboards (Korean, English, Japanese) on an iPhone 17 Pro: 43pt keys
-    /// 6pt apart, 6⅔pt from the screen edge, 54pt from row to row, a 53pt candidate bar.
+    /// Measured on the system keyboards (Korean, English, Japanese) on an iPhone 17 Pro, in a
+    /// screen recording: 42⅓pt keys 6pt apart, 6⅔pt from the screen edge, 54pt from row to row,
+    /// a 35pt candidate bar. The system's last row reaches 3⅔pt lower than iOS puts the bottom of
+    /// a third-party keyboard, so the rows hang that far below the view (`overhang`).
     /// Every key is a multiple of one key pitch (a tenth of the width inside the margins).
-    private static let gap: CGFloat = 6, margin: CGFloat = 20 / 3, keyHeight: CGFloat = 43, rowGap: CGFloat = 11
+    private static let gap: CGFloat = 6, margin: CGFloat = 20 / 3, keyHeight: CGFloat = 127 / 3,
+                       rowGap: CGFloat = 54 - 127 / 3, barHeight: CGFloat = 35, overhang: CGFloat = 11 / 3
 
     /// What the letter keys type in 123 mode, like the system keyboard's first symbol page.
     static let symbols: [Character: Character] = Dictionary(uniqueKeysWithValues: zip(
         "qwertyuiopasdfghjklzxcvbnm", "1234567890-/:;()₩&@.,?!'\"~"))
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
+    private func buildKeys() {
         let globe = needsInputModeSwitchKey
         let rows: [[(String, CGFloat)]] = [
             "qwertyuiop".map { (String($0), 1) },
@@ -111,6 +112,7 @@ final class KeyboardViewController: UIInputViewController {
         views += [thirdRow, makeRow(rows[3])]
         let stack = KeyStack(arrangedSubviews: views)
         stack.keys = keyButtons
+        view.clipsToBounds = false // the overhang
         keyStack = stack
         stack.axis = .vertical
         stack.alignment = .center
@@ -122,9 +124,9 @@ final class KeyboardViewController: UIInputViewController {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stack.topAnchor.constraint(equalTo: view.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: Self.overhang),
             candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
-            candidates.heightAnchor.constraint(equalToConstant: 53),
+            candidates.heightAnchor.constraint(equalToConstant: Self.barHeight),
             thirdRow.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
             candidateRow.leadingAnchor.constraint(equalTo: candidates.contentLayoutGuide.leadingAnchor),
             candidateRow.trailingAnchor.constraint(equalTo: candidates.contentLayoutGuide.trailingAnchor),
@@ -137,14 +139,15 @@ final class KeyboardViewController: UIInputViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         let current = LanguagePreferences.load()
-        if current != preferences {
-            preferences = current
-            converter?.save()
-            converter = current.japanese ? Self.sharedConverter() : nil
-            heuristic = Self.makeHeuristic(preferences: current)
-            session = Self.makeSession(converter: converter, preferences: current, heuristic: heuristic)
-            switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
+        if current != Self.preferences {
+            Self.preferences = current
+            Self.converter?.save()
+            if current.japanese, Self.converter == nil { Self.converter = AzooKeyConverter() }
+            Self.heuristic = Self.makeHeuristic(preferences: current)
+            Self.session = Self.makeSession(converter: converter, preferences: current, heuristic: heuristic)
         }
+        if keyStack == nil { buildKeys() }
+        switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
         sound = KeyFeedback.sound
         haptics = KeyFeedback.haptics
         TraceLog.write("APPEAR \(TraceLog.footprint) \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
@@ -181,6 +184,19 @@ final class KeyboardViewController: UIInputViewController {
         refreshCandidates()
         TraceLog.write("DISAPPEAR \(TraceLog.footprint)")
         super.viewWillDisappear(animated)
+    }
+
+    /// Off screen: drop the keys (iOS may keep this controller); they're rebuilt if it comes back.
+    override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        view.subviews.forEach { $0.removeFromSuperview() }
+        candidateRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        keyStack = nil
+        keyButtons = []
+        letterKeys = []
+        keyConstraints = []
+        shifted = false
+        numbers = false
     }
 
     private func makeRow(_ keys: [(String, CGFloat)]) -> UIStackView {
@@ -262,7 +278,8 @@ final class KeyboardViewController: UIInputViewController {
         popup.text = key.configuration?.attributedTitle.map { String($0.characters) }
         popup.layer.backgroundColor = Self.keyColor.resolvedColor(with: view.traitCollection).cgColor
         popup.frame = CGRect(x: min(max(frame.midX - width / 2, 2), view.bounds.width - width - 2),
-                             y: frame.minY - 52, width: width, height: 48)
+                             y: max(frame.minY - 52, 0), width: width, height: 48)
+        if popup.superview == nil { view.addSubview(popup) }
         popup.isHidden = false
     }
 
@@ -382,7 +399,7 @@ final class KeyboardViewController: UIInputViewController {
     /// much more likely (fgem → fhem, 로드). Mozc and azooKey also correct by touch position.
     /// ponytail: one key at a time, a fixed band and margin; tune them with traces.
     private func corrected(_ letter: Character) -> Character {
-        guard !numbers, !session.keys.isEmpty, let point = keyStack.lastTouch,
+        guard !numbers, !session.keys.isEmpty, let keyStack, let point = keyStack.lastTouch,
               let typed = letterKeys.first(where: { $0.letter == letter }) else { return letter }
         let neighbor = letterKeys.filter { $0.letter != letter }
             .map { (letter: $0.letter, distance: keyStack.distance(point, $0.button)) }
@@ -491,10 +508,11 @@ final class KeyStack: UIStackView {
     /// Where the latest touch went down, for typing correction.
     private(set) var lastTouch: CGPoint?
 
-    /// Fingers land below the key they aim at (traced: 3.2pt below the center on average, no
-    /// steady sideways offset); the system keyboard shifts touches the same way.
+    /// Where touches are counted from, relative to where they land. Traced touches landed 3-6pt
+    /// below key centers while our rows sat 4pt above the system keyboard's; with the rows where
+    /// the system puts them, the traced offset averages out to none.
     /// ponytail: one fixed shift; calibrate from the touch offsets traced with each key.
-    static let touchShift = CGVector(dx: 0, dy: -3.5)
+    static let touchShift = CGVector(dx: 0, dy: 0)
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)

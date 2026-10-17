@@ -11,6 +11,8 @@ struct SettingsView: View {
     @State private var preferences = LanguagePreferences.load()
     @State private var choosingSetup = !LanguagePreferences.isConfigured
     @State private var text = ""
+    /// `-focusTry` (debug launches): opens the keyboard in the try field, for screenshots.
+    @FocusState private var trying: Bool
     @AppStorage(KeyFeedback.soundKey, store: LanguagePreferences.defaults) private var sound = true
     @AppStorage(KeyFeedback.hapticsKey, store: LanguagePreferences.defaults) private var haptics = true
 
@@ -55,11 +57,13 @@ struct SettingsView: View {
                 Section("써 보기") {
                     TextField("dkssudgktpdy / hello / kanjihenkan", text: $text, axis: .vertical)
                         .accessibilityIdentifier("tryField")
+                        .focused($trying)
                 }
             }
             .navigationTitle("한영일")
             .onChange(of: preferences) { $0.save() }
             .sheet(isPresented: $choosingSetup) { setupSheet }
+            .onAppear { trying = ProcessInfo.processInfo.arguments.contains("-focusTry") }
         }
     }
 
