@@ -90,6 +90,11 @@ final class KeyboardViewController: UIInputViewController {
     static let symbols: [Character: Character] = Dictionary(uniqueKeysWithValues: zip(
         "qwertyuiopasdfghjklzxcvbnm", "1234567890-/:;()₩&@.,?!'\"~"))
 
+    private static var keyCount = 0 // memory goes in the trace every 100 keys
+    /// Keyboards alive in this process (in the trace on APPEAR): iOS should free closed ones.
+    nonisolated(unsafe) private static var alive = 0
+    nonisolated(unsafe) private var counted = false
+    deinit { if counted { Self.alive -= 1 } }
     private static let bottomRow: Set = ["123", "🌐", "한あA", "space", ".", "return"]
 
     private func buildKeys() {
@@ -156,7 +161,8 @@ final class KeyboardViewController: UIInputViewController {
         switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
         sound = KeyFeedback.sound
         haptics = KeyFeedback.haptics
-        TraceLog.write("APPEAR \(TraceLog.footprint) \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
+        if !counted { counted = true; Self.alive += 1 }
+        TraceLog.write("APPEAR \(TraceLog.footprint) alive=\(Self.alive) \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
         session.activate(app: nil) // iOS doesn't tell a keyboard which app it's in
         // Apps can ask for a dark keyboard even in light mode (password fields, dark UIs).
         view.overrideUserInterfaceStyle = textDocumentProxy.keyboardAppearance == .dark ? .dark : .unspecified
@@ -358,7 +364,10 @@ final class KeyboardViewController: UIInputViewController {
         case "space":
             // Kana with romaji left over (てh) goes in as English on Space: its typo fix too.
             let leftover = session.lastTrace?.decision.language == .japanese && client.marked.contains(where: \.isASCII)
-            if let fix = suggestions.autocorrect ?? (leftover ? Suggestions.english(word: session.keys, model: heuristic.english).autocorrect : nil) {
+            // A word straight after . / @ : (README.md, a URL, an address) isn't one to correct.
+            let attached = textDocumentProxy.documentContextBeforeInput?.dropLast(client.marked.count).last
+                .map { $0.isPunctuation || $0.isSymbol } ?? false
+            if !attached, let fix = suggestions.autocorrect ?? (leftover ? Suggestions.english(word: session.keys, model: heuristic.english).autocorrect : nil) {
                 TraceLog.write("AUTOCORRECT \(client.marked) → \(fix)")
                 replaceWord(with: fix)
             }
@@ -381,7 +390,8 @@ final class KeyboardViewController: UIInputViewController {
             key = c.isLetter ? .letter(c) : .printable(c)
             if shifted { tap("⇧") } // one-shot shift
         }
-        TraceLog.write("KEY \(title) \(key)")
+        Self.keyCount += 1
+        TraceLog.write("KEY \(title) \(key)" + (Self.keyCount % 100 == 0 ? " #\(Self.keyCount) \(TraceLog.footprint)" : ""))
         (converter as? AzooKeyConverter)?.forgetNextWords() // a commit by this key brings new ones
         if !session.handle(key, client: client) {
             TraceLog.write("  passToApp")

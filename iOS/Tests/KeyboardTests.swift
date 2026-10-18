@@ -154,14 +154,32 @@ final class KeyboardTests: XCTestCase {
         XCTAssertNil(client.text(in: NSRange(location: 1, length: Int.max)))
     }
 
-    func testConvertsKanjiWithSpace() throws {
+    func azooKey() throws -> AzooKeyConverter {
         // DerivedData/Build/Products/<config>/REAKeyboardTests.xctest → DerivedData/SourcePackages
         let derived = Bundle(for: Self.self).bundleURL.deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()
         let dictionary = derived.appendingPathComponent("SourcePackages/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/Dictionary")
         let memory = FileManager.default.temporaryDirectory.appendingPathComponent("rea-azookey")
+        return try XCTUnwrap(AzooKeyConverter(dictionary: dictionary, memory: memory))
+    }
+
+    /// Misses from the 1000-character run on the iPhone (UITests/Corpus.swift).
+    func testCorpusMisses() throws {
+        // The iPhone's order.
+        let session = KeyboardViewController.makeSession(converter: try azooKey(), preferences: LanguagePreferences(order: [.korean, .japanese, .english]))
+        let proxy = FakeProxy(), client = ProxyClient(proxy: proxy)
+        session.activate(app: nil)
+        for (keys, _) in corpus.prefix(6) { type(keys, into: session, client) }
+        let before = proxy.text
+        type("The keyboard ", into: session, client)
+        XCTAssertEqual(String(proxy.text.dropFirst(before.count)), "The keyboard ", "a capitalized English word after Korean")
+        XCTAssertNil(Suggestions.korean(word: "버그를", keys: "qjrmfmf", model: KoreanModel()).autocorrect, "loanword + particle")
+        XCTAssertEqual(Suggestions.korean(word: "짐행한다", keys: "wlagodgksek", model: KoreanModel()).autocorrect, "진행한다")
+    }
+
+    func testConvertsKanjiWithSpace() throws {
         let start = footprintMB()
-        let converter = try XCTUnwrap(AzooKeyConverter(dictionary: dictionary, memory: memory))
+        let converter = try azooKey()
         let session = KeyboardViewController.makeSession(converter: converter, preferences: Self.all)
         let proxy = FakeProxy(), client = ProxyClient(proxy: proxy)
         session.activate(app: nil)
@@ -258,9 +276,11 @@ final class KeyboardTests: XCTestCase {
     func testControllerDropsKeysOffScreen() {
         let start = footprintMB()
         weak var button: UIView?
+        weak var controller: KeyboardViewController?
         for _ in 0..<20 {
             autoreleasepool {
                 let keyboard = KeyboardViewController()
+                controller = keyboard
                 let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 237))
                 window.rootViewController = keyboard
                 window.makeKeyAndVisible()
@@ -272,6 +292,7 @@ final class KeyboardTests: XCTestCase {
             }
         }
         XCTAssertNil(button, "keys kept off screen")
+        XCTAssertNil(controller, "a closed keyboard is freed")
         print("REA memory: 20 keyboards ≈ \(footprintMB() - start) MB")
     }
 

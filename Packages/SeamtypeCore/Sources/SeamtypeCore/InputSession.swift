@@ -1008,9 +1008,11 @@ public final class InputSession {
     /// Whether `decision` may replace the reading on screen: when it's confident, when it's
     /// a dictionary English word (which is what Space/Return will commit), or when a Strict app
     /// kept a short token English: there the typed letters win over a reading shown along the
-    /// way (gs showed ㅎㄴ, but gst stays gst).
+    /// way (gs showed ㅎㄴ, but gst stays gst). Only a close second is held: Th showed てぇ, and
+    /// The (Korean against English, kana far behind) went in as 手ェ.
     private func isWeakFlipAllowed(to decision: Decision, from shown: Language) -> Bool {
         decision.confidence >= Self.previewFlipConfidence
+            || (decision.runnerUp != nil && decision.runnerUp != shown)
             || (decision.language == .english && (keptEnglishByStrict || EnglishModel.shared.isKnownWord(keys)))
             || preview(as: shown) == nil
     }

@@ -163,6 +163,8 @@ public final class HeuristicEngine: DecisionEngine, @unchecked Sendable {
             // 해, 애), so they stay English unless the previous word was Korean.
             if keys.count == 2, english.isCommonWord(keys) { floor = koreanKnownFloor.short + 0.1 }
             if (english.level(keys) ?? 0) > EnglishModel.extraLevel { floor -= rareWordFloorPenalty }
+            // Capitalized (The, To): a sentence starting, not ㅆ쏟 or 쌔 typed with Shift.
+            if keys.first!.isUppercase, keys.dropFirst().allSatisfy(\.isLowercase) { floor = max(floor, -1.4) }
             e = max(e, floor)
         }
         if keys.contains(where: { !$0.isLetter }) { e -= 3 } // "ra-men", "kan'i" aren't English

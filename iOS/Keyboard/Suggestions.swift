@@ -57,10 +57,12 @@ struct Suggestions: Equatable {
     }
 
     static func korean(word: String, keys: String, model: KoreanModel) -> Suggestions {
-        // iOS's lexicon knows words our lists miss (눌려 was "fixed" to 물려): a word it can
-        // complete is a word, not a typo.
-        let completions = complete(word, language: "ko_KR")
-        guard word.count >= 2, !model.isVocabularyWord(word), completions.isEmpty,
+        // iOS's lexicon knows words our lists miss (눌려 was "fixed" to 물려, 버그를 to 버스를):
+        // a word it can complete, or completes to itself, is a word, not a typo.
+        let range = NSRange(location: 0, length: (word as NSString).length)
+        let known = checker.completions(forPartialWordRange: range, in: word, language: "ko_KR") ?? []
+        let completions = Array(known.filter { $0 != word }.prefix(2))
+        guard word.count >= 2, !model.isVocabularyWord(word), known.isEmpty,
               HangulComposer.compose(keys: keys)?.isBroken == false else { return Suggestions(words: completions) }
         // Fixes ranked: a word seen in real text first, then by how common its syllables are.
         let fixes = Set(oneSlip(keys).compactMap { HangulComposer.compose(keys: $0)?.text })

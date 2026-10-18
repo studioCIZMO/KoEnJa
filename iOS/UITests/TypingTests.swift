@@ -59,15 +59,27 @@ final class TypingTests: XCTestCase {
 
     /// Letters as keys; " " is space, "⏎" return, "⌫" delete, "⇧" shift, "※" the 한あA key.
     func type(_ keys: String) {
+        var numbers = false
         for c in keys {
+            // Digits and symbols are on the letter keys in 123 mode, which stays until 123 again.
+            if let key = Self.symbolKeys[c] {
+                if !numbers { tap("123"); numbers = true }
+                tap(String(key))
+                continue
+            }
+            if numbers, c.isLetter { tap("123"); numbers = false }
             switch c {
             case " ": tap("space")
             case "⏎": tap("return")
             case "※": tap("한あA")
+            case _ where c.isUppercase: tap("⇧"); tap(c.lowercased())
             default: tap(String(c))
             }
         }
+        if numbers { tap("123") }
     }
+
+    static let symbolKeys = Dictionary(uniqueKeysWithValues: zip("1234567890-/:;()₩&@,?!'\"~", "qwertyuiopasdfghjklxcvbnm"))
 
     /// The field's text (an empty field reports its placeholder).
     var text: String {
@@ -111,5 +123,35 @@ final class TypingTests: XCTestCase {
         sleep(1)
         print("TYPING switch key: go ※ → [\(text.dropFirst(before.count))]")
         XCTAssertTrue(["해 ", "ご "].contains(String(text.dropFirst(before.count))), "switch key")
+    }
+
+    func testMixedSentences() {
+        check("dhsmf meetingdptj designdmf reviewgoTek ", "오늘 meeting에서 design을 review했다 ", "Korean + English")
+        check("sksms Swiftfh appdmf aksemsek ", "나는 Swift로 app을 만든다 ", "Korean + capitalized English")
+        check("toukyouniikimasu⏎", "東京に行きます", "Japanese sentence")
+        check("kinou email wo okutta⏎", "昨日email を送った", "Japanese + English, spaces typed")
+        check("kinouemailwookutta⏎", "昨日emailを送った", "Japanese + English, no spaces")
+    }
+
+    /// Sentences of all kinds (UITests/Corpus.swift): reports, chat, code, URLs, Japanese
+    /// with English. Each goes after the last; a miss doesn't stop the run.
+    func testCorpus() { typeAll(corpus) }
+    /// Texts the user pasted (UITests/Pasted.swift): a Korean security checklist, Japanese prose.
+    func testPastedKorean() { typeAll(pastedKorean) }
+    func testPastedJapanese() { typeAll(pastedJapanese) }
+
+    func typeAll(_ corpus: [(String, String)]) {
+        var misses = 0, chars = 0
+        for (keys, expected) in corpus {
+            let before = text
+            type(keys)
+            sleep(1)
+            let added = String(text.dropFirst(before.count))
+            chars += expected.count
+            if added != expected { misses += 1; print("TYPING MISS: \(keys) → [\(added)] expected [\(expected)]") }
+            else { print("TYPING ok: [\(added)]") }
+        }
+        print("TYPING corpus: \(corpus.count - misses)/\(corpus.count) sentences, \(chars) characters, field \(text.count)")
+        XCTAssertEqual(misses, 0)
     }
 }
