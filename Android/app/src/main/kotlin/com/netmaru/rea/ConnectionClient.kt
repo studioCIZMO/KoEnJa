@@ -34,14 +34,12 @@ class ConnectionClient(private val connection: () -> InputConnection?) : TextCli
     }
 
     override fun setMarkedText(text: String, replacing: TextRange) = edit {
-        replaceMarked("")
         deleteBack(replacing)
         setMarkedText(text)
     }
 
     override fun insertText(text: String, replacing: TextRange?) = edit {
         if (replacing != null) {
-            replaceMarked("")
             deleteBack(replacing)
             connection()?.commitText(text, 1)
         } else {
@@ -88,8 +86,13 @@ class ConnectionClient(private val connection: () -> InputConnection?) : TextCli
         ic.endBatchEdit()
     }
 
+    /** Deletes [range], which ends at the cursor, the word being composed included (3じ before 3時):
+     *  measured before the word goes, which shortens the text it's measured in. */
     private fun deleteBack(range: TextRange) {
-        text(range)?.let { connection()?.deleteSurroundingText(it.length, 0) }
+        val length = text(range)?.length ?: 0
+        val word = marked.length
+        replaceMarked("")
+        if (length > word) connection()?.deleteSurroundingText(length - word, 0)
     }
 
     private fun edit(block: () -> Unit) {

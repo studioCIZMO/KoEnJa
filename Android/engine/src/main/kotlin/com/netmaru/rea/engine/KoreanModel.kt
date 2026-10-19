@@ -82,12 +82,12 @@ class KoreanModel {
         const val CHAT_JAMO = "ㅋㅎㅠㅜㄷㅇㄱㅅㅂㄴ"
 
         /** Words seen in Korean sentences (Data/korean_words.txt, Tatoeba): 나는, 무슨, 내가… */
-        private val corpusWords: Set<String> by lazy {
-            Resources.lines("korean_words.txt") { lines -> lines.map { it.substringBefore('\t') }.toHashSet() } ?: emptySet()
+        private val corpusWords: WordList by lazy {
+            WordList(Resources.lines("korean_words.txt") { lines -> lines.map { it.substringBefore('\t') }.toList() }.orEmpty())
         }
 
-        private val vocabulary: Set<String> by lazy {
-            Resources.lines("korean_vocabulary.txt") { it.toHashSet() } ?: emptySet()
+        private val vocabulary: WordList by lazy {
+            WordList(Resources.lines("korean_vocabulary.txt") { it.toList() }.orEmpty())
         }
 
         private fun corpusCounts(): Map<Char, Int>? = Resources.lines("korean_syllables.txt") { lines ->

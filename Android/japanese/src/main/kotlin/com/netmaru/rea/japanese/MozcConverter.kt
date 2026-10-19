@@ -2,10 +2,11 @@ package com.netmaru.rea.japanese
 
 import com.netmaru.rea.engine.ConversionCandidate
 import com.netmaru.rea.engine.JapaneseConverter
-import java.io.DataInputStream
 import java.io.File
 import java.io.InputStream
+import java.io.RandomAccessFile
 import java.nio.ByteBuffer
+import java.nio.channels.FileChannel
 import java.util.PriorityQueue
 import java.util.zip.GZIPInputStream
 
@@ -14,14 +15,36 @@ import java.util.zip.GZIPInputStream
  * words, Viterbi with word and connection costs, N-best by backward A*.
  *
  * [dictionary] opens mozc.dic.gz (the bundled resource by default; an Android asset works too).
- * It is read once, on the first [candidates] call (~0.15 s and ~55 MB of heap on a laptop JVM).
+ * It is read once, on the first [candidates] call or [load]. With [unpacked] it's unpacked there
+ * once (~53 MB) and memory-mapped: off the Java heap, only the pages lookups touch in memory, and
+ * later loads take milliseconds. Without it (or if that fails) it's unpacked onto the heap.
  * [learningFile] keeps committed words across launches ("reading\tsurface\tcount" lines); null = memory only.
  */
 class MozcConverter(
     private val dictionary: () -> InputStream = { MozcConverter::class.java.getResourceAsStream("/mozc.dic.gz")!! },
     private val learningFile: File? = null,
+    private val unpacked: File? = null,
 ) : JapaneseConverter {
-    private val dict by lazy { dictionary().use(::Dictionary) }
+    private val dict by lazy {
+        Dictionary(unpacked?.let { runCatching { mapped(it) }.getOrNull() }
+            ?: ByteBuffer.wrap(GZIPInputStream(dictionary(), 1 shl 16).use { it.readBytes() }))
+    }
+
+    private fun mapped(file: File): ByteBuffer {
+        if (!file.isFile) {
+            val temp = File(file.path + ".tmp") // a crash mid-write leaves no half dictionary
+            GZIPInputStream(dictionary(), 1 shl 16).use { input -> temp.outputStream().use { input.copyTo(it, 1 shl 16) } }
+            check(temp.renameTo(file))
+        }
+        return RandomAccessFile(file, "r").use { it.channel.map(FileChannel.MapMode.READ_ONLY, 0, it.length()) }
+    }
+
+    /** Loads the dictionary and what was learned, e.g. on a background thread before the first
+     *  Japanese word (safe: both load once, under a lock; lookups only read). */
+    fun load() {
+        dict
+        learned
+    }
 
     /** Learned "reading\tsurface" → times committed. */
     private val learned: MutableMap<String, Int> by lazy {
@@ -157,25 +180,29 @@ class MozcConverter(
             }
     }
 
-    private class Dictionary(input: InputStream) {
-        private val data = DataInputStream(GZIPInputStream(input, 1 shl 16))
-        private val size = data.readInt()
-        private val matrix = shorts(size * size)
-        val functional = BooleanArray(size).also { f -> bytes(size).forEachIndexed { i, b -> f[i] = b != 0.toByte() } }
-        private val readingCount = data.readInt()
-        private val entryCount = data.readInt()
-        private val readingCharCount = data.readInt()
-        private val surfaceCharCount = data.readInt()
-        private val readingChars = chars(readingCharCount)
-        private val readingStarts = ints(readingCount + 1)
-        private val entryStarts = ints(readingCount + 1)
-        private val lids = shorts(entryCount)
-        private val rids = shorts(entryCount)
-        private val costs = shorts(entryCount)
-        private val surfaceStarts = ints(entryCount + 1)
-        private val surfaceChars = chars(surfaceCharCount)
+    /** The dictionary file's sections, read in place (big-endian, as build.py writes them). */
+    private class Dictionary(private val data: ByteBuffer) {
+        private val size = data.getInt(0)
+        private var end = 4
+        private fun section(bytes: Int) = end.also { end += bytes }
+        private val matrix = section(2 * size * size)
+        val functional = section(size).let { at -> BooleanArray(size) { data.get(at + it) != 0.toByte() } }
+        private val counts = section(16)
+        private val readingCount = data.getInt(counts)
+        private val entryCount = data.getInt(counts + 4)
+        private val readingChars = section(2 * data.getInt(counts + 8))
+        private val readingStarts = section(4 * (readingCount + 1))
+        private val entryStarts = section(4 * (readingCount + 1))
+        private val lids = section(2 * entryCount)
+        private val rids = section(2 * entryCount)
+        private val costs = section(2 * entryCount)
+        private val surfaceStarts = section(4 * (entryCount + 1))
+        private val surfaceChars = section(2 * data.getInt(counts + 12))
 
-        fun connection(rid: Int, lid: Int) = matrix[rid * size + lid].toInt()
+        private fun readingStart(i: Int) = data.getInt(readingStarts + 4 * i)
+        private fun surfaceStart(e: Int) = data.getInt(surfaceStarts + 4 * e)
+
+        fun connection(rid: Int, lid: Int) = data.getShort(matrix + 2 * (rid * size + lid)).toInt()
 
         /** Calls [found] for every word whose reading is kana[start, end), end <= limit; surface null = the reading itself. */
         fun lookup(kana: String, start: Int, limit: Int, found: (end: Int, surface: String?, lid: Int, rid: Int, cost: Int) -> Unit) {
@@ -188,11 +215,12 @@ class MozcConverter(
                 lo = bound(lo, hi, k) { it >= c.code }
                 hi = bound(lo, hi, k) { it > c.code }
                 if (lo == hi) return
-                if (readingStarts[lo + 1] - readingStarts[lo] == k + 1) { // shorter readings sort first
-                    for (e in entryStarts[lo] until entryStarts[lo + 1]) {
-                        val from = surfaceStarts[e]
-                        val to = surfaceStarts[e + 1]
-                        found(end, if (from == to) null else String(surfaceChars, from, to - from), lids[e].toInt(), rids[e].toInt(), costs[e].toInt())
+                if (readingStart(lo + 1) - readingStart(lo) == k + 1) { // shorter readings sort first
+                    for (e in data.getInt(entryStarts + 4 * lo) until data.getInt(entryStarts + 4 * (lo + 1))) {
+                        val from = surfaceStart(e)
+                        val to = surfaceStart(e + 1)
+                        val surface = if (from == to) null else String(CharArray(to - from) { data.getChar(surfaceChars + 2 * (from + it)) })
+                        found(end, surface, data.getShort(lids + 2 * e).toInt(), data.getShort(rids + 2 * e).toInt(), data.getShort(costs + 2 * e).toInt())
                     }
                 }
             }
@@ -204,17 +232,12 @@ class MozcConverter(
             var b = hi
             while (a < b) {
                 val m = (a + b) ushr 1
-                val s = readingStarts[m]
-                val ch = if (readingStarts[m + 1] - s > k) readingChars[s + k].code else -1
+                val s = readingStart(m)
+                val ch = if (readingStart(m + 1) - s > k) data.getChar(readingChars + 2 * (s + k)).code else -1
                 if (past(ch)) b = m else a = m + 1
             }
             return a
         }
-
-        private fun bytes(count: Int) = ByteArray(count).also(data::readFully)
-        private fun shorts(count: Int) = ShortArray(count).also { ByteBuffer.wrap(bytes(count * 2)).asShortBuffer().get(it) }
-        private fun ints(count: Int) = IntArray(count).also { ByteBuffer.wrap(bytes(count * 4)).asIntBuffer().get(it) }
-        private fun chars(count: Int) = CharArray(count).also { ByteBuffer.wrap(bytes(count * 2)).asCharBuffer().get(it) }
     }
 
     private companion object {

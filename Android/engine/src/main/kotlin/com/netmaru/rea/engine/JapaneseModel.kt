@@ -75,8 +75,6 @@ class JapaneseModel private constructor(
         private const val END = '$'.code
 
         val shared: JapaneseModel? by lazy { load("kana_trigrams.txt") }
-        /** The same kind of model over written Japanese (kanji + kana), for reranking conversions. */
-        val text: JapaneseModel? by lazy { load("text_trigrams.txt") }
 
         private fun Float.orZero() = if (isNaN()) 0f else this
         private fun key(c: Int) = c.toLong()

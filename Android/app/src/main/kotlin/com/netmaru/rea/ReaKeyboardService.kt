@@ -17,14 +17,15 @@ class ReaKeyboardService : InputMethodService() {
     override fun onCreateInputView() = KeyboardView(this, typist).also { keyboard = it }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        // The app restarted the field (its text may be new) without onFinishInputView: the word stays as typed.
+        if (restarting) typist.finish()
         typist.start(Prefs.of(this))
         keyboard?.start(Prefs.of(this))
     }
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
-        typist.selectionChanged()
-        keyboard?.refreshCandidates()
+        if (typist.selectionChanged()) keyboard?.refreshCandidates()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {

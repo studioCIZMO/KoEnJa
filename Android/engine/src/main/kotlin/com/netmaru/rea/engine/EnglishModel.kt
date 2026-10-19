@@ -14,12 +14,14 @@ class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null) {
     // Symbols: 0 = word boundary, 1...26 = a...z
     private val trigrams = FloatArray(SYMBOLS * SYMBOLS * SYMBOLS)
     private val contexts = FloatArray(SYMBOLS * SYMBOLS)
-    /** SCOWL level of each word (lowercase, letters only). */
-    private val levels = HashMap<String, Int>(raw.size * 2)
+    /** The words (lowercase, letters only) and each one's SCOWL level. */
+    private val words: WordList
+    private val levels: ByteArray
     private val smoothing = 0.5f
 
     init {
         val n = SYMBOLS
+        val levels = HashMap<String, Int>(raw.size * 2)
         for ((rawWord, level) in raw) {
             val word = rawWord.filter { it != '\'' }
             if (word.isEmpty() || !word.all { it.isAsciiLetter }) continue
@@ -34,9 +36,12 @@ class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null) {
                 contexts[codes[i - 2] * n + codes[i - 1]] += 1f
             }
         }
+        words = WordList(levels.keys)
+        this.levels = ByteArray(words.size)
+        for ((word, level) in levels) this.levels[words.indexOf(word)] = level.toByte()
     }
 
-    val wordCount get() = levels.size
+    private fun levelOf(word: String) = words.indexOf(word).takeIf { it >= 0 }?.let { levels[it].toInt() }
 
     /** Average natural-log probability per symbol (letters + end marker).
      *  Real English words land around -1.8…-2.4; keyboard mash around -3.5 or lower. */
@@ -56,9 +61,9 @@ class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null) {
     /** The word's level, also for regular inflections of a listed word (null: not a word). */
     fun level(token: String): Int? {
         val w = token.lowercase().filter { it != '\'' }
-        levels[w]?.let { return it }
+        levelOf(w)?.let { return it }
         var best: Int? = null
-        fun consider(stem: String) { levels[stem]?.let { l -> best = min(best ?: l, l) } }
+        fun consider(stem: String) { levelOf(stem)?.let { l -> best = min(best ?: l, l) } }
         // Stems of 3+ letters: ths isn't the+s, ehs isn't eh+s.
         for (suffix in listOf("s", "es", "ed", "d", "ing", "ly", "er", "ers", "est")) {
             if (w.length <= suffix.length + 2 || !w.endsWith(suffix)) continue
@@ -142,6 +147,45 @@ class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null) {
             wouldn couldn shouldn didn doesn isn wasn weren hasn haven hadn needn mustn aren mightn
             makeup brooklyn shakespeare einstein techno pesto americano cosmo promo garde kanji kana romaji ramen
         """)
+    }
+}
+
+/** Words sorted in one CharArray, for binary search: an IME can't spare a HashSet's ~80 bytes a word. */
+internal class WordList(words: Collection<String>) {
+    private val chars: CharArray
+    private val starts: IntArray
+
+    init {
+        val sorted = words.toSortedSet()
+        starts = IntArray(sorted.size + 1)
+        sorted.forEachIndexed { i, word -> starts[i + 1] = starts[i] + word.length }
+        chars = CharArray(starts[sorted.size])
+        sorted.forEachIndexed { i, word -> word.toCharArray(chars, starts[i]) }
+    }
+
+    val size get() = starts.size - 1
+
+    operator fun contains(word: String) = indexOf(word) >= 0
+
+    /** The word's place in sorted order, -1 if it isn't there. */
+    fun indexOf(word: String): Int {
+        var lo = 0
+        var hi = size - 1
+        while (lo <= hi) {
+            val mid = (lo + hi) ushr 1
+            val start = starts[mid]
+            val length = starts[mid + 1] - start
+            var order = length - word.length
+            for (k in 0 until minOf(length, word.length)) {
+                if (chars[start + k] != word[k]) { order = chars[start + k] - word[k]; break }
+            }
+            when {
+                order < 0 -> lo = mid + 1
+                order > 0 -> hi = mid - 1
+                else -> return mid
+            }
+        }
+        return -1
     }
 }
 

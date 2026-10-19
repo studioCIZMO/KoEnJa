@@ -8,6 +8,7 @@ import com.netmaru.rea.engine.InputSession
 import com.netmaru.rea.engine.SplittingEngine
 import com.netmaru.rea.japanese.MozcConverter
 import java.io.File
+import kotlin.concurrent.thread
 import com.netmaru.rea.engine.Language
 
 /** What the keys type; shift and 123 are the keyboard's own. */
@@ -30,7 +31,7 @@ class Typist(private val service: InputMethodService) {
     private lateinit var session: InputSession
     /** The settings the session was built for. */
     private var built: String? = null
-    /** Kept across rebuilds; its dictionary (~55 MB) loads on the first Japanese word. */
+    /** Kept across rebuilds; its dictionary is memory-mapped, loaded off the main thread. */
     private var mozc: MozcConverter? = null
     private val splitter get() = session.engine.base as SplittingEngine
     private var suggestions = Suggestions()
@@ -46,7 +47,9 @@ class Typist(private val service: InputMethodService) {
         if (settings != built) {
             built = settings
             val converter = if (Language.JAPANESE in order) {
-                mozc ?: MozcConverter(learningFile = File(service.filesDir, "mozc-learning.txt")).also { mozc = it }
+                // codeCacheDir: the unpacked dictionary is dropped when the app (and its dictionary) updates
+                mozc ?: MozcConverter(learningFile = File(service.filesDir, "mozc-learning.txt"), unpacked = File(service.codeCacheDir, "mozc.dic"))
+                    .also { mozc = it; thread { runCatching(it::load) } }
             } else null
             session = Engines.makeSession(order, converter, liveConversion = options[3], returnConfirmsOnly = options[0],
                 fullWidthDigits = options[1], fullWidthSpace = options[2], learningFile = File(service.filesDir, "learning.txt"))
@@ -59,15 +62,17 @@ class Typist(private val service: InputMethodService) {
     fun finish() {
         if (built == null) return
         session.commit(client)
-        mozc?.save()
+        runCatching { mozc?.save() } // a full disk loses the learning, not the keyboard
         refresh()
     }
 
-    /** The app moved the cursor (or the text changed under it): the next key starts afresh there. */
-    fun selectionChanged() {
-        if (built == null || !client.resetIfMovedAway()) return
+    /** The app moved the cursor (or the text changed under it): the next key starts afresh there.
+     *  Whether that changed the candidates. */
+    fun selectionChanged(): Boolean {
+        if (built == null || !client.resetIfMovedAway()) return false
         session.commitForNewContext(null)
         refresh()
+        return true
     }
 
     fun tap(key: Key) {

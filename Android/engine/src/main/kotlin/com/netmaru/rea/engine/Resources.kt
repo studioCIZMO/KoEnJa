@@ -5,7 +5,7 @@ import java.io.InputStream
 
 /**
  * Where the models' data files (Packages/SeamtypeCore/Sources/SeamtypeCore/Data) come from:
- * english_words.txt, kana_trigrams.txt, text_trigrams.txt, korean_words.txt,
+ * english_words.txt, kana_trigrams.txt, korean_words.txt,
  * korean_vocabulary.txt, korean_syllables.txt. Set [open] before the first model loads
  * (the app points it at its assets); by default it reads the directory named by the
  * `rea.data` system property (the engine's tests set it to the source tree).
