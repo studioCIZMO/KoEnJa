@@ -4,4 +4,4 @@ dependencies {
     implementation(project(":engine"))
     testImplementation(kotlin("test"))
 }
-tasks.test { useJUnitPlatform() }
+tasks.test { useJUnitPlatform(); testLogging.showStandardStreams = true }
