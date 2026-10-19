@@ -2,10 +2,10 @@ package com.netmaru.rea
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.netmaru.rea.engine.Language
 
-enum class Language(val label: String, val mark: String) {
-    KOREAN("한국어", "한"), JAPANESE("日本語", "あ"), ENGLISH("English", "A")
-}
+val Language.label get() = mapOf(Language.KOREAN to "한국어", Language.JAPANESE to "日本語").getOrElse(this) { "English" }
+val Language.mark get() = mapOf(Language.KOREAN to "한", Language.JAPANESE to "あ").getOrElse(this) { "A" }
 
 /** The settings the app writes and the keyboard reads (the iOS app's keys and defaults). */
 object Prefs {
@@ -32,7 +32,7 @@ object Prefs {
     /** The switch key's label: the enabled languages in order (한あA, あA…). */
     fun switchLabel(p: SharedPreferences) = order(p).joinToString("") { it.mark }
 
-    /** Seamtype's input options, then key feedback: key, label, default. */
+    /** Seamtype's input options (Typist reads them in this order), then key feedback: key, label, default. */
     val options = listOf(
         Triple("returnConfirmsOnly", "Return은 입력 중인 단어만 확정", true),
         Triple("fullWidthDigits", "일본어 뒤 숫자를 전각으로 (１２３)", false),

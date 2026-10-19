@@ -152,11 +152,13 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 if (keys.isEmpty()) return true
-                val key = KeyLayout.nearest(keys, e.getX(i) / density, e.getY(i) / density)
+                val x = e.getX(i) / density
+                val y = e.getY(i) / density
+                val key = KeyLayout.nearest(keys, x, y)
                 pressed[e.getPointerId(i)] = key
                 feedback(key.id)
                 if (isCharacter(key.id)) showPopup(key)
-                tap(key.id)
+                tap(key.id, x, y)
                 if (key.id == "⌫") { removeCallbacks(repeatDelete); postDelayed(repeatDelete, 400) }
                 invalidate()
             }
@@ -203,7 +205,8 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         if (haptics) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    private fun tap(id: String) {
+    /** [x], [y]: where the key was touched, for typing correction. */
+    private fun tap(id: String, x: Float = 0f, y: Float = 0f) {
         when (id) {
             "⇧" -> shifted = !shifted
             "123" -> { numbers = !numbers; shifted = false }
@@ -213,15 +216,26 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
             "return" -> typist.tap(Key.Return)
             else -> {
                 val symbol = if (numbers) KeyLayout.symbols[id[0]] else null
-                typist.tap(Key.Char(symbol ?: if (shifted) id[0].uppercaseChar() else id[0]))
+                val letter = if (symbol == null && id[0].isLetter()) corrected(id[0], x, y) else id[0]
+                typist.tap(Key.Char(symbol ?: if (shifted) letter.uppercaseChar() else letter))
                 if (symbol == null) shifted = false // one-shot shift
             }
         }
         refreshCandidates()
     }
 
+    /** A touch near the edge of a letter key: the typist decides whether the neighbor was meant
+     *  (within a quarter key past the gap, as on iOS). */
+    private fun corrected(letter: Char, x: Float, y: Float): Char {
+        val typed = keys.first { it.id == letter.toString() }
+        val neighbor = keys.filter { it.id.length == 1 && it.id[0].isLetter() && it !== typed }.minBy { it.distance(x, y) }
+        if (neighbor.distance(x, y) >= KeyLayout.GAP + typed.w * 0.25f) return letter
+        fun case(c: Char) = if (shifted) c.uppercaseChar() else c
+        return typist.corrected(case(letter), case(neighbor.id[0])).lowercaseChar()
+    }
+
     /** The typist's words; a tap picks one. */
-    private fun refreshCandidates() {
+    fun refreshCandidates() {
         candidateRow.removeAllViews()
         typist.candidates.forEachIndexed { index, candidate ->
             candidateRow.addView(TextView(context).apply {

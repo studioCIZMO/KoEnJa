@@ -1,6 +1,14 @@
 package com.netmaru.rea
 
+import android.content.SharedPreferences
 import android.inputmethodservice.InputMethodService
+import com.netmaru.rea.engine.Engines
+import com.netmaru.rea.engine.HangulComposer
+import com.netmaru.rea.engine.InputSession
+import com.netmaru.rea.engine.SplittingEngine
+import com.netmaru.rea.japanese.MozcConverter
+import java.io.File
+import com.netmaru.rea.engine.Language
 
 /** What the keys type; shift and 123 are the keyboard's own. */
 sealed interface Key {
@@ -15,31 +23,165 @@ sealed interface Key {
 /** A word in the bar above the keys; `selected` is highlighted (the one Space/Return takes). */
 data class Candidate(val text: String, val selected: Boolean = false)
 
-/** The seam between the keyboard view and the text: phase 2 puts the engine's InputSession
- *  behind it (with an InputConnection-backed TextClient); the view doesn't change. */
-interface Typist {
-    fun tap(key: Key)
-    val candidates: List<Candidate>
-    fun choose(index: Int)
-    /** The field is going away or the cursor moved: finish the word being typed. */
-    fun finish()
-}
+/** The engine behind the keys (iOS KeyboardViewController's tap/refreshCandidates/replaceWord):
+ *  an InputSession typing through a ConnectionClient, plus autocorrect and the candidate bar. */
+class Typist(private val service: InputMethodService) {
+    private val client = ConnectionClient { service.currentInputConnection }
+    private lateinit var session: InputSession
+    /** The settings the session was built for. */
+    private var built: String? = null
+    /** Kept across rebuilds; its dictionary (~55 MB) loads on the first Japanese word. */
+    private var mozc: MozcConverter? = null
+    private val splitter get() = session.engine.base as SplittingEngine
+    private var suggestions = Suggestions()
+    private var actions = emptyList<() -> Unit>()
+    var candidates = emptyList<Candidate>()
+        private set
 
-/** Phase 1: every key goes straight to the app. */
-class PassthroughTypist(private val service: InputMethodService) : Typist {
-    override fun tap(key: Key) {
+    /** The keyboard comes up: a new field. Rebuilds the session if the settings changed in the app. */
+    fun start(prefs: SharedPreferences) {
+        val order = Prefs.order(prefs)
+        val options = Prefs.options.map { (key, _, default) -> prefs.getBoolean(key, default) }
+        val settings = "$order $options"
+        if (settings != built) {
+            built = settings
+            val converter = if (Language.JAPANESE in order) {
+                mozc ?: MozcConverter(learningFile = File(service.filesDir, "mozc-learning.txt")).also { mozc = it }
+            } else null
+            session = Engines.makeSession(order, converter, liveConversion = options[3], returnConfirmsOnly = options[0],
+                fullWidthDigits = options[1], fullWidthSpace = options[2], learningFile = File(service.filesDir, "learning.txt"))
+        }
+        session.activate()
+        refresh()
+    }
+
+    /** The field is going away: the word stays as typed. */
+    fun finish() {
+        if (built == null) return
+        session.commit(client)
+        mozc?.save()
+        refresh()
+    }
+
+    /** The app moved the cursor (or the text changed under it): the next key starts afresh there. */
+    fun selectionChanged() {
+        if (built == null || !client.resetIfMovedAway()) return
+        session.commitForNewContext(null)
+        refresh()
+    }
+
+    fun tap(key: Key) {
+        val engineKey = when (key) {
+            is Key.Char -> if (key.char.isLetter()) InputSession.Key.Letter(key.char) else InputSession.Key.Printable(key.char)
+            Key.Delete -> InputSession.Key.Delete
+            Key.Cycle -> InputSession.Key.Cycle
+            Key.Space -> {
+                autocorrect()
+                InputSession.Key.Printable(' ')
+            }
+            Key.Return -> {
+                // Japanese being typed: return takes the first candidate (highlighted), like the system keyboard.
+                session.typingCandidates.firstOrNull()?.let {
+                    session.choose(it, client)
+                    return refresh()
+                }
+                InputSession.Key.Enter
+            }
+        }
+        if (!session.handle(engineKey, client)) passToApp(engineKey)
+        refresh()
+    }
+
+    fun choose(index: Int) {
+        actions.getOrNull(index)?.invoke()
+        refresh()
+    }
+
+    /** A touch near a neighbor key mid-word: the neighbor wins when it makes the word much more
+     *  likely (fgem → fhem, 로드), as on iOS. ponytail: one key at a time, a fixed margin. */
+    fun corrected(typed: Char, neighbor: Char): Char {
+        val keys = session.keys
+        if (keys.isEmpty()) return typed
+        return if (plausibility(keys + neighbor) > plausibility(keys + typed) + 1.0) neighbor else typed
+    }
+
+    /** How likely the keys are as a word in any enabled language (average log-probability per key). */
+    private fun plausibility(keys: String) = listOfNotNull(
+        splitter.english.averageLogProbability(keys.lowercase()),
+        splitter.korean.score(keys, partial = true)?.averageLogProbability,
+        splitter.japanese?.japanese?.score(keys, partial = true)?.averageLogProbability,
+    ).maxOrNull() ?: Double.NEGATIVE_INFINITY
+
+    /** Space after a typo: the fix goes in first. Kana with romaji left over (てh) goes in as
+     *  English with its fix too; a word straight after . / @ : (README.md, a URL) isn't corrected. */
+    private fun autocorrect() {
+        val marked = client.marked
+        val leftover = session.lastTrace?.decision?.language == Language.JAPANESE && marked.any { it.code < 128 }
+        val attached = client.before()?.dropLast(marked.length)?.lastOrNull()?.let { !it.isLetterOrDigit() && !it.isWhitespace() } ?: false
+        if (attached) return
+        val fix = suggestions.autocorrect ?: if (leftover) Suggestions.english(session.keys, splitter.english).autocorrect else null
+        fix?.let(::replaceWord)
+    }
+
+    /** What the app does with a key the session didn't take. */
+    private fun passToApp(key: InputSession.Key) {
         val ic = service.currentInputConnection ?: return
         when (key) {
-            is Key.Char -> ic.commitText(key.char.toString(), 1)
-            Key.Space -> ic.commitText(" ", 1)
-            Key.Delete -> if (ic.getSelectedText(0).isNullOrEmpty()) ic.deleteSurroundingTextInCodePoints(1, 0) else ic.commitText("", 1)
+            is InputSession.Key.Letter -> ic.commitText(key.ch.toString(), 1)
+            is InputSession.Key.Printable -> ic.commitText(key.ch.toString(), 1)
+            InputSession.Key.Delete ->
+                if (ic.getSelectedText(0).isNullOrEmpty()) ic.deleteSurroundingTextInCodePoints(1, 0) else ic.commitText("", 1)
             // the field's action (Go, Send…) if it has one, else a new line
-            Key.Return -> if (!service.sendDefaultEditorAction(true)) service.sendKeyChar('\n')
-            Key.Cycle -> {}
+            InputSession.Key.Enter -> if (!service.sendDefaultEditorAction(true)) service.sendKeyChar('\n')
+            else -> {}
         }
     }
 
-    override val candidates = emptyList<Candidate>()
-    override fun choose(index: Int) {}
-    override fun finish() {}
+    /** Kanji candidates while typing Japanese or converting (the selected one highlighted),
+     *  else Korean/English fixes for the word: the word as typed first, then the fixes. */
+    private fun refresh() {
+        val list = mutableListOf<Pair<Candidate, () -> Unit>>()
+        suggestions = Suggestions()
+        if (built != null) {
+            val conversion = session.conversion
+            val kanji = conversion?.candidates ?: session.typingCandidates.take(30)
+            kanji.forEachIndexed { index, candidate ->
+                list += Candidate(candidate.text, index == (conversion?.selected ?: 0)) to {
+                    if (conversion != null) session.choose(index, client) else session.choose(candidate, client)
+                }
+            }
+            val word = client.marked
+            val trace = session.lastTrace
+            if (kanji.isEmpty() && word.isNotEmpty() && trace != null && trace.keys == session.keys) {
+                var typed = word
+                when (trace.decision.language) {
+                    // the word in the language decided (the preview may still show another: てh for teh)
+                    Language.KOREAN -> {
+                        typed = HangulComposer.compose(session.keys)?.text ?: word
+                        suggestions = Suggestions.korean(typed, session.keys, splitter.korean)
+                    }
+                    Language.ENGLISH -> {
+                        typed = session.keys
+                        suggestions = Suggestions.english(typed, splitter.english)
+                    }
+                    else -> {}
+                }
+                if (suggestions.words.isNotEmpty()) {
+                    // a tap puts the word in with a space
+                    list += Candidate("“$typed”") to { replaceWord(typed); client.insertText(" ", null) }
+                    for (s in suggestions.words) list += Candidate(s, s == suggestions.autocorrect) to { replaceWord(s); client.insertText(" ", null) }
+                }
+            }
+        }
+        candidates = list.map { it.first }
+        actions = list.map { it.second }
+    }
+
+    /** Finish the session, replacing only the differing end of the displayed word. */
+    private fun replaceWord(text: String) {
+        if (client.marked.isEmpty() || client.before()?.endsWith(client.marked) != true) return
+        session.commit(null) // finish without replacing the displayed word with a new decision
+        session.commit(null) // and close the 한あA window on the word as typed
+        client.insertText(text, null)
+    }
 }
