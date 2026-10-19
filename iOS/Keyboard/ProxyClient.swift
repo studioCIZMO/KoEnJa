@@ -39,7 +39,6 @@ final class ProxyClient: TextClient {
 
     func setMarkedText(_ text: String, replacing range: NSRange) {
         TraceLog.write("setMarked [\(text)] replacing \(range) \(context)")
-        replaceMarked(with: "")
         deleteBack(range)
         setMarkedText(text)
     }
@@ -48,7 +47,6 @@ final class ProxyClient: TextClient {
         TraceLog.write("insert [\(text)] replacing \(range.map { "\($0)" } ?? "nil") \(context)")
         defer { TraceLog.write("  after \(context)") }
         if let range {
-            replaceMarked(with: "")
             deleteBack(range)
             proxy.insertText(text)
         } else {
@@ -106,9 +104,14 @@ final class ProxyClient: TextClient {
     }
 
     /// deleteBackward removes one character (grapheme) at a time.
+    /// Deletes `range`, which ends at the cursor, the word being composed included (3じ before 3時):
+    /// measured before the word goes, which shortens the text it's measured in (3ji gave 33時).
     private func deleteBack(_ range: NSRange) {
-        guard let text = text(in: range) else { return TraceLog.write("  deleteBack \(range) NO TEXT \(context)") }
+        let text = text(in: range)
+        let word = marked.count
+        replaceMarked(with: "")
+        guard let text else { return TraceLog.write("  deleteBack \(range) NO TEXT \(context)") }
         TraceLog.write("  deleteBack \(text.count) [\(text)]")
-        for _ in 0..<text.count { proxy.deleteBackward() }
+        for _ in 0..<max(text.count - word, 0) { proxy.deleteBackward() }
     }
 }

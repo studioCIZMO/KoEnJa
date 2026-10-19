@@ -173,6 +173,11 @@ final class KeyboardTests: XCTestCase {
         let before = proxy.text
         type("The keyboard ", into: session, client)
         XCTAssertEqual(String(proxy.text.dropFirst(before.count)), "The keyboard ", "a capitalized English word after Korean")
+        // A number before a Japanese word goes in with it, once (3ji gave 33時).
+        proxy.text = ""; session.commitForNewContext(client: nil)
+        type("nihongo", into: session, client); session.commit(client: client)
+        type("3ji ", into: session, client); session.commit(client: client)
+        XCTAssertTrue(proxy.text.contains("3時") && !proxy.text.contains("33"), proxy.text)
         XCTAssertNil(Suggestions.korean(word: "버그를", keys: "qjrmfmf", model: KoreanModel()).autocorrect, "loanword + particle")
         XCTAssertEqual(Suggestions.korean(word: "짐행한다", keys: "wlagodgksek", model: KoreanModel()).autocorrect, "진행한다")
     }
