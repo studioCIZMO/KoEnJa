@@ -40,7 +40,7 @@ struct LanguagePreferences: Equatable {
     /// ponytail: hand-picked; tune on held-out mixed text once there is some.
     static let rankStep = 0.3
 
-    static let defaults = UserDefaults(suiteName: "group.com.netmaru.rea")
+    static let defaults = UserDefaults(suiteName: "group.com.cizmo.koenja")
     private static let key = "languages"
 
     static var isConfigured: Bool { defaults?.array(forKey: key) != nil }

@@ -2,7 +2,7 @@ import Foundation
 
 /// Debug builds only: what the keyboard did, one line per event, in its own Library/trace.log
 /// (the App Group needs Full Access), to compare with what the app showed. Pull it with
-/// `xcrun devicectl device copy from --domain-type appDataContainer --domain-identifier com.netmaru.rea.keyboard`.
+/// `xcrun devicectl device copy from --domain-type appDataContainer --domain-identifier com.cizmo.koenja.keyboard`.
 enum TraceLog {
     #if DEBUG
     private static let url: URL? = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask).first?

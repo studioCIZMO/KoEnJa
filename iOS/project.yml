@@ -1,6 +1,6 @@
 name: REA
 options:
-  bundleIdPrefix: com.netmaru.rea
+  bundleIdPrefix: com.cizmo.koenja
   deploymentTarget: { iOS: "16.0" }
 packages:
   SeamtypeCore: { path: ../Packages/SeamtypeCore }
@@ -8,7 +8,7 @@ settings:
   base:
     SWIFT_VERSION: "5"
     CODE_SIGN_STYLE: Automatic
-    DEVELOPMENT_TEAM: 5V9JS5722P
+    DEVELOPMENT_TEAM: N723QM4R64
 targets:
   REA:
     type: application
@@ -16,8 +16,8 @@ targets:
     sources: [App, Shared]
     entitlements:
       path: App/REA.entitlements
-      properties: { com.apple.security.application-groups: [group.com.netmaru.rea] }
-    settings: { base: { TARGETED_DEVICE_FAMILY: 1, PRODUCT_BUNDLE_IDENTIFIER: com.netmaru.rea, ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon } }
+      properties: { com.apple.security.application-groups: [group.com.cizmo.koenja] }
+    settings: { base: { TARGETED_DEVICE_FAMILY: 1, PRODUCT_BUNDLE_IDENTIFIER: com.cizmo.koenja, ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon } }
     dependencies:
       - target: REAKeyboard
     info:
@@ -33,8 +33,8 @@ targets:
     sources: [Keyboard, Shared]
     entitlements:
       path: Keyboard/REAKeyboard.entitlements
-      properties: { com.apple.security.application-groups: [group.com.netmaru.rea] }
-    settings: { base: { TARGETED_DEVICE_FAMILY: 1, PRODUCT_BUNDLE_IDENTIFIER: com.netmaru.rea.keyboard } } # iPhone only: layout not tuned for iPad
+      properties: { com.apple.security.application-groups: [group.com.cizmo.koenja] }
+    settings: { base: { TARGETED_DEVICE_FAMILY: 1, PRODUCT_BUNDLE_IDENTIFIER: com.cizmo.koenja.keyboard } } # iPhone only: layout not tuned for iPad
     postBuildScripts:
       # Models SeamtypeCore reads from Bundle.main.resourceURL (Resources.swift).
       - name: Copy language models
