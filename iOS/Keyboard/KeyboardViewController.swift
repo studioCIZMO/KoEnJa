@@ -172,6 +172,14 @@ final class KeyboardViewController: UIInputViewController {
         AttributedString(title, attributes: .init([.font: UIFont.systemFont(ofSize: size)]))
     }
 
+    /// The system holds touches near the screen's left and right edges (for its edge gestures)
+    /// before passing them on: q, a, p, l came late or were lost. Hamster turns it off the same way.
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        view.window?.gestureRecognizers?.forEach { $0.delaysTouchesBegan = false }
+        if haptics, hasFullAccess { Self.haptic.prepare() }
+    }
+
     override func textDidChange(_ textInput: UITextInput?) {
         TraceLog.write("textDidChange ctx=[\(textDocumentProxy.documentContextBeforeInput ?? "nil")] client.marked=[\(client.marked)]")
         documentChanged()
@@ -308,7 +316,10 @@ final class KeyboardViewController: UIInputViewController {
             // played off the main thread: azooKey found it sometimes came out very loud otherwise
             Task.detached { AudioServicesPlaySystemSound(id) }
         }
-        if haptics, hasFullAccess { Self.haptic.impactOccurred(intensity: 0.7) }
+        if haptics, hasFullAccess {
+            Self.haptic.impactOccurred(intensity: 0.7)
+            Self.haptic.prepare() // ready for the next key: an unprepared tap comes late
+        }
     }
 
     /// Delete repeats while held: after 0.4s, every 0.1s (azooKey's timing).
@@ -363,6 +374,7 @@ final class KeyboardViewController: UIInputViewController {
         case "⌫": key = .delete
         case "한あA": key = .cycle // always a switch key, unlike Esc (AppPolicy.standardSwitchKeys)
         case "space":
+            flushCandidates()
             // Kana with romaji left over (てh) goes in as English on Space: its typo fix too.
             let leftover = session.lastTrace?.decision.language == .japanese && client.marked.contains(where: \.isASCII)
             // A word straight after . / @ : (README.md, a URL, an address) isn't one to correct.
@@ -399,6 +411,28 @@ final class KeyboardViewController: UIInputViewController {
             passToApp(key)
         }
         if let trace = session.lastTrace { TraceLog.write("  decided \(trace.decision.language) [\(trace.keys)] \(trace.decision.explanation)") }
+        scheduleCandidates()
+    }
+
+    /// The bar waits for a pause in typing: building it (kanji conversion, the spell checker, up
+    /// to 30 buttons) took up to 0.5s a key in Japanese and held up the next touch. The marked
+    /// text still changes on each key. HeliBoard waits 100ms the same way.
+    /// ponytail: a fixed delay; move the conversion off the main thread if pauses still stutter.
+    private var pendingCandidates: DispatchWorkItem?
+    private static let candidateDelay = 0.08
+
+    private func scheduleCandidates() {
+        pendingCandidates?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.flushCandidates() }
+        pendingCandidates = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.candidateDelay, execute: work)
+    }
+
+    /// The bar for the keys typed so far, now (Space autocorrects from it).
+    private func flushCandidates() {
+        guard let work = pendingCandidates else { return }
+        work.cancel()
+        pendingCandidates = nil
         let start = CACurrentMediaTime()
         refreshCandidates()
         TraceLog.write(String(format: "  bar %.1fms %d", (CACurrentMediaTime() - start) * 1000, candidateRow.arrangedSubviews.count))
@@ -451,6 +485,8 @@ final class KeyboardViewController: UIInputViewController {
     /// Kanji candidates: while typing Japanese (tap one to pick it), after Space (the selected
     /// one highlighted; Space moves on), and after a commit what usually comes next (東京 → で).
     private func refreshCandidates() {
+        pendingCandidates?.cancel()
+        pendingCandidates = nil
         candidateRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
         let conversion = session.conversion
         let candidates = conversion?.candidates ?? Array(session.typingCandidates.prefix(30))
@@ -519,6 +555,7 @@ final class KeyboardViewController: UIInputViewController {
         config.baseBackgroundColor = .label
         let button = UIButton(configuration: config)
         button.addAction(UIAction { [unowned self] _ in
+            guard pendingCandidates == nil else { return flushCandidates() }
             action()
             refreshCandidates()
         }, for: .touchUpInside)
