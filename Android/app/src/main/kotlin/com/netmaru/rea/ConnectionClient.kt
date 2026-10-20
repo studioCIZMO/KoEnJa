@@ -29,16 +29,17 @@ class ConnectionClient(private val connection: () -> InputConnection?) : TextCli
     }
 
     override fun setMarkedText(text: String) {
+        if (text == marked) return // unchanged: nothing to send
         replaceMarked(text, typingOn = true)
         marked = text
     }
 
-    override fun setMarkedText(text: String, replacing: TextRange) = edit {
+    override fun setMarkedText(text: String, replacing: TextRange) = batch {
         deleteBack(replacing)
         setMarkedText(text)
     }
 
-    override fun insertText(text: String, replacing: TextRange?) = edit {
+    override fun insertText(text: String, replacing: TextRange?) = batch {
         if (replacing != null) {
             deleteBack(replacing)
             connection()?.commitText(text, 1)
@@ -95,7 +96,8 @@ class ConnectionClient(private val connection: () -> InputConnection?) : TextCli
         if (length > word) connection()?.deleteSurroundingText(length - word, 0)
     }
 
-    private fun edit(block: () -> Unit) {
+    /** Edits the app sees as one change (one key's). */
+    fun batch(block: () -> Unit) {
         val ic = connection()
         ic?.beginBatchEdit()
         block()

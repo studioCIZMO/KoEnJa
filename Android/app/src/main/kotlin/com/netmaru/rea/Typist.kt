@@ -2,6 +2,10 @@ package com.netmaru.rea
 
 import android.content.SharedPreferences
 import android.inputmethodservice.InputMethodService
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
+import android.util.Log
 import com.netmaru.rea.engine.Engines
 import com.netmaru.rea.engine.HangulComposer
 import com.netmaru.rea.engine.InputSession
@@ -38,6 +42,12 @@ class Typist(private val service: InputMethodService) {
     private var actions = emptyList<() -> Unit>()
     var candidates = emptyList<Candidate>()
         private set
+    /** Told when [candidates] change after a key (the bar). */
+    var onCandidates: () -> Unit = {}
+    /** A key came after the candidates were made: they're for an earlier word. */
+    private var stale = false
+    private val handler = Handler(Looper.getMainLooper())
+    private val refreshLater = Runnable { refresh(); onCandidates() }
 
     /** The keyboard comes up: a new field. Rebuilds the session if the settings changed in the app. */
     fun start(prefs: SharedPreferences) {
@@ -75,7 +85,13 @@ class Typist(private val service: InputMethodService) {
         return true
     }
 
+    /** The text changes now, in one batch; the candidates once typing pauses. */
     fun tap(key: Key) {
+        client.batch { type(key) }
+        refreshSoon()
+    }
+
+    private fun type(key: Key) {
         val engineKey = when (key) {
             is Key.Char -> if (key.char.isLetter()) InputSession.Key.Letter(key.char) else InputSession.Key.Printable(key.char)
             Key.Delete -> InputSession.Key.Delete
@@ -88,16 +104,16 @@ class Typist(private val service: InputMethodService) {
                 // Japanese being typed: return takes the first candidate (highlighted), like the system keyboard.
                 session.typingCandidates.firstOrNull()?.let {
                     session.choose(it, client)
-                    return refresh()
+                    return
                 }
                 InputSession.Key.Enter
             }
         }
         if (!session.handle(engineKey, client)) passToApp(engineKey)
-        refresh()
     }
 
     fun choose(index: Int) {
+        if (stale) return refresh() // tapped a bar that's about to change
         actions.getOrNull(index)?.invoke()
         refresh()
     }
@@ -120,6 +136,7 @@ class Typist(private val service: InputMethodService) {
     /** Space after a typo: the fix goes in first. Kana with romaji left over (てh) goes in as
      *  English with its fix too; a word straight after . / @ : (README.md, a URL) isn't corrected. */
     private fun autocorrect() {
+        if (stale) refresh()
         val marked = client.marked
         val leftover = session.lastTrace?.decision?.language == Language.JAPANESE && marked.any { it.code < 128 }
         val attached = client.before()?.dropLast(marked.length)?.lastOrNull()?.let { !it.isLetterOrDigit() && !it.isWhitespace() } ?: false
@@ -142,9 +159,20 @@ class Typist(private val service: InputMethodService) {
         }
     }
 
+    /** Candidates once keys stop for 80ms (HeliBoard waits 100): a fast run of keys only types.
+     *  On the main thread, as the session isn't thread-safe; a newer key cancels the wait. */
+    private fun refreshSoon() {
+        stale = true
+        handler.removeCallbacks(refreshLater)
+        handler.postDelayed(refreshLater, 80)
+    }
+
     /** Kanji candidates while typing Japanese or converting (the selected one highlighted),
      *  else Korean/English fixes for the word: the word as typed first, then the fixes. */
     private fun refresh() {
+        val start = SystemClock.elapsedRealtimeNanos()
+        handler.removeCallbacks(refreshLater)
+        stale = false
         val list = mutableListOf<Pair<Candidate, () -> Unit>>()
         suggestions = Suggestions()
         if (built != null) {
@@ -180,6 +208,7 @@ class Typist(private val service: InputMethodService) {
         }
         candidates = list.map { it.first }
         actions = list.map { it.second }
+        if (TRACE) Log.d("REA", "candidates ${list.size} ${(SystemClock.elapsedRealtimeNanos() - start) / 1000}us")
     }
 
     /** Finish the session, replacing only the differing end of the displayed word. */

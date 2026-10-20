@@ -1,5 +1,6 @@
 package com.netmaru.rea
 
+import android.content.pm.ApplicationInfo
 import android.inputmethodservice.InputMethodService
 import android.view.inputmethod.EditorInfo
 import com.netmaru.rea.engine.Resources
@@ -10,6 +11,7 @@ class ReaKeyboardService : InputMethodService() {
 
     override fun onCreate() {
         super.onCreate()
+        TRACE = applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0
         // the engine's word lists and trigrams, packaged as assets
         Resources.open = { name -> runCatching { assets.open(name) }.getOrNull() }
     }
@@ -34,3 +36,6 @@ class ReaKeyboardService : InputMethodService() {
         super.onFinishInputView(finishingInput)
     }
 }
+
+/** Debug builds log per-key and candidate timings (tag REA) to compare on devices. */
+var TRACE = false

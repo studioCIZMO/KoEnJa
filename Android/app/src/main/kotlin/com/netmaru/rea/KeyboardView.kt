@@ -10,6 +10,8 @@ import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.media.AudioManager
 import android.os.Build
+import android.os.SystemClock
+import android.util.Log
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
@@ -42,6 +44,8 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
     private var switchLabel = ""
     private var sound = true
     private var haptics = true
+    /** The ringer allows key clicks; read when the keyboard comes up, not per key (a binder call). */
+    private var ringer = true
     private val audio = context.getSystemService(AudioManager::class.java)
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER }
@@ -58,8 +62,10 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         gravity = Gravity.CENTER
         background = GradientDrawable().apply { setColor(keyColor); cornerRadius = 8 * density }
         elevation = 2 * density
-        visibility = GONE
+        visibility = INVISIBLE // not GONE: showing it then doesn't lay the keyboard out again
     }
+    /** The candidates on the bar, to rebuild it only when they change. */
+    private var shown = emptyList<Candidate>()
 
     init {
         setWillNotDraw(false)
@@ -68,7 +74,8 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         addView(bar, LayoutParams(LayoutParams.MATCH_PARENT, (KeyLayout.BAR_HEIGHT * density).toInt()).apply {
             leftMargin = margin; rightMargin = margin
         })
-        addView(popup)
+        addView(popup, LayoutParams(0, (48 * density).toInt()))
+        typist.onCandidates = ::refreshCandidates
     }
 
     /** The keyboard comes up: settings may have changed in the app. */
@@ -76,6 +83,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         switchLabel = Prefs.switchLabel(prefs)
         sound = prefs.getBoolean("keySound", true)
         haptics = prefs.getBoolean("keyHaptics", true)
+        ringer = audio.ringerMode == AudioManager.RINGER_MODE_NORMAL
         shifted = false
         numbers = false
         refreshCandidates()
@@ -85,7 +93,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
     fun stop() {
         pressed.clear()
         removeCallbacks(repeatDelete)
-        popup.visibility = GONE
+        popup.visibility = INVISIBLE
         refreshCandidates()
     }
 
@@ -152,6 +160,8 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         when (e.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 if (keys.isEmpty()) return true
+                val start = SystemClock.uptimeMillis()
+                val startNanos = SystemClock.elapsedRealtimeNanos()
                 val x = e.getX(i) / density
                 val y = e.getY(i) / density
                 val key = KeyLayout.nearest(keys, x, y)
@@ -161,6 +171,8 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
                 tap(key.id, x, y)
                 if (key.id == "⌫") { removeCallbacks(repeatDelete); postDelayed(repeatDelete, 400) }
                 invalidate()
+                // handle: touch-down to keys done; lag: the touch's age when it reached us
+                if (TRACE) Log.d("REA", "key ${key.id} handle ${(SystemClock.elapsedRealtimeNanos() - startNanos) / 1000}us lag ${start - e.eventTime}ms")
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> release(e.getPointerId(i))
             MotionEvent.ACTION_CANCEL -> pressed.keys.toList().forEach(::release)
@@ -171,7 +183,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
     private fun release(pointer: Int) {
         val key = pressed.remove(pointer) ?: return
         if (key.id == "⌫") removeCallbacks(repeatDelete)
-        if (popup.tag == key) popup.visibility = GONE
+        if (popup.tag == key) popup.visibility = INVISIBLE
         invalidate()
     }
 
@@ -182,21 +194,21 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         postDelayed(repeatDelete, 100)
     }
 
-    /** The pressed character, enlarged above the key, as on the system keyboard. */
+    /** The pressed character, enlarged above the key, as on the system keyboard. Moved, not laid
+     *  out (a fixed size, resized only for a wider key): a key press redraws, it doesn't re-layout. */
     private fun showPopup(key: KeyFrame) {
         val w = key.w + 16
         popup.tag = key
         popup.text = title(key.id)
-        popup.layoutParams = LayoutParams((w * density).toInt(), (48 * density).toInt()).apply {
-            leftMargin = ((key.midX - w / 2).coerceIn(2f, this@KeyboardView.width / density - w - 2) * density).toInt()
-            topMargin = (maxOf(key.y - 52, 0f) * density).toInt()
-        }
+        if (popup.layoutParams.width != (w * density).toInt()) popup.layoutParams = LayoutParams((w * density).toInt(), (48 * density).toInt())
+        popup.translationX = (key.midX - w / 2).coerceIn(2f, width / density - w - 2) * density
+        popup.translationY = maxOf(key.y - 52, 0f) * density
         popup.visibility = VISIBLE
     }
 
     /** The system's click sounds (silent unless the ringer is on) and a light tap, on touch-down. */
     private fun feedback(id: String) {
-        if (sound && audio.ringerMode == AudioManager.RINGER_MODE_NORMAL) audio.playSoundEffect(when (id) {
+        if (sound && ringer) audio.playSoundEffect(when (id) {
             "⌫" -> AudioManager.FX_KEYPRESS_DELETE
             "space" -> AudioManager.FX_KEYPRESS_SPACEBAR
             "return" -> AudioManager.FX_KEYPRESS_RETURN
@@ -221,7 +233,6 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
                 if (symbol == null) shifted = false // one-shot shift
             }
         }
-        refreshCandidates()
     }
 
     /** A touch near the edge of a letter key: the typist decides whether the neighbor was meant
@@ -234,8 +245,10 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         return typist.corrected(case(letter), case(neighbor.id[0])).lowercaseChar()
     }
 
-    /** The typist's words; a tap picks one. */
+    /** The typist's words; a tap picks one. Unchanged words (most keys) leave the bar alone. */
     fun refreshCandidates() {
+        if (typist.candidates == shown) return
+        shown = typist.candidates
         candidateRow.removeAllViews()
         typist.candidates.forEachIndexed { index, candidate ->
             candidateRow.addView(TextView(context).apply {
