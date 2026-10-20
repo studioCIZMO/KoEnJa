@@ -67,6 +67,14 @@ struct SettingsView: View {
                     Button("설정 열기") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
                 }
                 if !Self.screenshot { trySection }
+                Section {
+                    NavigationLink("오픈소스 라이선스") {
+                        ScrollView {
+                            Text(Self.licenses).font(.caption.monospaced()).textSelection(.enabled).padding()
+                        }
+                        .navigationTitle("오픈소스 라이선스")
+                    }
+                }
             }
             .navigationTitle("한영일")
             .onChange(of: preferences) { $0.save() }
@@ -74,6 +82,9 @@ struct SettingsView: View {
             .onAppear { trying = Self.screenshot }
         }
     }
+
+    private static let licenses = Bundle.main.url(forResource: "Licenses", withExtension: "txt")
+        .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
 
     private static let screenshot = ProcessInfo.processInfo.arguments.contains("-focusTry")
 
