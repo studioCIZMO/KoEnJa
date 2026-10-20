@@ -949,8 +949,18 @@ class InputSession(
             if (shown != null && shown != language && keys.length > 1 && !isWeakFlipAllowed(decision, shown)) {
                 language = shown
             }
-            previewLanguage = language
             enginePreview = language
+            // The first letters of an English word often read as kana for a key or two (u is う
+            // before up, ta is た before table, ch is ちゃ before chair). Outside Japanese text
+            // they stay as typed until the kana are near-certain (ka, wa) or the word is longer:
+            // letters are neutral, a flip that flips back looks wrong. Only what's shown: Space
+            // still commits what the engine read.
+            if (language == Language.JAPANESE && keys.length <= SHORT_PREFIX_LENGTH &&
+                (shown ?: Language.ENGLISH) == Language.ENGLISH && previousLanguage?.sentenceLanguage != Language.JAPANESE &&
+                decision.confidence < SHORT_PREFIX_FLIP_CONFIDENCE) {
+                language = Language.ENGLISH
+            }
+            previewLanguage = language
             show(if (language == Language.JAPANESE) japaneseDisplay() else preview(language) ?: keys, client)
         }
     }
@@ -1176,6 +1186,10 @@ class InputSession(
 
         /** The preview only switches language mid-word when the new reading is at least this likely. */
         const val PREVIEW_FLIP_CONFIDENCE = 0.7
+
+        /** Up to this many keys, the preview only turns Latin letters into kana at this confidence. */
+        const val SHORT_PREFIX_LENGTH = 3
+        const val SHORT_PREFIX_FLIP_CONFIDENCE = 0.99
 
         /** What a number reading is made of: digits and the punctuation inside numbers, either width. */
         val numberCharacters = "0123456789０１２３４５６７８９－．，／：-.,/:".toSet()

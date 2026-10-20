@@ -1037,8 +1037,18 @@ public final class InputSession {
             if let shown = previewLanguage, shown != language, keys.count > 1, !isWeakFlipAllowed(to: decision, from: shown) {
                 language = shown
             }
-            previewLanguage = language
             enginePreview = language
+            // The first letters of an English word often read as kana for a key or two (u is う
+            // before up, ta is た before table, ch is ちゃ before chair). Outside Japanese text
+            // they stay as typed until the kana are near-certain (ka, wa) or the word is longer:
+            // letters are neutral, a flip that flips back looks wrong. Only what's shown: Space
+            // still commits what the engine read.
+            if language == .japanese, keys.count <= Self.shortPrefixLength,
+               previewLanguage ?? .english == .english, previousLanguage?.sentenceLanguage != .japanese,
+               decision.confidence < Self.shortPrefixFlipConfidence {
+                language = .english
+            }
+            previewLanguage = language
             show(language == .japanese ? japaneseDisplay() : preview(as: language) ?? keys, client)
         }
     }
@@ -1133,6 +1143,9 @@ public final class InputSession {
 
     /// The preview only switches language mid-word when the new reading is at least this likely.
     static let previewFlipConfidence = 0.7
+    /// Up to this many keys, the preview only turns Latin letters into kana at this confidence.
+    static let shortPrefixLength = 3
+    static let shortPrefixFlipConfidence = 0.99
 
     /// The word so far rendered in `language`, or nil when it has no such reading.
     private func preview(as language: Language) -> String? {

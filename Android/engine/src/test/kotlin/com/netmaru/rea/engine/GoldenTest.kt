@@ -83,5 +83,27 @@ class GoldenTest {
         assertEquals(expected.size, passed, "golden mismatches")
     }
 
+    /** Previews as SeamtypeCore shows them (ko-ja-en): an English word's first letters stay letters. */
+    @Test
+    fun shortPrefixesStayLetters() {
+        val cases = mapOf(
+            "up" to "u → up",
+            "table" to "t → ta → tab → tabl → table",
+            "chairs" to "c → ch → cha → ちゃい → chair → chairs",
+            "watashi" to "w → わ → わt → わた → わたs → わたsh → わたし",
+        )
+        for ((keys, want) in cases) {
+            val s = session(listOf(Language.KOREAN, Language.JAPANESE, Language.ENGLISH))
+            val field = Field()
+            val shown = ArrayList<String>()
+            for (c in keys) {
+                s.handle(InputSession.Key.Letter(c), field)
+                val marked = field.text.substring(field.marked.location)
+                if (shown.lastOrNull() != marked) shown.add(marked)
+            }
+            assertEquals(want, shown.joinToString(" → "), keys)
+        }
+    }
+
     private fun resource(name: String) = javaClass.getResource("/$name")!!.readText()
 }
