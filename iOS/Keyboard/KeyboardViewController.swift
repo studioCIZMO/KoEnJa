@@ -252,7 +252,8 @@ final class KeyboardViewController: UIInputViewController {
             // down before this one is up) dropped and reordered keys (안되었다 came in as 안뇠다).
             // ponytail: no slide-off to cancel.
             button.addAction(UIAction { [unowned self, unowned button] _ in
-                if let o = keyStack?.offset(of: button) { TraceLog.write(String(format: "TOUCH %@ %.1f %.1f", title, o.dx, o.dy)) }
+                if let o = keyStack?.offset(of: button) { TraceLog.write(String(format: "TOUCH %@ %.1f %.1f lag=%.0fms", title, o.dx, o.dy,
+                                                                                        (ProcessInfo.processInfo.systemUptime - (keyStack?.lastTouchTime ?? 0)) * 1000)) }
                 feedback(title)
                 if isCharacter { showPopup(over: button) }
                 tap(title)
@@ -398,7 +399,9 @@ final class KeyboardViewController: UIInputViewController {
             passToApp(key)
         }
         if let trace = session.lastTrace { TraceLog.write("  decided \(trace.decision.language) [\(trace.keys)] \(trace.decision.explanation)") }
+        let start = CACurrentMediaTime()
         refreshCandidates()
+        TraceLog.write(String(format: "  bar %.1fms %d", (CACurrentMediaTime() - start) * 1000, candidateRow.arrangedSubviews.count))
     }
 
     /// What the app would do with a key the session didn't take.
@@ -529,6 +532,8 @@ final class KeyStack: UIStackView {
     var keys: [UIButton] = []
     /// Where the latest touch went down, for typing correction.
     private(set) var lastTouch: CGPoint?
+    /// When the latest touch happened (system uptime), to trace how long it waited for us.
+    private(set) var lastTouchTime: TimeInterval?
 
     /// Where touches are counted from, relative to where they land. Traced touches landed 3-6pt
     /// below key centers while our rows sat 4pt above the system keyboard's; with the rows where
@@ -544,6 +549,7 @@ final class KeyStack: UIStackView {
               hit?.isDescendant(of: bar) == false else { return hit }
         let shifted = CGPoint(x: point.x + Self.touchShift.dx, y: point.y + Self.touchShift.dy)
         lastTouch = shifted
+        lastTouchTime = event?.timestamp
         guard let nearest = keys.min(by: { distance(shifted, $0) < distance(shifted, $1) }),
               distance(shifted, nearest) < 12 else { return hit }
         if nearest !== hit { TraceLog.write("NEAR \(nearest.accessibilityLabel ?? "") (was \((hit as? UIButton)?.accessibilityLabel ?? "gap"))") }
