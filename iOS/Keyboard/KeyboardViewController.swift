@@ -163,6 +163,9 @@ final class KeyboardViewController: UIInputViewController {
         haptics = KeyFeedback.haptics
         if !counted { counted = true; Self.alive += 1 }
         TraceLog.write("APPEAR \(TraceLog.footprint) alive=\(Self.alive) \(current.order.map(\.rawValue)) host=\(textDocumentProxy.documentContextBeforeInput ?? "nil")")
+        // A word left composing when the last host went away without our disappear (the app was
+        // killed) would carry into this field: "안녕하세요" then "The" came out 쏱.
+        session.commitForNewContext(client: nil)
         session.activate(app: nil) // iOS doesn't tell a keyboard which app it's in
         // Apps can ask for a dark keyboard even in light mode (password fields, dark UIs).
         view.overrideUserInterfaceStyle = textDocumentProxy.keyboardAppearance == .dark ? .dark : .unspecified

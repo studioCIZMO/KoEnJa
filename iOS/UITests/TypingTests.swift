@@ -140,6 +140,21 @@ final class TypingTests: XCTestCase {
     func testPastedKorean() { typeAll(pastedKorean) }
     func testPastedJapanese() { typeAll(pastedJapanese) }
 
+    /// App Store screenshots: a sentence, then a word left in the bar (its candidates showing).
+    func testScreenshotKorean() { shot("1-ko", "dhsmf meetingdptj designdmf reviewgoTek ", "go") }
+    func testScreenshotJapanese() { shot("2-ja", "kyouhaiitenkidesune⏎", "kaiginoshiryou") }
+    func testScreenshotEnglish() { shot("3-en", "The keyboard now matches the system layout. ", "dhsmf meetingdms ", "keyboa") }
+
+    func shot(_ name: String, _ keys: String...) {
+        type(String(repeating: "⌫", count: text.count)) // the field keeps the last run's text
+        keys.forEach(type)
+        sleep(2)
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     func typeAll(_ corpus: [(String, String)]) {
         var misses = 0, chars = 0
         for (keys, expected) in corpus {
