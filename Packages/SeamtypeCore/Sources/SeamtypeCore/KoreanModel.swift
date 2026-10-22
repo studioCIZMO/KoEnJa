@@ -67,17 +67,17 @@ public struct KoreanModel: Sendable {
     /// A word in the wider vocabulary (loanwords like 월드, 서버; 혜택), for English + Korean splits
     /// and the heuristic's Korean word floor.
     public func isVocabularyWord(_ hangul: String) -> Bool {
-        words.contains(hangul) || Self.vocabulary.contains(hangul)
+        words.contains(hangul) || Self.lists.vocabulary.contains(Self.hash(hangul)) // REA: hashes
     }
 
     /// A word the subtitles have fewer than `commonCount` times (촉매, twice): for the heuristic's
     /// Korean word floor only. The tail holds dialect and typos too (어뗘, 쓔벌, 꺼이), so it
     /// stays out of the splits and of `knowsSyllable`, which `EU정책` and `RJ이` rely on.
-    public func isRareVocabularyWord(_ hangul: String) -> Bool { Self.rareVocabulary.contains(hangul) }
+    public func isRareVocabularyWord(_ hangul: String) -> Bool { Self.lists.rare.contains(Self.hash(hangul)) } // REA: hashes
 
     /// A noun the lists only have with a case particle (혜택 from 혜택을, 혜택으로): they
     /// count words with their particles, so a bare noun can be missing from both.
-    public func isKnownStem(_ hangul: String) -> Bool { Self.stems.contains(hangul) }
+    public func isKnownStem(_ hangul: String) -> Bool { Self.lists.stems.contains(hangul) } // REA: lists
 
     /// Where `korean_vocabulary.txt` stops being `vocabulary`: the old 50k list's last count.
     static let commonCount = 10
@@ -89,9 +89,14 @@ public struct KoreanModel: Sendable {
         ("에", nil), ("의", nil), ("도", nil), ("에서", nil), ("만", nil),
     ]
 
-    private static let stems: Set<String> = {
-        var stems = Set<String>()
-        for word in corpusWords.union(vocabulary).union(rareVocabulary) {
+    // REA: korean_vocabulary.txt (245k lines) read once, straight from its bytes, into what the
+    // lookups need, the words as 64-bit hashes: Sets of the words themselves, their counts and
+    // the text cost the iOS keyboard (killed near 70 MB) some 20 MB. Upstream has `stems`,
+    // `vocabulary`, `rareVocabulary`, `vocabularyCounts` and `listSyllables` instead.
+    // ponytail: a word off the list hashing onto one on it is a 1 in 10^14 chance per lookup.
+    private static let lists: (vocabulary: Set<UInt64>, rare: Set<UInt64>, stems: Set<String>, syllables: Set<Character>) = {
+        var vocabulary = Set<UInt64>(), rare = Set<UInt64>(), stems = Set<String>(), syllables = Set<Character>()
+        func addStems(_ word: String) {
             for (particle, final) in particles where word.hasSuffix(particle) {
                 let stem = word.dropLast(particle.count)
                 guard stem.count >= 2, let last = stem.last?.unicodeScalars.first?.value,
@@ -100,20 +105,33 @@ public struct KoreanModel: Sendable {
                 if final == nil || final == hasFinal { stems.insert(String(stem)) }
             }
         }
-        return stems
-    }()
-
-    private static let vocabulary = Set(vocabularyCounts.filter { $0.count >= commonCount }.map(\.word))
-    private static let rareVocabulary = Set(vocabularyCounts.filter { $0.count < commonCount }.map(\.word))
-
-    private static let vocabularyCounts: [(word: String, count: Int)] = {
-        guard let url = Resources.koreanVocabulary, let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return text.split(whereSeparator: \.isNewline).compactMap {
-            let parts = $0.split(separator: "\t")
-            guard parts.count == 2, let n = Int(parts[1]) else { return nil }
-            return (String(parts[0]), n)
+        for word in corpusWords { addStems(word); syllables.formUnion(word) }
+        guard let url = Resources.koreanVocabulary, let data = try? Data(contentsOf: url) else { return (vocabulary, rare, stems, syllables) }
+        data.withUnsafeBytes { bytes in
+            var start = 0
+            while start < bytes.count {
+                let end = bytes[start...].firstIndex(of: 10) ?? bytes.count
+                let line = bytes[start..<end]
+                start = end + 1
+                guard let tab = line.firstIndex(of: 9), tab > line.startIndex,
+                      let n = Int(String(decoding: line[(tab + 1)...], as: UTF8.self)) else { continue }
+                let word = String(decoding: line[..<tab], as: UTF8.self)
+                addStems(word)
+                if n >= commonCount {
+                    vocabulary.insert(hash(word))
+                    syllables.formUnion(word)
+                } else {
+                    rare.insert(hash(word))
+                }
+            }
         }
+        return (vocabulary, rare, stems, syllables)
     }()
+
+    /// REA: FNV-1a of the UTF-8, the same on every launch (`Hasher` isn't).
+    private static func hash(_ word: String) -> UInt64 {
+        word.utf8.reduce(0xcbf2_9ce4_8422_2325) { ($0 ^ UInt64($1)) &* 0x100_0000_01b3 }
+    }
 
     private static let corpusWords: Set<String> = {
         guard let url = Resources.koreanWords, let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
@@ -138,15 +156,8 @@ public struct KoreanModel: Sendable {
     /// (삐, 쪄, 뾰, 쭈 are; 뗘, 쎠, 쓔 aren't). Rarer than `unknownSyllableLogP` still means
     /// someone typed it.
     public func knowsSyllable(_ syllable: Character) -> Bool {
-        tiers[syllable] != nil || Self.listSyllables.contains(syllable)
+        tiers[syllable] != nil || Self.lists.syllables.contains(syllable) // REA: lists
     }
-
-    private static let listSyllables: Set<Character> = {
-        var set = Set<Character>()
-        for word in vocabulary { set.formUnion(word) }
-        for word in corpusWords { set.formUnion(word) }
-        return set
-    }()
 
     /// - Parameter partial: the token is still being typed, so a trailing lone
     ///   consonant is expected rather than penalized.

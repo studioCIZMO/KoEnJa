@@ -10,8 +10,8 @@ public final class EnglishModel: @unchecked Sendable {
     /// SCOWL level of each word (lowercase, letters only).
     private let levels: [String: Int]
     /// The levels a guessed inflection may take from its stem: the list's own, not `commonWords`
-    /// (nil: `levels`).
-    private let stemLevels: [String: Int]?
+    /// (nil: `levels`). REA: only the words `commonWords` changed (nil inside: not listed).
+    private let stemLevels: [String: Int?]?
     private let smoothing: Float = 0.5
 
     /// Words up to this level count as English words (a score floor, protection from kana).
@@ -38,11 +38,11 @@ public final class EnglishModel: @unchecked Sendable {
             }
         }
         if levels.isEmpty { NSLog("Araso: English word list missing (%@)", listURL?.path ?? "nil") }
-        let listed = levels
-        for word in extraWords { levels[word.lowercased()] = min(levels[word.lowercased()] ?? Self.extraLevel, Self.extraLevel) }
+        // REA: the extra words go in in init(levels:), not into a copy of the 119k-word list kept as
+        // its own levels (+7 MB at the iOS keyboard's launch; it is killed near 70 MB).
         let spelling = spellingPath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
             .split(whereSeparator: \.isNewline).map { $0.lowercased() }
-        self.init(levels: levels, spelling: spelling.map { $0 + extraWords }, stems: listed)
+        self.init(levels: levels, spelling: spelling.map { $0 + extraWords }, extraWords: extraWords)
     }
 
     /// For tests: these words at a middle level.
@@ -50,7 +50,7 @@ public final class EnglishModel: @unchecked Sendable {
         self.init(levels: Dictionary(list.map { ($0.lowercased(), Self.extraLevel) }, uniquingKeysWith: min))
     }
 
-    public init(levels raw: [String: Int], spelling: [String]? = nil, stems: [String: Int]? = nil) {
+    public init(levels raw: [String: Int], spelling: [String]? = nil, extraWords: [String] = []) {
         let n = Self.symbols
         var tri = [Float](repeating: 0, count: n * n * n)
         var ctx = [Float](repeating: 0, count: n * n)
@@ -65,8 +65,14 @@ public final class EnglishModel: @unchecked Sendable {
             }
             return levels
         }
-        let levels = normalized(raw)
-        stemLevels = stems.map(normalized)
+        var levels = normalized(raw)
+        // REA: upstream normalizes the list with the extra words in and keeps a second copy without.
+        var listed: [String: Int?] = [:]
+        for word in normalized(Dictionary(extraWords.map { ($0.lowercased(), Self.extraLevel) }, uniquingKeysWith: min)).keys {
+            listed[word] = levels[word]
+            levels[word] = min(levels[word] ?? Self.extraLevel, Self.extraLevel)
+        }
+        stemLevels = extraWords.isEmpty ? nil : listed
         for word in spelling ?? Array(levels.keys) where !word.isEmpty && word.allSatisfy({ $0.isASCII && $0.isLetter }) {
             let codes = Self.encode(word)
             for i in 2..<codes.count {
@@ -116,7 +122,8 @@ public final class EnglishModel: @unchecked Sendable {
         // list itself ranks above its rarest known level: thru (50, and 35 only as one of
         // `commonWords`) + s is no word, and thrus is 소견.
         func consider(_ stem: String) {
-            if let l = (stemLevels ?? levels)[stem], l < Self.knownLevel { best = min(best ?? l, l) }
+            // REA: stemLevels holds only the words `commonWords` changed.
+            if let l = stemLevels?[stem] ?? levels[stem], l < Self.knownLevel { best = min(best ?? l, l) }
         }
         // Stems of 3+ letters: ths isn't the+s, ehs isn't eh+s.
         for suffix in ["s", "es", "ed", "d", "ing", "ly", "er", "ers", "est"] where w.count > suffix.count + 2 && w.hasSuffix(suffix) {
