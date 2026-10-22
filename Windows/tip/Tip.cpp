@@ -193,8 +193,8 @@ static std::shared_ptr<rea::JapaneseConverter> makeConverter() {
     }
 }
 
-/** The engine's languages, most used first, as in the golden test. */
-static std::unique_ptr<InputSession> makeSession() {
+/** The engine over [order], the user's languages most used first. */
+static std::unique_ptr<InputSession> makeSession(const std::vector<rea::Language>& order) {
     static const bool located = [] {
         wchar_t path[MAX_PATH];
         GetModuleFileNameW(module, path, MAX_PATH);
@@ -202,22 +202,86 @@ static std::unique_ptr<InputSession> makeSession() {
         return true;
     }();
     (void)located;
-    using rea::Language;
-    return rea::Engines::makeSession({Language::KOREAN, Language::ENGLISH, Language::JAPANESE}, makeConverter());
+    return rea::Engines::makeSession(order, makeConverter());
 }
 
-/** The switch key picked in KoEnJaSettings (HKCU\Software\KoEnJa\SwitchKey; these names). */
-enum class Switch { RightAlt, LeftCtrl, Hangul, Henkan, CtrlShift, ShiftSpace, CtrlSpace };
-static const wchar_t* const SWITCH_NAMES[] = {L"RightAlt", L"LeftCtrl", L"Hangul", L"Henkan", L"CtrlShift", L"ShiftSpace", L"CtrlSpace"};
 static const wchar_t SETTINGS_KEY[] = L"Software\\KoEnJa";
 
-static Switch readSwitch() {
+/** The physical keyboard (HKCU\Software\KoEnJa\KeyboardType "Korean" or "JIS"): a US-style
+ *  101/103 (Korean) or a Japanese 106/109. Unset: what Windows says is plugged in. */
+enum class Keyboard { Korean, JIS };
+
+static Keyboard readKeyboard() {
+    wchar_t name[16];
+    DWORD size = sizeof name;
+    if (!RegGetValueW(HKEY_CURRENT_USER, SETTINGS_KEY, L"KeyboardType", RRF_RT_REG_SZ, nullptr, name, &size))
+        return _wcsicmp(name, L"JIS") ? Keyboard::Korean : Keyboard::JIS;
+    DWORD type = 0, bytes = sizeof type; // Windows' hardware keyboard setting; GetKeyboardType follows the thread's layout
+    RegGetValueW(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\Services\\i8042prt\\Parameters", L"OverrideKeyboardType", RRF_RT_REG_DWORD,
+                 nullptr, &type, &bytes);
+    return (type ? type : GetKeyboardType(0)) == 7 ? Keyboard::JIS : Keyboard::Korean;
+}
+
+/** The switch key picked in KoEnJaSettings (HKCU\Software\KoEnJa\SwitchKey; these names). Unset:
+ *  right Alt (한/영) on a Korean keyboard, 無変換 on a Japanese one. */
+enum class Switch { RightAlt, LeftCtrl, Hangul, Henkan, Muhenkan, CtrlShift, ShiftSpace, CtrlSpace };
+static const wchar_t* const SWITCH_NAMES[] = {L"RightAlt", L"LeftCtrl", L"Hangul", L"Henkan", L"Muhenkan", L"CtrlShift", L"ShiftSpace", L"CtrlSpace"};
+
+static Switch readSwitch(Keyboard keyboard) {
     wchar_t name[32];
     DWORD size = sizeof name;
     if (!RegGetValueW(HKEY_CURRENT_USER, SETTINGS_KEY, L"SwitchKey", RRF_RT_REG_SZ, nullptr, name, &size))
         for (int i = 0; i < int(std::size(SWITCH_NAMES)); i++)
             if (!_wcsicmp(name, SWITCH_NAMES[i])) return Switch(i);
-    return Switch::RightAlt;
+    return keyboard == Keyboard::JIS ? Switch::Muhenkan : Switch::RightAlt;
+}
+
+/** HKCU\Software\KoEnJa\LanguageOrder ("ko,ja,en": most used first); English is always in.
+ *  Unset: Korean, English, Japanese. */
+static std::vector<rea::Language> readOrder() {
+    using rea::Language;
+    wchar_t text[64];
+    DWORD size = sizeof text;
+    std::vector<Language> order;
+    if (!RegGetValueW(HKEY_CURRENT_USER, SETTINGS_KEY, L"LanguageOrder", RRF_RT_REG_SZ, nullptr, text, &size))
+        for (wchar_t *rest = nullptr, *code = wcstok(text, L", ", &rest); code; code = wcstok(nullptr, L", ", &rest)) {
+            auto language = !wcscmp(code, L"ko") ? Language::KOREAN : !wcscmp(code, L"ja") ? Language::JAPANESE : Language::ENGLISH;
+            if (std::find(order.begin(), order.end(), language) == order.end()) order.push_back(language);
+        }
+    if (order.empty()) return {Language::KOREAN, Language::ENGLISH, Language::JAPANESE};
+    if (std::find(order.begin(), order.end(), Language::ENGLISH) == order.end()) order.push_back(Language::ENGLISH);
+    return order;
+}
+
+/** A symbol or digit key (set-1 scan code) and what it types, unshifted and shifted (0: nothing). */
+struct Printed { BYTE scan; char16_t plain, shifted; };
+/** A US 101 / Korean 103 keyboard (its \ key reads ₩ in Korean fonts). */
+static const Printed US_KEYS[] = {
+    {0x02, '1', '!'}, {0x03, '2', '@'}, {0x04, '3', '#'}, {0x05, '4', '$'}, {0x06, '5', '%'}, {0x07, '6', '^'},
+    {0x08, '7', '&'}, {0x09, '8', '*'}, {0x0A, '9', '('}, {0x0B, '0', ')'}, {0x0C, '-', '_'}, {0x0D, '=', '+'},
+    {0x1A, '[', '{'}, {0x1B, ']', '}'}, {0x27, ';', ':'}, {0x28, '\'', '"'}, {0x29, '`', '~'}, {0x2B, '\\', '|'},
+    {0x33, ',', '<'}, {0x34, '.', '>'}, {0x35, '/', '?'}};
+/** A Japanese 106/109 keyboard (its ¥ key, 0x7D, types \, which reads ¥ in Japanese fonts, as Windows has it). */
+static const Printed JIS_KEYS[] = {
+    {0x02, '1', '!'}, {0x03, '2', '"'}, {0x04, '3', '#'}, {0x05, '4', '$'}, {0x06, '5', '%'}, {0x07, '6', '&'},
+    {0x08, '7', '\''}, {0x09, '8', '('}, {0x0A, '9', ')'}, {0x0B, '0', 0}, {0x0C, '-', '='}, {0x0D, '^', '~'},
+    {0x7D, '\\', '|'}, {0x1A, '@', '`'}, {0x1B, '[', '{'}, {0x27, ';', '+'}, {0x28, ':', '*'}, {0x2B, ']', '}'},
+    {0x33, ',', '<'}, {0x34, '.', '>'}, {0x35, '/', '?'}, {0x73, '\\', '_'}};
+
+/**
+ * What a symbol or digit key types on the [keyboard] the user has, from its scan code: Windows
+ * maps scan codes with the profile language's layout (a Japanese 106 under ja-JP, US under ko-KR)
+ * whatever keyboard is plugged in, so Shift+2 would be " under the Japanese profile on a Korean
+ * keyboard. nullopt: no such key on it (the layout's character goes); 0: it types nothing.
+ */
+static std::optional<char16_t> printed(Keyboard keyboard, LPARAM lParam, bool shift) {
+    BYTE scan = BYTE(lParam >> 16);
+    if (lParam & (1 << 24)) return std::nullopt; // the numeric keypad's / and Enter share scan codes
+    auto keys = keyboard == Keyboard::JIS ? std::begin(JIS_KEYS) : std::begin(US_KEYS);
+    auto end = keyboard == Keyboard::JIS ? std::end(JIS_KEYS) : std::end(US_KEYS);
+    for (; keys != end; keys++)
+        if (keys->scan == scan) return shift ? keys->shifted : keys->plain;
+    return std::nullopt;
 }
 
 /** HKCU\Software\KoEnJa\KeyLog = 1: every key the TIP gets goes to %LOCALAPPDATA%\KoEnJa\keys.log. */
@@ -230,6 +294,17 @@ static bool readKeyLog() {
 /** Bit 24 of a key's lParam: the right Alt or Ctrl (on an AltGr layout the left Ctrl that comes
  *  with right Alt is a plain one). */
 static bool extended(LPARAM lParam) { return lParam & (1 << 24); }
+
+/** The key's virtual-key code as the [keyboard] the user has would send it: the profile's layout
+ *  reads a JIS keyboard's 半角/全角 (scan 0x29) as `, and a US one's ` as 半角/全角. 半角/全角 is
+ *  VK_OEM_AUTO here, whichever of its codes the layout sends. */
+static WPARAM physicalKey(Keyboard keyboard, WPARAM vk, LPARAM lParam) {
+    BYTE scan = BYTE(lParam >> 16);
+    if (keyboard == Keyboard::Korean && (scan == 0x72 || scan == 0xF2)) return VK_HANGUL;
+    if (extended(lParam)) return vk;
+    if (keyboard == Keyboard::Korean) return scan == 0x29 ? VK_OEM_3 : vk;
+    return scan == 0x29 ? VK_OEM_AUTO : scan == 0x79 ? VK_CONVERT : scan == 0x7B ? VK_NONCONVERT : vk;
+}
 
 /** A tap switch key's part: 1 the right Alt, 2 the left Ctrl, 4 a Shift; 0 any other key. */
 static int tapPart(WPARAM vk, LPARAM lParam) {
@@ -497,6 +572,9 @@ public:
     WPARAM eatenSwitch = 0;
     /** Re-read on activation and focus, so a change in KoEnJaSettings needs no restart. */
     Switch switchKey = Switch::RightAlt;
+    Keyboard keyboard = Keyboard::Korean;
+    /** The session's languages (LanguageOrder); a new one is made when they change. */
+    std::vector<rea::Language> order;
     bool keyLog = false;
     /** The tap switch key's parts (tapPart) pressed since the last other key; full means a tap. */
     int tapped = 0;
@@ -543,7 +621,7 @@ public:
             categories->RegisterGUID(ATTRIBUTE_TARGET, &thick);
         }
         try {
-            if (!session) session = makeSession();
+            if (!session) session = makeSession(order);
         } catch (...) { // the engine's data is missing or unreadable
             Deactivate();
             return E_UNEXPECTED;
@@ -593,8 +671,8 @@ public:
     STDMETHODIMP OnInitDocumentMgr(ITfDocumentMgr*) override { return S_OK; }
     STDMETHODIMP OnUninitDocumentMgr(ITfDocumentMgr*) override { return S_OK; }
     STDMETHODIMP OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) override {
-        readSettings();
         finish();
+        readSettings();
         if (session) session->activate();
         return S_OK;
     }
@@ -611,13 +689,13 @@ public:
     }
     STDMETHODIMP OnTestKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override {
         trackTap(vk, lParam);
-        *eaten = actionFor(context, vk, lParam).has_value();
+        *eaten = actionFor(context, physicalKey(keyboard, vk, lParam), lParam).has_value();
         log("TestDown", vk, lParam, *eaten);
         return S_OK;
     }
     STDMETHODIMP OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override;
     STDMETHODIMP OnTestKeyUp(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override {
-        *eaten = (eatenSwitch && vk == eatenSwitch) || isTap(context, vk, lParam);
+        *eaten = (eatenSwitch && physicalKey(keyboard, vk, lParam) == eatenSwitch) || isTap(context, vk, lParam);
         if (!*eaten && tapPart(vk, lParam)) tapped = 0;
         log("TestUp", vk, lParam, *eaten);
         return S_OK;
@@ -626,8 +704,20 @@ public:
     STDMETHODIMP OnPreservedKey(ITfContext*, REFGUID, BOOL* eaten) override { *eaten = FALSE; return S_OK; }
 
     void readSettings() {
-        switchKey = readSwitch();
+        keyboard = readKeyboard();
+        switchKey = readSwitch(keyboard);
         keyLog = readKeyLog();
+        auto languages = readOrder();
+        if (languages == order) return;
+        // A new order, a new session: not while a word is being typed into it (the next focus then).
+        if (session && (composition || typing())) return;
+        try {
+            if (session) {
+                session = makeSession(languages);
+                session->activate();
+            }
+            order = languages;
+        } catch (...) {} // the engine's data unreadable: the old session goes on
     }
 
     /** The parts of the tap switch key (0: the switch key is no tap). */
@@ -853,6 +943,8 @@ private:
         int index = 1;
         /** Whether the conversion's list shows afterwards; nullopt leaves it as it is. */
         std::optional<bool> showList;
+        /** A printable key the app's layout types otherwise: if the session leaves it to the app, KoEnJa types it. */
+        bool insert = false;
     };
     static Action type(InputSession::Key key, int times = 1, std::optional<bool> showList = std::nullopt) {
         return {Action::Type, key, times, showList};
@@ -866,6 +958,7 @@ private:
             case Switch::RightAlt:
             case Switch::Hangul: return vk == VK_HANGUL;
             case Switch::Henkan: return vk == VK_CONVERT;
+            case Switch::Muhenkan: return vk == VK_NONCONVERT;
             case Switch::ShiftSpace: return vk == VK_SPACE && shift && !ctrl && !alt;
             case Switch::CtrlSpace: return vk == VK_SPACE && ctrl && !shift && !alt;
             default: return false;
@@ -882,10 +975,12 @@ private:
      *  list; Space/Tab/↓ and Shift+Space/↑ move in it, PageDown/PageUp by pages, 1–9 pick from the
      *  page, Return commits it all, Esc and Backspace go back to the kana; Shift+←/→ make the first
      *  segment shorter or longer, → commits it and converts the rest. F6/F7 hiragana and katakana
-     *  (無変換 flips between them), F8 half-width katakana, F9/F10 full- and half-width romaji. */
-    std::optional<Action> actionFor(ITfContext* context, WPARAM vk, LPARAM) const {
+     *  (無変換 flips between them), F8 half-width katakana, F9/F10 full- and half-width romaji.
+     *  On a Japanese keyboard 半角/全角 switches KoEnJa off and on. [vk] is physicalKey's. */
+    std::optional<Action> actionFor(ITfContext* context, WPARAM vk, LPARAM lParam) const {
         if (!session || disabled(context)) return std::nullopt;
         if (isSwitchDown(vk)) return switched();
+        if (vk == VK_OEM_AUTO && keyboard == Keyboard::JIS) return Action{Action::Toggle};
         if (!isOpen()) return std::nullopt;
         // Modifiers alone never commit: Shift is half of typing a capital.
         if ((vk >= VK_SHIFT && vk <= VK_CAPITAL) || vk == VK_LWIN || vk == VK_RWIN || (vk >= VK_LSHIFT && vk <= VK_RMENU))
@@ -940,13 +1035,17 @@ private:
             // The first Space converts in place; the list opens with the next.
             case VK_SPACE: return type(InputSession::Key::printable(u' '), 1, false);
         }
-        // Digits and punctuation as this keyboard layout types them (flag 4: leave dead-key state alone).
+        // Digits and punctuation as this keyboard layout types them (flag 4: leave dead-key state alone),
+        // or as the keyboard the user has does, where the layout reads it as another.
         BYTE state[256];
         wchar_t ch[4];
-        if (GetKeyboardState(state) &&
-            ToUnicode(UINT(vk), MapVirtualKeyW(UINT(vk), MAPVK_VK_TO_VSC), state, ch, 4, 4) == 1 && ch[0] >= 0x20)
-            return type(InputSession::Key::printable(char16_t(ch[0])));
-        return type({Kind::Other});
+        char16_t typed = GetKeyboardState(state) && ToUnicode(UINT(vk), MapVirtualKeyW(UINT(vk), MAPVK_VK_TO_VSC), state, ch, 4, 4) == 1 && ch[0] >= 0x20
+                       ? char16_t(ch[0]) : 0;
+        char16_t key = printed(keyboard, lParam, shift).value_or(typed);
+        if (!key) return type({Kind::Other});
+        auto action = type(InputSession::Key::printable(key));
+        action.insert = key != typed;
+        return action;
     }
 
     bool perform(ITfContext* context, const Action& action);
@@ -1083,6 +1182,11 @@ bool Tip::perform(ITfContext* context, const Action& action) {
         } else {
             bool converting = session->conversion.has_value();
             handled = session->handle(action.key, field);
+            // The word went in and the app would type the key, as its layout reads it: KoEnJa types it.
+            if (!handled && action.insert) {
+                field.insertText(std::u16string(1, action.key.ch), std::nullopt);
+                handled = true;
+            }
             // Space and a resized segment convert to kanji, as Microsoft's IME: the reading (often the
             // engine's first candidate, for iOS's bar) is no conversion.
             bool converts = (!converting && action.showList == false && action.key == InputSession::Key::printable(u' ')) ||
@@ -1107,10 +1211,11 @@ bool Tip::perform(ITfContext* context, const Action& action) {
 
 STDMETHODIMP Tip::OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) {
     trackTap(vk, lParam);
-    auto action = actionFor(context, vk, lParam);
+    WPARAM key = physicalKey(keyboard, vk, lParam);
+    auto action = actionFor(context, key, lParam);
     // Not consumed (Space after a word, Tab, a shortcut…): the app gets the key after the commit.
     *eaten = action && perform(context, *action);
-    if (*eaten && isSwitchDown(vk)) eatenSwitch = vk;
+    if (*eaten && isSwitchDown(key)) eatenSwitch = key;
     log("Down", vk, lParam, *eaten);
     return S_OK;
 }
@@ -1118,7 +1223,7 @@ STDMETHODIMP Tip::OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL*
 /** A tap of the switch key switches on its key-up; the key-up goes (Alt's would open the app's menu). */
 STDMETHODIMP Tip::OnKeyUp(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) {
     *eaten = FALSE;
-    if (eatenSwitch && vk == eatenSwitch) {
+    if (eatenSwitch && physicalKey(keyboard, vk, lParam) == eatenSwitch) {
         eatenSwitch = 0;
         *eaten = TRUE;
     } else if (isTap(context, vk, lParam)) {

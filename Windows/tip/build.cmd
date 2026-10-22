@@ -1,6 +1,6 @@
 @echo off
 rem Builds the TIP (KoEnJa.dll, with the engine linked in, its icons, and its data next to it),
-rem KoEnJaSettings.exe (picks the switch key) and tip_test.exe into .build\windows-tip, x64. Static CRT (/MT): the DLL loads into any app, which may not ship one.
+rem KoEnJaSettings.exe (keyboard, languages, switch key) and tip_test.exe into .build\windows-tip, x64. Static CRT (/MT): the DLL loads into any app, which may not ship one.
 rem Then, as admin: regsvr32 KoEnJa.dll, and tip_test.exe types into it.
 setlocal
 cd /d "%~dp0"

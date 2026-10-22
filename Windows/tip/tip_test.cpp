@@ -257,10 +257,15 @@ static void setSetting(const wchar_t* name, DWORD type, const void* data, DWORD 
     RegCloseKey(key);
 }
 
-/** The user's SwitchKey and KeyLog as they were, put back (or removed) at the end. */
+static void setText(const wchar_t* name, const wchar_t* value) {
+    if (value) setSetting(name, REG_SZ, value, DWORD((wcslen(value) + 1) * sizeof(wchar_t)));
+    else RegDeleteKeyValueW(HKEY_CURRENT_USER, SETTINGS, name);
+}
+
+/** The user's settings as they were, put back (or removed) at the end. */
 struct Saved {
     struct Value { const wchar_t* name; DWORD type = 0; BYTE data[128]; DWORD size = sizeof data; bool had; };
-    Value values[2] = {{L"SwitchKey"}, {L"KeyLog"}};
+    Value values[4] = {{L"SwitchKey"}, {L"KeyLog"}, {L"KeyboardType"}, {L"LanguageOrder"}};
     Saved() {
         for (auto& v : values) v.had = !RegGetValueW(HKEY_CURRENT_USER, SETTINGS, v.name, RRF_RT_ANY, &v.type, v.data, &v.size);
     }
@@ -317,6 +322,12 @@ int main() {
 
     // Candidates without a dictionary: the TIP's stand-in converter (わたし, 候補1…候補11).
     SetEnvironmentVariableW(L"KOENJA_TEST_CONVERTER", L"1");
+    // A Korean/US keyboard and the usual languages, whatever the user picked.
+    setText(L"KeyboardType", L"Korean");
+    setText(L"LanguageOrder", nullptr);
+    DWORD off = 0;
+    setSetting(L"KeyLog", REG_DWORD, &off, sizeof off);
+    printf("GetKeyboardType(0) = %d\n", GetKeyboardType(0));
 
     // Created through its registration, as TSF would.
     ComPtr<ITfTextInputProcessorEx> tip;
@@ -356,7 +367,8 @@ int main() {
 
     // keys: letters, digits, ' ', '\n' Enter, '\b' Backspace, '\x1b' Esc, '\t' Tab, '\x11' ↑, '\x12' ↓,
     // '\x13' ←, '\x14' →, '\x15' PageDown, '\x01' 한/영, '\x02' 変換, '\x18' 無変換, '\x17' F6, '\x16' F7, '\x19' F8, '\x1c' F9,
-    // '\x1a' F10; held keys: '\x04'/'\x05' right Alt down/up, '\x06'/'\x07' left Ctrl, '\x0e'/'\x0f'
+    // '\x1a' F10, '\x10' the 2 key (scan 0x03), '\x1f' the 6 key (0x07), '\x1d' the key right of P (0x1A), '\x1e' the
+    // key left of 1 (0x29: 半角/全角 on a Japanese keyboard), sent as the thread's layout reads them; held keys: '\x04'/'\x05' right Alt down/up, '\x06'/'\x07' left Ctrl, '\x0e'/'\x0f'
     // Shift; '\f' focus to another field and back (commits what's being typed), '\r' empty the field.
     // Each step checks the whole text, the list (L"*": any but none) and, when ups >= 0, how
     // many key-ups the TIP ate. [option], if set, is written to the registry first and the TIP
@@ -388,6 +400,10 @@ int main() {
             case '\x07': return {VK_CONTROL, 0x1D, 2, L"Ctrl↑"};
             case '\x0e': return {VK_SHIFT, 0x2A, 1, L"Shift↓"};
             case '\x0f': return {VK_SHIFT, 0x2A, 2, L"Shift↑"};
+            case '\x10': return {MapVirtualKeyW(0x03, MAPVK_VSC_TO_VK), 0x03, 0, L"[2]"};
+            case '\x1f': return {MapVirtualKeyW(0x07, MAPVK_VSC_TO_VK), 0x07, 0, L"[6]"};
+            case '\x1d': return {MapVirtualKeyW(0x1A, MAPVK_VSC_TO_VK), 0x1A, 0, L"[P→]"};
+            case '\x1e': return {MapVirtualKeyW(0x29, MAPVK_VSC_TO_VK), 0x29, 0, L"[半全]"};
         }
         return {WPARAM(toupper(c)), int(MapVirtualKeyW(toupper(c), MAPVK_VK_TO_VSC)), 0, nullptr};
     };
@@ -435,7 +451,10 @@ int main() {
                 BOOL eaten = FALSE;
                 if (key.held != 2) {
                     if (!check(host.KeyDown(key.vk, lParam, &eaten), "KeyDown")) exit(1);
-                    // What the app does with a key left to it (not a shortcut).
+                    // What the app does with a key left to it (not a shortcut); a physical key as the layout reads it.
+                    wchar_t typed[4];
+                    bool physical = c == '\x10' || c == '\x1f' || c == '\x1d' || c == '\x1e';
+                    if (!eaten && physical && ToUnicode(UINT(key.vk), UINT(key.scan), state, typed, 4, 4) == 1) store.type(typed[0]);
                     if (!eaten && !chord && (c >= ' ' || c == '\n' || c == '\t')) store.type(c == '\n' ? L'\n' : wchar_t(c));
                 }
                 if (key.held != 1) {
@@ -568,6 +587,57 @@ int main() {
     logOk = logOk && lines() == log;
     printf("%s key log on, then off\n", logOk ? "ok  " : "FAIL");
     failures += !logOk;
+
+    // Symbols from the keyboard the user has (KeyboardType), under either profile's layout: a Korean/US
+    // keyboard's Shift+2 is @, a Japanese one's ". The default switch key: right Alt, or 無変換; 半角/全角 on/off.
+    HKL before = GetKeyboardLayout(0);
+    for (auto name : {L"00000412", L"00000411"}) {
+        HKL hkl = LoadKeyboardLayoutW(name, 0);
+        if (!hkl || !ActivateKeyboardLayout(hkl, 0)) { printf("FAIL layout %ls not loaded\n", name); failures++; continue; }
+        wchar_t two[4] = L"";
+        BYTE shifted[256] = {};
+        shifted[VK_SHIFT] = 0x80;
+        ToUnicode(MapVirtualKeyW(0x03, MAPVK_VSC_TO_VK), 0x03, shifted, two, 4, 4);
+        printf("layout %04x (Shift+2 types %lc there)\n", LOWORD(HandleToUlong(GetKeyboardLayout(0))), two[0]);
+        ComPtr<ITfKeyEventSink> sink;
+        tip.As(&sink);
+        setText(L"SwitchKey", nullptr);
+        setText(L"KeyboardType", L"Korean");
+        sink->OnSetFocus(TRUE);
+        const Step korean[] = {
+            {"\f\r" "dkssud\x0e\x10\x0f", L"안녕@", false},
+            {"\r" "dkssud\x1d", L"dkssud[", false},
+            {"\r" "dkssud\x0e\x1f\x0f", L"dkssud^", false},
+            {"\r\x04\x05" "dkssud", L"dkssud", false, L"", nullptr, 1},
+            {"\x04\x05" "dkssud\n", L"dkssud안녕", false, L"", nullptr, 1},
+        };
+        run(korean);
+        setText(L"KeyboardType", L"JIS");
+        sink->OnSetFocus(TRUE);
+        const Step jis[] = {
+            {"\f\r" "dkssud\x0e\x10\x0f", L"안녕\"", false},
+            {"\r" "dkssud\x1d", L"안녕@", false},
+            {"\r" "dkssud\x0e\x1f\x0f", L"dkssud&", false},
+            {"\r\x18" "dkssud", L"dkssud", false, L"", nullptr, 1},
+            {"\x18" "dkssud\n", L"dkssud안녕", false, L"", nullptr, 1},
+            {"\n\r\x1e" "dkssud", L"dkssud", false},
+            {"\x1e" "dkssud", L"dkssud안녕", true},
+            {"\n", L"dkssud안녕", false},
+        };
+        run(jis);
+    }
+    ActivateKeyboardLayout(before, 0);
+    setText(L"KeyboardType", L"Korean");
+    setText(L"SwitchKey", L"RightAlt");
+
+    // LanguageOrder, read again when the focus comes back: no Korean, then Korean first again.
+    setText(L"LanguageOrder", L"ja,en");
+    const Step ordered[] = {{"\f\r" "dkssud", L"dkssud", true}, {"\n", L"dkssud", false}};
+    run(ordered);
+    setText(L"LanguageOrder", L"ko,ja,en");
+    const Step reordered[] = {{"\f\r" "dkssud", L"안녕", true}, {"\n", L"안녕", false}};
+    run(reordered);
+    setText(L"LanguageOrder", nullptr);
 
     // Mozc's dictionary (data\mozc.dic), as the user has it.
     tip->Deactivate();
