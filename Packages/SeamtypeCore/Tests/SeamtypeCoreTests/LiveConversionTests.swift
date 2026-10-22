@@ -51,9 +51,10 @@ import Testing
         let live = field.text
         #expect(live == "zi") // REA: the first letters stay letters (shortPrefixLength)
         type(" ")
-        #expect(session.conversion != nil)
-        #expect(field.text != live)
-        type("⏎hi ")
+        // REA: and Space commits them as shown.
+        #expect(session.conversion == nil)
+        #expect(field.text == "zi ")
+        type("hi ")
         #expect(field.text.hasSuffix("hi "))
     }
 
@@ -109,11 +110,7 @@ import Testing
         type(" ufos")
         #expect(field.text == "今日はいい天気でs うふぉs")
         type("⏎")
-        // REA: English is a close second (isWeakFlipAllowed's runner-up), so Return lets the
-        // shown kana flip to letters.
-        withKnownIssue("REA: shown うふぉs, committed ufos") {
-            #expect(field.text == "今日はいい天気でs うふぉs")
-        }
+        #expect(field.text == "今日はいい天気でs うふぉs")
     }
 
     @Test func englishInsidePhraseAndPunctuation() {

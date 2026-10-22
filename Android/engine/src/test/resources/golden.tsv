@@ -12,11 +12,11 @@ ko-en-ja	ekfrrhrlfmf ajrrh dkswdktj cordmf dlfrdjTek. 	닭고기를 먹고 앉�
 ko-en-ja	git push origin main 	git push origin main 
 ko-en-ja	session.commit(client: nil) 	session.commit(client: nil) 
 ko-en-ja	https://github.com/netmaru/REA 	https://github.com/netmaru/REA 
-ko-en-ja	netmaru@gmail.comdmfh dusfkr wntpdy. 	netmaru@gmail.comdmfh 연락 주세요. 
+ko-en-ja	netmaru@gmail.comdmfh dusfkr wntpdy. 	netmaru@gmail.com으로 연락 주세요. 
 ko-en-ja	kaiginoshiryouwookurimasu⏎	かいぎのしりょうをおくります
 ko-en-ja	Please run the tests again before you push. 	Please run the tests again before you push. 
 ko-en-ja	I'm going to Tokyo next week. 	I'm going to Tokyo next week. 
-ko-en-ja	iPhonedetesutoshimashita⏎	iPhonedetesutoshimashita
+ko-en-ja	iPhonedetesutoshimashita⏎	iPhoneでてすとしました
 ko-en-ja	zlqhem shvdldhk zmrlfmf rlqhs zlqhemdhk Ehrrkxdl akwcnjTtmqslek. 	키보드 높이와 크기를 기본 키보드와 똑같이 맞췄습니다. 
 ko-en-ja	xcodebuild test -scheme REA 	xcodebuild test -scheme REA 
 ko-en-ja	keyStack.offset(of: button) 	keyStack.offset(of: button) 
@@ -956,11 +956,11 @@ ko-ja-en	ekfrrhrlfmf ajrrh dkswdktj cordmf dlfrdjTek. 	닭고기를 먹고 앉�
 ko-ja-en	git push origin main 	git push origin main 
 ko-ja-en	session.commit(client: nil) 	session.commit(client: nil) 
 ko-ja-en	https://github.com/netmaru/REA 	https://github.com/netmaru/REA 
-ko-ja-en	netmaru@gmail.comdmfh dusfkr wntpdy. 	netmaru@gmail.comdmfh 연락 주세요. 
+ko-ja-en	netmaru@gmail.comdmfh dusfkr wntpdy. 	netmaru@gmail.com으로 연락 주세요. 
 ko-ja-en	kaiginoshiryouwookurimasu⏎	かいぎのしりょうをおくります
 ko-ja-en	Please run the tests again before you push. 	Please run the tests again before you push. 
 ko-ja-en	I'm going to Tokyo next week. 	I'm going to Tokyo next week. 
-ko-ja-en	iPhonedetesutoshimashita⏎	iPhonedetesutoshimashita
+ko-ja-en	iPhonedetesutoshimashita⏎	iPhoneでてすとしました
 ko-ja-en	zlqhem shvdldhk zmrlfmf rlqhs zlqhemdhk Ehrrkxdl akwcnjTtmqslek. 	키보드 높이와 크기를 기본 키보드와 똑같이 맞췄습니다. 
 ko-ja-en	xcodebuild test -scheme REA 	xcodebuild test -scheme REA 
 ko-ja-en	keyStack.offset(of: button) 	keyStack.offset(of: button) 
@@ -998,7 +998,7 @@ ko-ja-en	Hi 	Hi
 ko-ja-en	dhsmf meetingdptj designdmf reviewgoTek 	오늘 meeting에서 design을 review했다 
 ko-ja-en	sksms Swiftfh appdmf aksemsek 	나는 Swift로 app을 만든다 
 ko-ja-en	toukyouniikimasu⏎	とうきょうにいきます
-ko-ja-en	kinou email wo okutta⏎	きのう email 재 おくった
+ko-ja-en	kinou email wo okutta⏎	きのう email wo おくった
 ko-ja-en	kinouemailwookutta⏎	きのうemailをおくった
 ko-ja-en	hello⌫⌫ 	hel 
 ko-ja-en	go ※	해 
@@ -1875,7 +1875,7 @@ ko-ja-en	dho? 	왜?
 ko-ja-en	hello. 	hello. 
 ko-ja-en	to-do 	to-do 
 ko-ja-en	co-op 	채-op 
-ko-ja-en	zi 	じ 
+ko-ja-en	zi 	zi 
 ko-ja-en	henkan⏎	へんかん
 ko-ja-en	sushi 	sushi 
 ko-ja-en	same 	same 

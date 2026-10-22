@@ -210,9 +210,16 @@ public final class HeuristicEngine: DecisionEngine, @unchecked Sendable {
         if let j, j.composition.strayLetters > 0, let segmenter {
             segmented = segmenter.scoredSegments(keys)
         }
+        // REA: the capitals inside an English word that leads into Japanese (iPhonedetesuto is
+        // iPhone + でてすと) keep the phrase Japanese; a capital still never becomes kana.
+        if j == nil, keys.contains(where: \.isUppercase), let s = segmenter?.scoredSegments(keys), s.segments.allSatisfy({
+            if case .japanese(let keys, _) = $0 { return !keys.contains(where: \.isUppercase) } else { return true }
+        }) {
+            segmented = s
+        }
         let japaneseScore = j.map { j in
             max(j.averageLogProbability, (segmented?.score).map { $0 / Double(keys.count) } ?? -.infinity)
-        }
+        } ?? segmented.map { $0.score / Double(keys.count) } // REA: the segmented reading alone
 
         var scores: [(Language, Double)] = [(.english, e)]
         if let k { scores.append((.korean, k.averageLogProbability + koreanOffset)) }

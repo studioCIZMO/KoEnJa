@@ -46,6 +46,16 @@ import Testing
         #expect(field.text == text)
     }
 
+    /// REA: a case particle glued to the end of an address is Korean, not a path's last part;
+    /// a run that starts with one dot is a dotfile, an ellipsis isn't.
+    @Test(arguments: [("x@gmail.comdmfh ", "x@gmail.com으로 "), ("www.a.comdp ", "www.a.com에 "),
+                      ("https://x.io/dp ", "https://x.io/dp "), ("https://x.io/yorkfmf ", "https://x.io/yorkfmf "),
+                      (".env ", ".env "), ("...dma ", "...음 ")])
+    func reaAddressParticleAndDotfile(_ keys: String, _ text: String) {
+        type(keys)
+        #expect(field.text == text)
+    }
+
     @Test func japaneseOnKeepsTheURLHalfWidth() {
         type("https://x.io/ho.da ", into: japanese)
         #expect(field.text == "https://x.io/ho.da ")

@@ -70,6 +70,13 @@ import Testing
         #expect(field.text == "hello P O ")
     }
 
+    /// REA: an English word with capitals still leads into Japanese; its capitals stay letters.
+    @Test func capitalizedEnglishWordBeforeJapanese() {
+        type("iPhonedetesutoshimashita")
+        #expect(session.handle(.enter, client: field))
+        #expect(field.text == "iPhoneでてすとしました")
+    }
+
     /// Return commits what was shown: letters waiting for their vowel stay letters rather than
     /// splitting an English word out of the phrase (わたしhag), and only n becomes ん.
     @Test func returnCommitsPendingLettersAsShown() {
@@ -99,10 +106,10 @@ import Testing
         type("zio")
         #expect(field.text == "zio") // REA: the first letters stay letters (shortPrefixLength)
         type(" ")
-        #expect(session.conversion != nil)
-        #expect(session.handle(.enter, client: field))
+        // REA: and Space commits them as shown.
+        #expect(session.conversion == nil)
         type("taco ")
-        #expect(field.text == "じおtaco ")
+        #expect(field.text == "zio taco ")
     }
 
     @Test func spaceCyclesCandidatesAndNumbersPick() {

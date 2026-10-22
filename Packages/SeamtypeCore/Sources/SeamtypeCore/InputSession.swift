@@ -589,6 +589,7 @@ public final class InputSession {
             || ["www.", "~/", "./", "../"].contains(where: run.hasPrefix)
             || (run.hasPrefix("/") && run.dropFirst().contains("/"))
             || run.dropFirst().contains("@")
+            || run == "." || run == "!." // REA: a dotfile (.env, !.env in .gitignore): one dot starts the run
     }
 
     /// The run of text before the word being typed: what went in since the last space, with
@@ -1081,7 +1082,13 @@ public final class InputSession {
         // URL is so even where it was taught to be 내).
         if inURLRun {
             keptEnglishByStrict = false
-            let decision = Decision(language: .english, confidence: 1, output: keys, explanation: "inside a URL or path")
+            var decision = Decision(language: .english, confidence: 1, output: keys, explanation: "inside a URL or path")
+            // REA: a case particle glued to the last part of an address is still Korean
+            // (netmaru@gmail.comdmfh is netmaru@gmail.com으로), as before the URL run.
+            if runText.last == ".", let mixed = MixedWord.split(keys), mixed.english.allSatisfy(\.isLetter),
+               MixedWord.singleLetterParticles.contains(mixed.korean) {
+                decision = Decision(language: .mixed, confidence: 1, output: mixed.text, explanation: "address + particle")
+            }
             lastTrace = Trace(keys: keys, previous: previousLanguage, decision: decision, partial: partial)
             return decision
         }
@@ -1148,6 +1155,9 @@ public final class InputSession {
     /// same rule as the preview, so what you see is what you get.
     private func committedLanguage() -> Language {
         let d = decide(partial: false)
+        // REA: what is committed is what was shown: letters the short-prefix rule kept on screen
+        // go in as letters (zi, zio), not as the kana the engine read.
+        if enginePreview == .japanese, previewLanguage == .english { return .english }
         guard let shown = enginePreview, shown != d.language else { return d.language }
         // Japanese on screen, kana or kanji: Space converts it, unless the keys are an English
         // word. A short word reads as the start of a longer Japanese one while typed and as
@@ -1157,17 +1167,18 @@ public final class InputSession {
            !EnglishModel.shared.isKnownWord(keys), RomajiComposer.compose(keys).isClean {
             return shown
         }
-        return isWeakFlipAllowed(to: d, from: shown) ? d.language : shown
+        return isWeakFlipAllowed(to: d, from: shown, runnerUp: false) ? d.language : shown // REA: runnerUp
     }
 
     /// Whether `decision` may replace the reading on screen: when it's confident, when it's
     /// a dictionary English word (which is what Space/Return will commit), or when a Strict app
     /// kept a short token English: there the typed letters win over a reading shown along the
     /// way (gs showed ㅎㄴ, but gst stays gst). Only a close second is held: Th showed てぇ, and
-    /// The (Korean against English, kana far behind) went in as 手ェ.
-    private func isWeakFlipAllowed(to decision: Decision, from shown: Language) -> Bool {
+    /// The (Korean against English, kana far behind) went in as 手ェ. REA: on screen only
+    /// (`runnerUp`); Return commits what was shown (ufos showed うふぉs).
+    private func isWeakFlipAllowed(to decision: Decision, from shown: Language, runnerUp: Bool = true) -> Bool {
         decision.confidence >= Self.previewFlipConfidence
-            || (decision.runnerUp != nil && decision.runnerUp != shown)
+            || (runnerUp && decision.runnerUp != nil && decision.runnerUp != shown)
             || (decision.language == .english && (keptEnglishByStrict || EnglishModel.shared.isKnownWord(keys)))
             || preview(as: shown) == nil
     }
@@ -1198,11 +1209,11 @@ public final class InputSession {
             // The first letters of an English word often read as kana for a key or two (u is う
             // before up, ta is た before table, ch is ちゃ before chair). Outside Japanese text
             // they stay as typed until the kana are near-certain (ka, wa) or the word is longer:
-            // letters are neutral, a flip that flips back looks wrong. Only what's shown: Space
-            // still commits what the engine read.
+            // letters are neutral, a flip that flips back looks wrong. REA: Space commits them as
+            // shown too (`committedLanguage`).
             if language == .japanese, keys.count <= Self.shortPrefixLength,
                previewLanguage ?? .english == .english, previousLanguage?.sentenceLanguage != .japanese,
-               decision.confidence < Self.shortPrefixFlipConfidence {
+               decision.confidence < Self.shortPrefixFlipConfidence, shortcutReading(partial: true) == nil { // a shortcut shows (gu- is ぐー)
                 language = .english
             }
             previewLanguage = language
