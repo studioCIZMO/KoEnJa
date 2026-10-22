@@ -236,8 +236,8 @@ public:
     // ITfKeyEventSink
 
     STDMETHODIMP OnSetFocus(BOOL) override { return S_OK; }
-    STDMETHODIMP OnTestKeyDown(ITfContext*, WPARAM vk, LPARAM, BOOL* eaten) override {
-        *eaten = keyFor(vk).has_value();
+    STDMETHODIMP OnTestKeyDown(ITfContext* context, WPARAM vk, LPARAM, BOOL* eaten) override {
+        *eaten = keyFor(context, vk).has_value();
         return S_OK;
     }
     STDMETHODIMP OnKeyDown(ITfContext* context, WPARAM vk, LPARAM, BOOL* eaten) override;
@@ -252,8 +252,7 @@ public:
         ComPtr<ITfRange> range;
         ComPtr<ITfContext> context;
         if (SUCCEEDED(ended->GetRange(&range)) && SUCCEEDED(range->GetContext(&context))) setUnderline(context.Get(), ec, range.Get(), false);
-        composition.Reset();
-        if (session) session->commitForNewContext(nullptr);
+        drop();
         return S_OK;
     }
 
@@ -280,13 +279,27 @@ public:
     }
 
 private:
+    /** TSF's flags for a field the keyboard mustn't compose in (a password, IME off) or no field at all. */
+    static bool disabled(ITfContext* context) {
+        ComPtr<ITfCompartmentMgr> compartments;
+        if (!context || FAILED(context->QueryInterface(IID_PPV_ARGS(&compartments)))) return true;
+        for (auto guid : {&GUID_COMPARTMENT_KEYBOARD_DISABLED, &GUID_COMPARTMENT_EMPTYCONTEXT}) {
+            ComPtr<ITfCompartment> compartment;
+            VARIANT value{};
+            if (SUCCEEDED(compartments->GetCompartment(*guid, &compartment)) && compartment->GetValue(&value) == S_OK &&
+                value.vt == VT_I4 && value.lVal)
+                return true;
+        }
+        return false;
+    }
+
     bool typing() const { return session && (!session->keys.empty() || session->conversion); }
 
     /** What a key-down means to the session; nullopt leaves it to the app. Letters start or extend a
      *  word; while one is being typed every other key goes to the session too (most commit it and
      *  then reach the app); with nothing being typed they are all the app's. */
-    std::optional<InputSession::Key> keyFor(WPARAM vk) const {
-        if (!session) return std::nullopt;
+    std::optional<InputSession::Key> keyFor(ITfContext* context, WPARAM vk) const {
+        if (!session || disabled(context)) return std::nullopt;
         // Modifiers alone never commit: Shift is half of typing a capital.
         if ((vk >= VK_SHIFT && vk <= VK_CAPITAL) || vk == VK_LWIN || vk == VK_RWIN || (vk >= VK_LSHIFT && vk <= VK_RMENU))
             return std::nullopt;
@@ -313,6 +326,12 @@ private:
     }
 
     void finish();
+
+    /** Forgets the word being typed, its text left as shown. */
+    void drop() {
+        composition.Reset();
+        try { if (session) session->commitForNewContext(nullptr); } catch (...) {}
+    }
 };
 
 /**
@@ -416,8 +435,8 @@ struct Client : rea::TextClient {
 
 STDMETHODIMP Tip::OnKeyDown(ITfContext* context, WPARAM vk, LPARAM, BOOL* eaten) {
     *eaten = FALSE;
-    auto key = keyFor(vk);
-    if (!key || !context) return S_OK;
+    auto key = keyFor(context, vk);
+    if (!key) return S_OK;
     bool handled = false;
     edit(context, client, TF_ES_SYNC, [&](TfEditCookie ec) {
         Client field(*this, ec, context);
@@ -433,16 +452,21 @@ void Tip::finish() {
     if (!session) return;
     ComPtr<ITfRange> range;
     ComPtr<ITfContext> context;
-    if (!composition || FAILED(composition->GetRange(&range)) || FAILED(range->GetContext(&context))) {
-        composition.Reset();
-        session->commitForNewContext(nullptr);
-        return;
-    }
+    if (!composition || FAILED(composition->GetRange(&range)) || FAILED(range->GetContext(&context))) return drop();
     ComPtr<Tip> self(this);
-    edit(context.Get(), client, TF_ES_ASYNCDONTCARE, [self, context](TfEditCookie ec) {
-        Client field(*self.Get(), ec, context.Get());
-        self->session->commitForNewContext(&field);
+    ComPtr<ITfComposition> ended = composition;
+    HRESULT hr = edit(context.Get(), client, TF_ES_ASYNCDONTCARE, [self, context, ended](TfEditCookie ec) {
+        if (self->composition == ended) {
+            Client field(*self.Get(), ec, context.Get());
+            self->session->commitForNewContext(&field);
+        } else { // the lock came late (below): just end it, as shown
+            ComPtr<ITfRange> shown;
+            if (SUCCEEDED(ended->GetRange(&shown))) self->setUnderline(context.Get(), ec, shown.Get(), false);
+            ended->EndComposition(ec);
+        }
     });
+    // Async or refused: the next field's keys must not reach this word or its offsets.
+    if (hr != S_OK) drop();
 }
 
 /** CoCreateInstance's way in; static, so it only counts LockServer. */
@@ -471,8 +495,7 @@ struct Factory : IClassFactory {
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void*) {
     if (reason == DLL_PROCESS_ATTACH) {
-        module = instance;
-        DisableThreadLibraryCalls(instance);
+        module = instance; // no DisableThreadLibraryCalls: the static CRT (/MT) needs thread detach
     }
     return TRUE;
 }
