@@ -46,7 +46,8 @@ interface TextClient {
  *                  typed makes them Japanese (123 → １２３, [ → 「), and in Japanese text a romaji
  *                  word straight after a number is a counter, converted with it (3ji → 3時)
  *   , . ? ! - '    inside a Japanese phrase they are part of it (、。？！ー); otherwise
- *                  they commit the word, then type the key
+ *                  they commit the word, then type the key. Inside a URL or path (`://`, `www.`,
+ *                  an email…) a word goes in as typed and symbols stay half-width
  *   Return         commit the word as shown, and nothing else (the next Return is the app's);
  *                  with `returnConfirmsOnly` off the app gets it too, except after Japanese
  *   anything else  commit and let the app handle the key
@@ -62,10 +63,11 @@ interface TextClient {
  * A [Key.Cycle] with nothing to change is dropped, never passed to the app.
  *                  The same correction made twice is learned for good.
  *
- * Not ported (macOS only): vim mode, pausing (right ⌘), `holdSpace` (terminals), per-app policies.
+ * Not ported (macOS only): vim mode, pausing, `holdSpace` (terminals, a word held with its Space or
+ * symbol), ⌘ going down, per-app policies and dictionary entries, 3-set's digit and symbol keys.
  */
 class InputSession(
-    val engine: LearningEngine,
+    val engine: DictionaryEngine,
     val converter: JapaneseConverter? = null,
     var japaneseEnabled: Boolean = false,
     /** Live conversion: a Japanese phrase is shown as its top kanji candidate while it is typed,
@@ -128,6 +130,8 @@ class InputSession(
         val boundary: String,
         val location: Int,
         val previous: Language?,
+        /** A segment of a URL or path: a switch there isn't a correction to learn. */
+        val learns: Boolean = true,
     ) {
         /** The same word after Delete took back its boundary character. */
         val withoutBoundary get() = copy(text = text.dropLast(boundary.length), boundary = "")
@@ -168,6 +172,12 @@ class InputSession(
     private var passedRun: Pair<String, Int>? = null
     /** The word being typed started right after a number, in Japanese text: a counter (3ji → 3時). */
     private var afterNumberInJapanese = false
+    /** The text gone in since the last Space, Tab or Return ([runKnown]), or since the caret moved
+     *  or the field changed, when the text before the caret is read the first time it matters. */
+    private var runText = ""
+    private var runKnown = false
+    /** The word being typed is a segment of a URL or path ([hasURLMarker]): it goes in as typed. */
+    private var inURLRun = false
     /** The language shown when Delete was pressed, held until the next letter: a shorter word
      *  may read differently (한국 → 한구, not 한rn), but it shouldn't change under the user. */
     private var pinned: Language? = null
@@ -194,6 +204,7 @@ class InputSession(
         closeFlipWindow()
         previousLanguage = null
         passedRun = null
+        resetRun()
     }
 
     /** Returns true when the key was consumed. */
@@ -204,8 +215,9 @@ class InputSession(
                 return handle(Key.Printable(' '), client)
             }
             closeFlipWindow()
-            if (fullWidthSpace && previousLanguage == Language.JAPANESE) return false // the app types " "
+            if (fullWidthSpace && previousLanguage == Language.JAPANESE) { noteRun(" "); return false } // the app types " "
             client.insertText("　", null)
+            noteRun("　")
             return true
         }
         if (conversion != null) return handleConverting(key, client)
@@ -226,6 +238,7 @@ class InputSession(
         // word itself can still be changed (Space before looking, then Delete and the switch key).
         if (key == Key.Delete && keys.isEmpty() && pending != null && pending.boundary.isNotEmpty()) {
             lastCommit = pending.withoutBoundary
+            noteDeleted()
             return false
         }
         pending?.let(::finalize)
@@ -248,6 +261,7 @@ class InputSession(
                     afterNumberInJapanese = japaneseEnabled && previousLanguage == Language.JAPANESE
                         && passedRun?.first?.lastOrNull()?.isNumber == true && cursor.location != TextRange.NOT_FOUND
                         && passedRunRange(cursor.location, client) != null
+                    inURLRun = hasURLMarker(run(client))
                 }
                 addedNMarker = false
                 pinned = null
@@ -257,7 +271,7 @@ class InputSession(
             }
 
             Key.Delete -> {
-                if (keys.isEmpty()) return false
+                if (keys.isEmpty()) { noteDeleted(); return false }
                 val shown = forced ?: pinned ?: previewLanguage
                 if (forced == null) pinned = shown
                 when (shown) {
@@ -281,6 +295,12 @@ class InputSession(
                     updatePreview(client)
                     return true
                 }
+                // Kana on screen: the app's Esc cancels the phrase, as in macOS's Japanese input,
+                // rather than committing it and closing a window in the app.
+                if (!switchesLanguage && (forced ?: previewLanguage) == Language.JAPANESE) {
+                    cancelComposition(client)
+                    return true
+                }
                 if (!switchesLanguage) {
                     // The app's Esc: the word goes in as shown, then the app gets the key.
                     commit(client)
@@ -302,6 +322,12 @@ class InputSession(
                 if (keys.isEmpty()) {
                     val wasAfterDigit = afterDigit
                     afterDigit = ch.isNumber
+                    // Inside a URL or path symbols stay half-width, whatever came before: ほ@gmail.com.
+                    if (hasURLMarker(run(client) + ch)) {
+                        passedRun = null
+                        noteRun(ch.toString())
+                        return false
+                    }
                     if (previousLanguage == Language.JAPANESE) {
                         if (ch == ' ' && fullWidthSpace && japaneseEnabled && policy.fullWidth) {
                             client.insertText("　", null)
@@ -321,9 +347,12 @@ class InputSession(
                         return true
                     }
                     notePassed(ch, client)
+                    noteRun(ch.toString())
                     return false
                 }
-                if (japaneseEnabled && belongsToJapanesePhrase(ch)) {
+                // A symbol that makes the run a URL or path (ho@, www.) ends the word, half-width.
+                val endsInURL = inURLRun || hasURLMarker(run(client) + keys + ch)
+                if (japaneseEnabled && !endsInURL && belongsToJapanesePhrase(ch)) {
                     keys += ch
                     // Digits don't read as anything: the phrase stays Japanese, as it was shown.
                     if (ch.isNumber && forced == null) { forced = Language.JAPANESE; forcedByUser = false }
@@ -334,7 +363,7 @@ class InputSession(
                     startConversion(client)
                     return true
                 }
-                if (closesFullWidth(ch)) { // 日本語（English）
+                if (!endsInURL && closesFullWidth(ch)) { // 日本語（English）
                     commit(client)
                     startSymbol(ch.toString(), client)
                     return true
@@ -348,16 +377,18 @@ class InputSession(
                 // system's Korean input.
                 client.insertText(word.text, null)
                 lastCommit = Committed(word.keys, word.decided, word.language, word.language, word.text + ch, ch.toString(),
-                                       location, previous)
+                                       location, previous, learns = !inURLRun)
+                noteRun(word.text + ch)
                 return false
             }
 
             Key.Enter -> {
-                if (keys.isEmpty()) return false
+                if (keys.isEmpty()) { noteRun("\n"); return false }
                 // Like a Japanese IME, Return on an underlined word only confirms it; the next Return
                 // is the app's. A Japanese phrase is only confirmed either way.
                 val japanese = currentLanguage() == Language.JAPANESE
                 commit(client)
+                noteRun("\n")
                 return returnConfirmsOnly || japanese
             }
 
@@ -374,6 +405,7 @@ class InputSession(
             Key.Up, Key.Down, Key.Left, Key.Right, Key.Other -> {
                 commit(client)
                 previousLanguage = null
+                resetRun()
                 return false
             }
 
@@ -386,6 +418,7 @@ class InputSession(
         closeFlipWindow()
         conversion?.let { conversion ->
             client?.insertText(conversion.display, null)
+            noteRun(conversion.display)
             noteBrackets(conversion.display)
             converter?.learn(conversion.current, conversion.kana)
             this.conversion = null
@@ -396,6 +429,19 @@ class InputSession(
         if (keys.isEmpty()) return
         val word = finishWord()
         client?.insertText(word.text, null)
+        noteRun(word.text)
+    }
+
+    /** Drops the word being typed: nothing goes in, as when Delete takes its last key. */
+    private fun cancelComposition(client: TextClient) {
+        keys = ""
+        forced = null
+        forcedByUser = false
+        pinned = null
+        syllableStart = null
+        addedNMarker = false
+        liveSuppressed = false
+        updatePreview(client)
     }
 
     /** Commits what's in progress after the caret was moved elsewhere (a tap; the app asks):
@@ -403,6 +449,7 @@ class InputSession(
     fun commitForNewContext(client: TextClient?) {
         commit(client)
         previousLanguage = null
+        resetRun()
     }
 
     /** The candidates for the Japanese phrase being typed, before Space, for a
@@ -428,6 +475,51 @@ class InputSession(
         if (index !in conversion.candidates.indices) return
         this.conversion = conversion.copy(selected = index)
         commitCandidate(client)
+    }
+
+    // URLs and paths
+
+    /** The run of text before the word being typed: what went in since the last space, with
+     *  what the field had before the caret when that isn't known (a pasted URL, a tap). */
+    private fun run(client: TextClient): String {
+        if (runKnown) return runText
+        runKnown = true
+        val marked = client.markedRange()
+        val cursor = client.selectedRange()
+        // Up to the word being typed, if there is one on screen.
+        val end = if (marked.location != TextRange.NOT_FOUND) marked.location
+                  else if (cursor.length == 0) cursor.location else TextRange.NOT_FOUND
+        if (end == TextRange.NOT_FOUND) return runText
+        val start = maxOf(0, end - RUN_LOOK_BEHIND)
+        val before = client.text(TextRange(start, end - start)) ?: return runText
+        val field = before.takeLastWhile { !it.isWhitespace() }
+        if (field.endsWith(runText)) runText = field
+        return runText
+    }
+
+    /** Keeps the run up to date with text going in; Space, Tab and Return end it. A URL or path
+     *  counts as English for the next word. */
+    private fun noteRun(text: String) {
+        for (ch in text) {
+            if (ch.isWhitespace()) {
+                if (hasURLMarker(runText)) previousLanguage = Language.ENGLISH
+                runText = ""
+                runKnown = true
+            } else {
+                runText += ch
+            }
+        }
+    }
+
+    /** The app deleted the character before the caret, nothing being typed. */
+    private fun noteDeleted() {
+        if (runText.isEmpty()) runKnown = false else runText = runText.dropLast(1)
+    }
+
+    /** The caret moved or the field changed: what is before the caret is read again when needed. */
+    private fun resetRun() {
+        runText = ""
+        runKnown = false
     }
 
     // Japanese conversion
@@ -508,7 +600,7 @@ class InputSession(
         if (ch.isAsciiDigit) {
             if (!digitsFullWidth) return false
             return forced == Language.JAPANESE || (forced == null && previewLanguage == Language.JAPANESE
-                                                   && RomajiComposer.compose(keys, partial = true).pending in listOf("", "n"))
+                                                   && RomajiComposer.compose(keys, partial = true).pending.lowercase() in listOf("", "n"))
         }
         if (ch !in JapaneseModel.inPhraseSymbols) return false
         if (forced == Language.JAPANESE) return true
@@ -521,7 +613,7 @@ class InputSession(
         // A letter still waiting for its vowel says the word may not be Japanese after all
         // (baz) is baz), not ばz）); a final n is ん (nihon. is にほん。).
         if (previewLanguage == Language.JAPANESE) {
-            return ch == '-' || ch == '\'' || RomajiComposer.compose(keys, partial = true).pending in listOf("", "n")
+            return ch == '-' || ch == '\'' || RomajiComposer.compose(keys, partial = true).pending.lowercase() in listOf("", "n")
         }
         // An English word before the mark keeps it English (to-do, co-op); ra-men isn't one.
         if (!(forced == null && (ch == '-' || ch == '\'') && previewLanguage == Language.ENGLISH &&
@@ -624,7 +716,7 @@ class InputSession(
         var kana = japaneseReading(partial = false)
         if (converter == null || kana.isEmpty()) return
         val userForced = forced == Language.JAPANESE && forcedByUser
-        if (userForced) record(keys, Language.JAPANESE, committedLanguage())
+        if (userForced && !inURLRun) record(keys, Language.JAPANESE, committedLanguage())
         // A number the app typed just before the phrase is part of it: 3ji is 3時, not 3 and 時
         // picked out of 地, 字, 自…
         val marked = client.markedRange()
@@ -654,6 +746,9 @@ class InputSession(
             candidates = candidates.subList(0, at).filter { it.text !in phrases } + added +
                 candidates.subList(at, candidates.size).filter { it.text !in phrases }
         }
+        // Every other homophone the engine has follows, for the candidate window (しょう → 硝).
+        val listed = candidates.map { it.text }.toSet()
+        candidates = candidates + (converter?.moreCandidates(kana) ?: emptyList()).filter { it.text !in listed }
         if (candidates.isEmpty()) {
             commit(client)
             return
@@ -661,7 +756,13 @@ class InputSession(
         // With live conversion the top candidate is already on screen: Space shows the next one.
         var selected = 0
         val i = live?.let { candidates.indexOf(it) } ?: -1
-        if (i >= 0 && candidates.size > 1) selected = (i + 1) % candidates.size
+        if (i >= 0 && candidates.size > 1) {
+            selected = (i + 1) % candidates.size
+        } else if (liveConversion && numberPrefix.isEmpty() && candidates.size > 1 && candidates[0].text == kana) {
+            // The kana is on screen (a short reading kept as kana, or brought back with Esc) and the
+            // engine put it first (しょう): Space shows a conversion, 翔, as macOS does, not the kana again.
+            selected = 1
+        }
         liveSuppressed = false
         val conversion = Conversion(kana, keys, candidates, selected, userForced, numberPrefix)
         this.conversion = conversion
@@ -766,12 +867,16 @@ class InputSession(
                 this.conversion = null
                 liveSuppressed = true // "back to kana" means kana, also with live conversion
                 // A number taken in from before the phrase goes back as it was typed.
-                if (conversion.numberPrefix.isNotEmpty()) client.insertText(conversion.numberPrefix, null)
+                if (conversion.numberPrefix.isNotEmpty()) {
+                    client.insertText(conversion.numberPrefix, null)
+                    noteRun(conversion.numberPrefix)
+                }
                 val kana = conversion.kana.drop(conversion.numberPrefix.length)
                 // Back to editing the romaji — when it still spells the reading. After part of a
                 // phrase with English in it was committed it may not; keep the kana rather than lose it.
                 if (JapaneseSegmenter.reading(conversion.keys, segmenter) != kana) {
                     client.insertText(kana, null)
+                    noteRun(kana)
                     previousLanguage = Language.JAPANESE
                     return true
                 }
@@ -806,6 +911,7 @@ class InputSession(
         val candidate = conversion.current
         converter.learn(candidate, conversion.kana)
         client.insertText(candidate.text, null)
+        noteRun(candidate.text)
         noteBrackets(candidate.text)
         val rest = conversion.kana.drop(candidate.kanaCount)
         this.conversion = null
@@ -814,6 +920,7 @@ class InputSession(
         val candidates = conversionCandidates(rest)
         if (candidates.isEmpty()) {
             client.insertText(rest, null)
+            noteRun(rest)
         } else {
             // The rest is the engine's Japanese, not something the user corrected.
             val next = Conversion(rest, restKeys, candidates, 0)
@@ -841,6 +948,21 @@ class InputSession(
     // Private
 
     private fun decide(partial: Boolean): Decision {
+        // A segment of a URL or path goes in as typed, before the dictionary is asked (so in a
+        // URL is so even where it was taught to be 내).
+        if (inURLRun) {
+            keptEnglishByStrict = false
+            var decision = Decision(Language.ENGLISH, 1.0, keys, "inside a URL or path")
+            // REA: a case particle glued to the last part of an address is still Korean
+            // (netmaru@gmail.comdmfh is netmaru@gmail.com으로), as before the URL run.
+            val mixed = MixedWord.split(keys)
+            if (runText.lastOrNull() == '.' && mixed != null && mixed.english.all { it.isLetter() } &&
+                mixed.korean in MixedWord.singleLetterParticles) {
+                decision = Decision(Language.MIXED, 1.0, mixed.text, "address + particle")
+            }
+            lastTrace = Trace(keys, previousLanguage, decision, partial)
+            return decision
+        }
         shortcutReading(partial)?.let { (language, text) ->
             // As sure as a split word, so a Strict app shows it too.
             keptEnglishByStrict = false
@@ -901,27 +1023,31 @@ class InputSession(
      *  same rule as the preview, so what you see is what you get. */
     private fun committedLanguage(): Language {
         val d = decide(partial = false)
+        // REA: what is committed is what was shown: letters the short-prefix rule kept on screen
+        // go in as letters (zi, zio), not as the kana the engine read.
+        if (enginePreview == Language.JAPANESE && previewLanguage == Language.ENGLISH) return Language.ENGLISH
         val shown = enginePreview
         if (shown == null || shown == d.language) return d.language
-        // Kanji on screen (live conversion): Space converts them, unless the keys are an English
+        // Japanese on screen, kana or kanji: Space converts it, unless the keys are an English
         // word. A short word reads as the start of a longer Japanese one while typed and as
-        // English once it ends (zi showed 地, then went in as "zi"). Kana alone keep the usual rule.
-        if (shown == Language.JAPANESE && d.language == Language.ENGLISH && isLive && !keptEnglishByStrict &&
-            !EnglishModel.shared.isKnownWord(keys) && RomajiComposer.compose(keys).isClean &&
-            liveCandidate(japaneseReading(partial = false)) != null) {
+        // English once it ends (zi showed 地 and zio じお, then went in as "zi", "zio"), and a
+        // Strict app's short token kept English would go in as letters under its kana (ka under か).
+        if (shown == Language.JAPANESE && d.language == Language.ENGLISH &&
+            !EnglishModel.shared.isKnownWord(keys) && RomajiComposer.compose(keys).isClean) {
             return shown
         }
-        return if (isWeakFlipAllowed(d, shown)) d.language else shown
+        return if (isWeakFlipAllowed(d, shown, runnerUp = false)) d.language else shown // REA: runnerUp
     }
 
     /** Whether [decision] may replace the reading on screen: when it's confident, when it's
      *  a dictionary English word (which is what Space/Return will commit), or when a Strict app
      *  kept a short token English: there the typed letters win over a reading shown along the
      *  way (gs showed ㅎㄴ, but gst stays gst). Only a close second is held: Th showed てぇ, and
-     *  The (Korean against English, kana far behind) went in as 手ェ. */
-    private fun isWeakFlipAllowed(decision: Decision, shown: Language): Boolean =
+     *  The (Korean against English, kana far behind) went in as 手ェ. REA: on screen only
+     *  ([runnerUp]); Return commits what was shown (ufos showed うふぉs). */
+    private fun isWeakFlipAllowed(decision: Decision, shown: Language, runnerUp: Boolean = true): Boolean =
         decision.confidence >= PREVIEW_FLIP_CONFIDENCE
-            || (decision.runnerUp != null && decision.runnerUp != shown)
+            || (runnerUp && decision.runnerUp != null && decision.runnerUp != shown)
             || (decision.language == Language.ENGLISH && (keptEnglishByStrict || EnglishModel.shared.isKnownWord(keys)))
             || preview(shown) == null
 
@@ -939,8 +1065,10 @@ class InputSession(
                 else -> engine.render(keys, forcedOrPinned)
             }, client)
         } else {
-            splitOffKoreanBeforeOther(client)
-            splitOffJapaneseBeforeKorean(client)
+            if (!inURLRun) {
+                splitOffKoreanBeforeOther(client)
+                splitOffJapaneseBeforeKorean(client)
+            }
             val decision = decide(partial = true)
             var language = decision.language
             // Hysteresis: a weak flip on one keystroke (わた → "wat" → わたし) isn't shown,
@@ -953,11 +1081,11 @@ class InputSession(
             // The first letters of an English word often read as kana for a key or two (u is う
             // before up, ta is た before table, ch is ちゃ before chair). Outside Japanese text
             // they stay as typed until the kana are near-certain (ka, wa) or the word is longer:
-            // letters are neutral, a flip that flips back looks wrong. Only what's shown: Space
-            // still commits what the engine read.
+            // letters are neutral, a flip that flips back looks wrong. REA: Space commits them as
+            // shown too ([committedLanguage]).
             if (language == Language.JAPANESE && keys.length <= SHORT_PREFIX_LENGTH &&
                 (shown ?: Language.ENGLISH) == Language.ENGLISH && previousLanguage?.sentenceLanguage != Language.JAPANESE &&
-                decision.confidence < SHORT_PREFIX_FLIP_CONFIDENCE) {
+                decision.confidence < SHORT_PREFIX_FLIP_CONFIDENCE && shortcutReading(partial = true) == null) { // a shortcut shows (gu- is ぐー)
                 language = Language.ENGLISH
             }
             previewLanguage = language
@@ -990,6 +1118,7 @@ class InputSession(
                 !korean.syllables.all { koreanModel.syllableLogProbability(it) > KoreanModel.UNKNOWN_SYLLABLE_LOG_P } ||
                 !isOtherLanguageWord(back)) continue
             client.insertText(korean.text, null)
+            noteRun(korean.text)
             keys = back
             syllableStart = null
             previousLanguage = Language.KOREAN
@@ -1039,7 +1168,9 @@ class InputSession(
             val decision = engine.decide(front, DecisionContext(previousLanguage))
             if (decision.language != Language.JAPANESE || decision.confidence < 0.9) continue
             keys = front
-            client.insertText(committedJapanese(), null)
+            val japanese = committedJapanese()
+            client.insertText(japanese, null)
+            noteRun(japanese)
             keys = back
             syllableStart = null
             previousLanguage = Language.JAPANESE
@@ -1056,7 +1187,9 @@ class InputSession(
         Language.ENGLISH -> keys
         Language.KOREAN -> hangul()
         Language.MIXED -> engine.render(keys, Language.MIXED).takeIf { it != keys }
-        Language.JAPANESE -> if (japaneseEnabled) japaneseReading(partial = true) else null
+        // Only っ and letters (ss: っs) is no Japanese word, so it isn't a reading to hold on to.
+        Language.JAPANESE -> if (!japaneseEnabled || RomajiComposer.compose(keys, partial = true).isOnlySokuon) null
+                             else japaneseReading(partial = true)
     }
 
     private class Word(val keys: String, val text: String, val language: Language, val decided: Language)
@@ -1069,7 +1202,9 @@ class InputSession(
         // "Back to kana" without the user's switch, or a reading kept while deleting, isn't a
         // correction: report it as the engine's.
         val decided = if ((forced != null && !forcedByUser) || (forced == null && pinned != null)) language else engineChoice
-        if (forced != null && forcedByUser) record(keys, language, decided)
+        if (inURLRun) {
+            // Not a word: neither a correction to learn nor a use of one.
+        } else if (forced != null && forcedByUser) record(keys, language, decided) else engine.used(keys, language)
         val text = when (language) {
             Language.JAPANESE -> committedJapanese()
             Language.KOREAN -> hangul() ?: engine.render(keys, language)
@@ -1163,6 +1298,7 @@ class InputSession(
                       else engine.render(commit.keys, language)
         val text = reading + commit.boundary
         client.insertText(text, range)
+        if (runText.endsWith(commit.text)) runText = runText.dropLast(commit.text.length) + text
         previousLanguage = language.sentenceLanguage
         return commit.copy(language = language, text = text)
     }
@@ -1175,7 +1311,7 @@ class InputSession(
     /** The undo window closed: learn where the word ended up (once, not every reading the switch
      *  passed through on the way). */
     private fun finalize(commit: Committed) {
-        if (commit.language != commit.committedAs) record(commit.keys, commit.language, commit.decided)
+        if (commit.learns && commit.language != commit.committedAs) record(commit.keys, commit.language, commit.decided)
     }
 
     companion object {
@@ -1183,6 +1319,19 @@ class InputSession(
         private val pairs = mapOf('）' to '（', '」' to '「', '｝' to '｛', '』' to '『', '】' to '【')
 
         private val koreanModel by lazy { KoreanModel() }
+
+        /** Whether a run of text without spaces is a URL or path from here on: `://`, `www.`, `~/`,
+         *  `./` or `../` at its start, a path that starts with `/` and has another, `@` after
+         *  something (an email; `@홍길동` is a mention) or `localhost:`. A lone `.` or `/` isn't one:
+         *  L.A.로, TV/라디오 and 남/여 are Korean. */
+        fun hasURLMarker(run: String) = "://" in run || "localhost:" in run
+            || listOf("www.", "~/", "./", "../").any(run::startsWith)
+            || (run.startsWith("/") && '/' in run.drop(1))
+            || '@' in run.drop(1)
+            || run == "." || run == "!." // REA: a dotfile (.env, !.env in .gitignore): one dot starts the run
+
+        /** How far back the field is read for the run (UTF-16 units). */
+        private const val RUN_LOOK_BEHIND = 256
 
         /** The preview only switches language mid-word when the new reading is at least this likely. */
         const val PREVIEW_FLIP_CONFIDENCE = 0.7

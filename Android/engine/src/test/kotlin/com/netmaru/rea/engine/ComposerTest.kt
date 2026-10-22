@@ -66,12 +66,13 @@ class ComposerTest {
         val base = object : DecisionEngine {
             override fun decide(keys: String, context: DecisionContext) = Decision(Language.ENGLISH, 0.9, keys, "")
         }
-        LearningEngine(base, file).apply {
+        val english = EnglishModel(emptyMap())
+        DictionaryEngine(base, english, storeFile = file).apply {
             learn("dkssud", Language.KOREAN)
             assertNull(learned["dkssud"]) // once is not yet learned
             learn("dkssud", Language.KOREAN)
         }
-        val reloaded = LearningEngine(base, file)
+        val reloaded = DictionaryEngine(base, english, storeFile = file)
         assertEquals(Language.KOREAN, reloaded.learned["dkssud"])
         assertEquals("안녕", reloaded.decide("dkssud", DecisionContext()).output)
     }

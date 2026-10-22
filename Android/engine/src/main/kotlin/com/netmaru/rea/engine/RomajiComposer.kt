@@ -20,11 +20,17 @@ object RomajiComposer {
         val kanaCount: Int,
     ) {
         val isClean get() = strayLetters == 0 && pending.isEmpty()
+        /** Only っ and letters (ff: っf, sss: っっs): a doubled consonant at the start with no
+         *  kana after it, which no Japanese word is (って has kana after its っ). */
+        val isOnlySokuon get() = text.firstOrNull() == 'っ' && text.all { it == 'っ' || it.isAsciiLetter }
     }
 
     /** [partial]: the word is still being typed, so a trailing "k" or "n" is waiting for its vowel rather than stray. */
     fun compose(keys: String, partial: Boolean = false): Result {
-        val chars = keys.lowercase()
+        // Matched in lowercase; letters that don't become kana stay as typed (⇧P waiting for its
+        // vowel shows P, not p).
+        val typed = keys
+        val chars = String(CharArray(typed.length) { typed[it].let { c -> if (c.isAscii) c.lowercaseChar() else c } })
         val out = StringBuilder()
         var stray = 0
         var kana = 0
@@ -54,7 +60,7 @@ object RomajiComposer {
                     }
                     if (next !in vowels && next != 'y') { emit("ん"); i += 1; continue }
                 } else {
-                    if (partial) pending = "n" else emit("ん")
+                    if (partial) pending = typed[i].toString() else emit("ん")
                     i += 1
                     continue
                 }
@@ -74,12 +80,11 @@ object RomajiComposer {
             }
             if (matched) continue
 
-            val rest = chars.substring(i)
-            if (partial && rest in prefixes) {
-                pending = rest
+            if (partial && chars.substring(i) in prefixes) {
+                pending = typed.substring(i)
                 break
             }
-            out.append(c)
+            out.append(typed[i])
             stray += 1
             i += 1
         }

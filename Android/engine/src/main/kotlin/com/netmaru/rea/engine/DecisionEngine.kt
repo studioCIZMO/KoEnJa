@@ -1,6 +1,5 @@
 package com.netmaru.rea.engine
 
-import java.io.File
 import java.util.Locale
 import kotlin.math.exp
 import kotlin.math.max
@@ -24,7 +23,7 @@ enum class Language {
     /** What Esc switches to: english → mixed (when the keys split) → korean →
      *  japanese (when enabled) → english. Readings that can't exist for these keys
      *  are skipped (no Korean for "ra-men"), and so are garbled ones (dkssud as
-     *  Japanese: dkっすd) as long as a clean alternative exists — a typo can still
+     *  Japanese: dkっすd; loose consonants and ㅜ/ㅠ such as ㅁㅊ or ㅜㅜ aren't garbled) as long as a clean alternative exists — a typo can still
      *  be forced into its language when nothing reads cleanly. [splits]: whether the engine
      *  splits the keys (x에, hello월드 as well as github에); left out, the particle split decides. */
     fun next(keys: String, japanese: Boolean = false, splits: Boolean? = null): Language {
@@ -39,7 +38,7 @@ enum class Language {
         val clean = available.filter {
             when (it) {
                 ENGLISH, MIXED -> true
-                KOREAN -> HangulComposer.compose(keys)?.strayJamo?.isEmpty() == true
+                KOREAN -> HangulComposer.compose(keys)?.let { it.strayJamo.isEmpty() || it.isJamoAbbreviation } == true
                 JAPANESE -> RomajiComposer.compose(keys).strayLetters == 0
             }
         }
@@ -56,6 +55,10 @@ data class DecisionContext(
     val previousLanguage: Language? = null,
     /** The token is still being typed (used for the live preview). */
     val partial: Boolean = false,
+    /** The language the user corrected these keys to once (a weak dictionary entry). */
+    val nudge: Language? = null,
+    /** The app typed into, for the user's dictionary entries limited to apps. */
+    val app: String? = null,
 )
 
 data class Decision(
@@ -118,18 +121,27 @@ class HeuristicEngine(
      *  someone switching language, not a stray reading. */
     var switchBiasFactor = 0.25
     /** Score floors for a Korean word seen in real text (two or more syllables, one), the
-     *  counterpart of the English dictionary floor: 내가, 무슨 stay Korean after English. */
+     *  counterpart of the English dictionary floor: 내가, 무슨 stay Korean after English.
+     *  A word only in the wider vocabulary (닥터, 했죠: too rare for Tatoeba's sentences), or a
+     *  noun the lists have only with a particle (혜택), gets the long floor too, unless the keys
+     *  are an English word: that list comes from subtitles, and work (재가) or ahem (모드) must
+     *  stay English. */
     var koreanKnownFloorLong = -1.4
     var koreanKnownFloorShort = -2.0
     /** How far Japanese must lead before a known English word is turned into kana
      *  outside Japanese text. */
     var englishWordProtection = 1.0
+    /** Added to the language the user corrected the keys to once ([DecisionContext.nudge]):
+     *  as much as the previous word's pull, so a close call turns and a clear one doesn't. */
+    var correctionBias = 0.8
 
     val segmenter: JapaneseSegmenter? = japanese?.let { JapaneseSegmenter(english, it) }
 
     override fun decide(keys: String, context: DecisionContext): Decision {
-        // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English.
-        if (keys.any { it.isUpperCase() && !DubeolsikLayout.isKoreanShiftKey(it) }) {
+        // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English,
+        // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를):
+        // then the scores decide.
+        if (DubeolsikLayout.hasEnglishOnlyCapital(keys)) {
             return Decision(Language.ENGLISH, 0.99, keys, "uppercase outside QWERTOP")
         }
 
@@ -151,18 +163,37 @@ class HeuristicEngine(
         if (keys.any { !it.isLetter() }) e -= 3 // "ra-men", "kan'i" aren't English
 
         var k = korean.score(keys, context.partial)
-        val knownKorean = k?.let { it.composition.strayJamo.isEmpty() && korean.isKnownWord(it.composition.text) } ?: false
+        val knownKorean = k?.let {
+            val text = it.composition.text
+            it.composition.strayJamo.isEmpty() && (korean.isKnownWord(text)
+                || (!known && (korean.isVocabularyWord(text) || korean.isRareVocabularyWord(text) || korean.isKnownStem(text))))
+        } ?: false
         if (k != null && knownKorean) {
             val floor = if (k.composition.syllables.size >= 2) koreanKnownFloorLong else koreanKnownFloorShort
             k = KoreanModel.Score(max(k.averageLogProbability, floor), k.composition)
         }
-        // A dictionary English word may already be complete: score its Japanese reading as
-        // finished too, so the preview shows what Space will commit ("to" stays to, not と).
-        val j = japanese?.score(keys, context.partial && !known)
+        // A dictionary English word may already be complete, and so are chat jamo (ㅜㅜ): score
+        // the Japanese reading as finished too, so the preview shows what Space will commit
+        // ("to" stays to, not と; nn shows ㅜㅜ, not ん that Space turned into ㅜㅜ). So is a
+        // doubled consonant with nothing after its っ (ff, ww): no Japanese word is only っ, so
+        // it isn't one on its way (ff showed っf and went in as ff); って (tte) still is.
+        val chat = k?.composition?.isChat == true
+        val sokuonFirst = RomajiComposer.compose(keys, partial = true).isOnlySokuon
+        // A capital is never romaji: Japanese IMEs type ⇧ letters as themselves (⇧O is O, not お).
+        val j = if (keys.any { it.isUpperCase() }) null
+            else japanese?.score(keys, context.partial && !known && !chat && !sokuonFirst)
         // English words inside a Japanese phrase (googlede…) score as segmented Japanese,
         // not as kana with stray letters.
-        val segmented = if (j != null && j.composition.strayLetters > 0) segmenter?.scoredSegments(keys) else null
+        var segmented = if (j != null && j.composition.strayLetters > 0) segmenter?.scoredSegments(keys) else null
+        // REA: the capitals inside an English word that leads into Japanese (iPhonedetesuto is
+        // iPhone + でてすと) keep the phrase Japanese; a capital still never becomes kana.
+        if (j == null && keys.any { it.isUpperCase() }) {
+            segmenter?.scoredSegments(keys)?.let { s ->
+                if (s.segments.all { it !is JapaneseSegmenter.Segment.Japanese || !it.keys.any(Char::isUpperCase) }) segmented = s
+            }
+        }
         val japaneseScore = j?.let { max(it.averageLogProbability, segmented?.let { s -> s.score / keys.length } ?: Double.NEGATIVE_INFINITY) }
+            ?: segmented?.let { it.score / keys.length } // REA: the segmented reading alone
 
         val languages = ArrayList<Language>(3)
         val values = ArrayList<Double>(3)
@@ -177,12 +208,14 @@ class HeuristicEngine(
             if (knownIn[previous] == false && knownIn.any { it.key != previous && it.value }) bias *= switchBiasFactor
             values[i] += bias
         }
+        val nudge = context.nudge
+        if (nudge != null && nudge != Language.MIXED) languages.indexOf(nudge).takeIf { it >= 0 }?.let { values[it] += correctionBias }
         val scores = languages.indices.map { languages[it] to values[it] }.sortedByDescending { it.second }.toMutableList()
 
         // A dictionary English word only becomes kana on a clear win, unless we're already
-        // in Japanese text (where "same", "sake", "kite" are Japanese words).
+        // in Japanese text or the user corrected it to Japanese once (where "same", "sake", "kite" are Japanese words).
         val englishIndex = scores.indexOfFirst { it.first == Language.ENGLISH }
-        if (known && scores[0].first == Language.JAPANESE && previous != Language.JAPANESE &&
+        if (known && scores[0].first == Language.JAPANESE && previous != Language.JAPANESE && context.nudge != Language.JAPANESE &&
             englishIndex >= 0 && scores[0].second - scores[englishIndex].second < englishWordProtection) {
             scores[0] = scores[englishIndex].also { scores[englishIndex] = scores[0] }
         }
@@ -205,81 +238,3 @@ class HeuristicEngine(
 
 /** Swift's raw value: the name used in explanations and the learning file. */
 val Language.raw get() = name.lowercase()
-
-/**
- * Wraps an engine with explicit per-word choices the user has made (by flipping a
- * word with the switch key). Learned choices always win.
- *
- * One correction only changes that word: a habitual or mistaken switch shouldn't change
- * every later occurrence. The same correction a second time is learned.
- *
- * [storeFile]: where they are kept (lines of `learned|once <TAB> keys <TAB> language`); null keeps them in memory.
- * Not ported: reload, forget, forgetAll, pending, lastLearned (the macOS settings window's).
- */
-class LearningEngine(val base: DecisionEngine, private val storeFile: File? = null) : DecisionEngine {
-    private val learnedWords = HashMap<String, Language>()
-    private val once = HashMap<String, Language>()
-
-    init {
-        // Unreadable lines (hand-edited, or from a newer version) are skipped.
-        storeFile?.takeIf { it.isFile }?.forEachLine { line ->
-            val parts = line.split('\t')
-            val language = Language.entries.firstOrNull { it.raw == parts.getOrNull(2) }
-            if (parts.size == 3 && language != null) {
-                when (parts[0]) {
-                    "learned" -> learnedWords[parts[1]] = language
-                    "once" -> once[parts[1]] = language
-                }
-            }
-        }
-    }
-
-    /** Words learned for good (corrected the same way twice). */
-    val learned: Map<String, Language> @Synchronized get() = HashMap(learnedWords)
-
-    override fun decide(keys: String, context: DecisionContext): Decision {
-        val learned = synchronized(this) { learnedWords[keys] }
-        if (learned != null) {
-            // Rendered by the base engine: this engine's own render(MIXED) would ask it to
-            // decide the keys again, find them learned, and so on without end.
-            return Decision(learned, 1.0, base.render(keys, learned), "learned")
-        }
-        return base.decide(keys, context)
-    }
-
-    /** Records that [keys] were corrected to [language]. The second time the same
-     *  correction is made it is learned; correcting back to the engine's own choice
-     *  forgets the word.
-     *
-     *  Pass [engineChoice] when the caller already knows what the engine decided (the
-     *  input method always does: what was on screen, which a fresh decision might not match). */
-    fun learn(keys: String, language: Language, engineChoice: Language? = null) {
-        val baseChoice = engineChoice ?: base.decide(keys, DecisionContext()).language
-        val snapshot = synchronized(this) {
-            // Already learned this way (e.g. converting a learned word again): nothing to change.
-            if (learnedWords[keys] == language) return
-            if (language == baseChoice) {
-                learnedWords.remove(keys)
-                once.remove(keys)
-            } else if (once[keys] == language) {
-                learnedWords[keys] = language
-                once.remove(keys)
-            } else {
-                // A different correction than before: it starts over.
-                learnedWords.remove(keys)
-                once[keys] = language
-            }
-            buildString {
-                for ((k, l) in learnedWords.toSortedMap()) append("learned\t$k\t${l.raw}\n")
-                for ((k, l) in once.toSortedMap()) append("once\t$k\t${l.raw}\n")
-            }
-        }
-        val file = storeFile ?: return
-        runCatching {
-            file.parentFile?.mkdirs()
-            val temp = File(file.path + ".tmp")
-            temp.writeText(snapshot)
-            temp.renameTo(file)
-        }
-    }
-}

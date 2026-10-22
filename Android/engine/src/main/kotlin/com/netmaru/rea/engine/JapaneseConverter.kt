@@ -16,4 +16,7 @@ interface JapaneseConverter {
     fun learn(candidate: ConversionCandidate, kana: String)
     /** Persist anything learned. */
     fun save()
+    /** Candidates for all of [kana] that [candidates] leaves out, in the engine's order: the
+     *  candidate window lists them after it, as macOS's Japanese input lists every homophone. */
+    fun moreCandidates(kana: String): List<ConversionCandidate> = emptyList()
 }

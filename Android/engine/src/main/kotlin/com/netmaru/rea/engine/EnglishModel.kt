@@ -10,24 +10,38 @@ import kotlin.math.min
  *
  * [raw]: word → level; [spelling]: the words letter trigrams are trained on (null: the list's).
  */
-class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null) {
+class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null, extraWords: List<String> = emptyList()) {
     // Symbols: 0 = word boundary, 1...26 = a...z
     private val trigrams = FloatArray(SYMBOLS * SYMBOLS * SYMBOLS)
     private val contexts = FloatArray(SYMBOLS * SYMBOLS)
     /** The words (lowercase, letters only) and each one's SCOWL level. */
     private val words: WordList
     private val levels: ByteArray
+    /** The levels a guessed inflection may take from its stem: the list's own, not [commonWords]
+     *  (null: [levels]). REA: only the words [commonWords] changed (null inside: not listed). */
+    private val stemLevels: Map<String, Int?>?
     private val smoothing = 0.5f
 
     init {
         val n = SYMBOLS
-        val levels = HashMap<String, Int>(raw.size * 2)
-        for ((rawWord, level) in raw) {
-            val word = rawWord.filter { it != '\'' }
-            if (word.isEmpty() || !word.all { it.isAsciiLetter }) continue
-            // Many 1–2 letter list entries aren't words people type ("ra", "ko"); only real ones count.
-            if (word.length > 2 || word in shortWords) levels[word] = min(levels[word] ?: level, level)
+        fun normalized(raw: Map<String, Int>): HashMap<String, Int> {
+            val levels = HashMap<String, Int>(raw.size * 2)
+            for ((rawWord, level) in raw) {
+                val word = rawWord.filter { it != '\'' }
+                if (word.isEmpty() || !word.all { it.isAsciiLetter }) continue
+                // Many 1–2 letter list entries aren't words people type ("ra", "ko"); only real ones count.
+                if (word.length > 2 || word in shortWords) levels[word] = min(levels[word] ?: level, level)
+            }
+            return levels
         }
+        val levels = normalized(raw)
+        // REA: upstream normalizes the list with the extra words in and keeps a second copy without.
+        val listed = HashMap<String, Int?>()
+        for (word in normalized(extraWords.associate { it.lowercase() to EXTRA_LEVEL }).keys) {
+            listed[word] = levels[word]
+            levels[word] = min(levels[word] ?: EXTRA_LEVEL, EXTRA_LEVEL)
+        }
+        stemLevels = if (extraWords.isEmpty()) null else listed
         for (word in spelling ?: levels.keys.asSequence()) {
             if (word.isEmpty() || !word.all { it.isAsciiLetter }) continue
             val codes = encode(word)
@@ -63,7 +77,14 @@ class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null) {
         val w = token.lowercase().filter { it != '\'' }
         levelOf(w)?.let { return it }
         var best: Int? = null
-        fun consider(stem: String) { levelOf(stem)?.let { l -> best = min(best ?: l, l) } }
+        // SCOWL lists the inflections of its words, so a guessed one counts only for a stem the
+        // list itself ranks above its rarest known level: thru (50, and 35 only as one of
+        // `commonWords`) + s is no word, and thrus is 소견.
+        fun consider(stem: String) {
+            // REA: stemLevels holds only the words `commonWords` changed.
+            val l = if (stemLevels?.containsKey(stem) == true) stemLevels[stem] else levelOf(stem)
+            if (l != null && l < KNOWN_LEVEL) best = min(best ?: l, l)
+        }
         // Stems of 3+ letters: ths isn't the+s, ehs isn't eh+s.
         for (suffix in listOf("s", "es", "ed", "d", "ing", "ly", "er", "ers", "est")) {
             if (w.length <= suffix.length + 2 || !w.endsWith(suffix)) continue
@@ -113,11 +134,11 @@ class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null) {
                     if (parts.size == 2 && level != null) levels[parts[0]] = level
                 }
             }
-            for (word in extraWords) levels[word.lowercase()] = min(levels[word.lowercase()] ?: EXTRA_LEVEL, EXTRA_LEVEL)
+            // REA: the extra words go in in the constructor, not into a copy of the 119k-word list.
             val file = spellingPath?.let(::File)?.takeIf { it.canRead() }
-                ?: return EnglishModel(levels)
+                ?: return EnglishModel(levels, extraWords = extraWords)
             return file.bufferedReader().useLines { lines ->
-                EnglishModel(levels, lines.filter(String::isNotEmpty).map { it.lowercase() } + extraWords.asSequence())
+                EnglishModel(levels, lines.filter(String::isNotEmpty).map { it.lowercase() } + extraWords.asSequence(), extraWords)
             }
         }
 

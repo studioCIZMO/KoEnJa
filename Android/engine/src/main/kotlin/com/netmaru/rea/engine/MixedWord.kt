@@ -18,6 +18,45 @@ data class MixedWord(val english: String, val koreanKeys: String, val korean: St
             이라는 라는 이란 에선 으론 로서 으로서
         """).toHashSet()
 
+        /** Particles with a form after a final consonant and one after a vowel (책을, 사과를): the
+         *  consonant form first. A final ㄹ takes the vowel form of 으로 (서울로). */
+        val pairedParticles: List<Pair<String, String>> = listOf(
+            "을" to "를", "은" to "는", "이" to "가", "과" to "와", "이랑" to "랑", "이랑은" to "랑은",
+            "으로" to "로", "으로는" to "로는", "으로도" to "로도", "으론" to "론", "으로서" to "로서",
+            "이나" to "나", "이야" to "야", "이라" to "라", "이라고" to "라고", "이라는" to "라는", "이란" to "란",
+            "이에요" to "예요",
+        )
+
+        /** Whether [particle] is the form that follows a word ending as [final] describes:
+         *  null for a particle that has one form (에, 도, 의), else true or false (씨이, 쓰은 are wrong). */
+        fun particleAgrees(particle: String, final: FinalSound): Boolean? {
+            for ((consonant, vowel) in pairedParticles) {
+                if (particle == consonant) return final == FinalSound.CONSONANT || (final == FinalSound.RIEUL && !consonant.startsWith("으"))
+                if (particle == vowel) return final == FinalSound.VOWEL || (final == FinalSound.RIEUL && consonant.startsWith("으"))
+            }
+            return null
+        }
+
+        enum class FinalSound { VOWEL, CONSONANT, RIEUL }
+
+        /** How a Hangul syllable ends; null for anything else. */
+        fun finalSound(syllable: Char): FinalSound? {
+            if (syllable !in '가'..'힣') return null
+            return when ((syllable - '가') % 28) {
+                0 -> FinalSound.VOWEL
+                8 -> FinalSound.RIEUL
+                else -> FinalSound.CONSONANT
+            }
+        }
+
+        /** How an acronym ends when read letter by letter: L, M, N and R (엘, 엠, 엔, 알) on a final
+         *  consonant, every other letter's name on a vowel (TM은, TV는). */
+        fun finalSoundOfAcronym(acronym: String): FinalSound = when (acronym.lastOrNull()?.uppercaseChar()) {
+            'L', 'R' -> FinalSound.RIEUL
+            'M', 'N' -> FinalSound.CONSONANT
+            else -> FinalSound.VOWEL
+        }
+
         /** Particles that follow a single letter (x에, n이, a를, X축의 X): case particles only, not
          *  endings like 해/한, so short English (ago) doesn't split. */
         val singleLetterParticles: Set<String> = words("""
@@ -74,12 +113,7 @@ class SplittingEngine(
     /** With Japanese on: English word + Japanese particle (githubで), decided the same way. */
     val japanese: JapaneseSegmenter? = null,
 ) : DecisionEngine {
-    /** English word + Korean word (hello월드) only when the whole token spells less like
-     *  English than this; stricter still when the Korean half isn't in the word lists. */
-    var mixedWordSpellingCeiling = -2.7
-    var unknownWordSpellingCeiling = -3.2
-
-    /** Scores English word + particle against the whole token. */
+    /** Scores English word + particle, and English + Korean word, against the whole token. */
     val particles = ParticleSplitter(english, korean, japanese?.japanese)
 
     override fun decide(keys: String, context: DecisionContext): Decision {
@@ -94,55 +128,10 @@ class SplittingEngine(
             null -> {}
         }
         val single = MixedWord.splitSingleLetter(keys)
-        if (single != null && !english.isKnownWord(keys) && !readsAsKorean(keys)) {
+        if (single != null && !english.isKnownWord(keys) && !particles.readsAsKorean(keys)) {
             return Decision(Language.MIXED, CONFIDENCE, single.text, "split ${single.english}+${single.korean}")
         }
-        englishThenKoreanWord(keys)?.let {
-            return Decision(Language.MIXED, CONFIDENCE, it.text, "split ${it.english}+${it.korean}")
-        }
         return base.decide(keys, context)
-    }
-
-    /** An English word with a whole Korean word typed straight after it, no space:
-     *  `hellodnjfem` → `hello월드`, `designvhsxm` → `design폰트`. The front has to be a known
-     *  English word (or a name typed with capitals) and the back at least two syllables:
-     *  a known Korean word (optionally with a particle), or, when the whole token spells
-     *  nothing like English, any Hangul made of syllables people use. Prefers the longest
-     *  English front. Names that spell like English stay whole (cartman isn't car스무). */
-    fun englishThenKoreanWord(keys: String): MixedWord? {
-        if (keys.length < 5 || english.isKnownWord(keys)) return null
-        val spelling = english.averageLogProbability(keys)
-        // Clean romaji (hasansowo, はさんそを) is Japanese, not English + Hangul.
-        if (spelling >= mixedWordSpellingCeiling || RomajiComposer.compose(keys).isClean) return null
-        for (start in keys.length - 2 downTo 2) {
-            val front = keys.substring(0, start)
-            val back = keys.substring(start)
-            // Capitals count only when one has no Korean meaning (ThkT is 쐈, not a name).
-            if (!((hasEnglishOnlyCapital(front) && (isAcronym(front) || isCapitalizedName(front)))
-                  || (front.length >= 3 && english.isKnownWord(front)))) continue
-            if (!DubeolsikLayout.startsSyllable(back[0])) continue
-            val composed = HangulComposer.compose(back) ?: continue
-            if (composed.strayJamo.isNotEmpty() || composed.syllables.size < 2) continue
-            if (!(isKoreanWordOrWordWithParticle(composed.text)
-                  || (spelling < unknownWordSpellingCeiling
-                      && composed.syllables.all { korean.syllableLogProbability(it) > KoreanModel.UNKNOWN_SYLLABLE_LOG_P }))) continue
-            if (!(hasEnglishOnlyCapital(front) || !readsAsKorean(keys))) return null
-            return MixedWord(front, back, composed.text)
-        }
-        return null
-    }
-
-    private fun isKoreanWordOrWordWithParticle(hangul: String): Boolean {
-        if (korean.isVocabularyWord(hangul)) return true
-        return (1 until hangul.length).any { cut ->
-            cut >= 2 && korean.isVocabularyWord(hangul.substring(0, cut)) && hangul.substring(cut) in MixedWord.suffixes
-        }
-    }
-
-    private fun readsAsKorean(keys: String): Boolean {
-        val composed = HangulComposer.compose(keys) ?: return false
-        if (composed.strayJamo.isNotEmpty()) return false
-        return composed.syllables.all { korean.syllableLogProbability(it) > KoreanModel.UNKNOWN_SYLLABLE_LOG_P }
     }
 
     companion object {
@@ -150,24 +139,7 @@ class SplittingEngine(
          *  asks for an English front it can stand on, so github에 splits in a terminal too. */
         const val CONFIDENCE = 0.98
 
-        /** UI, AI, OS, API: capitals typed on purpose, with at least one that has no shifted
-         *  jamo (so it can't be ㅃㅉㄸㄲㅆㅒㅖ). Short ones count too (UI같은건). */
-        fun isAcronym(front: String) = front.length in 2..6 && front.all { it.isUpperCase() }
-            && front.any { !DubeolsikLayout.isKoreanShiftKey(it) }
-
-        /** Slack, TextEdit, VSCode, GitHub: a name typed with its capitals, so English even when
-         *  it isn't in the word list. Starts with a capital, has lowercase too, and has either a
-         *  capital with no shifted jamo or another capital inside (PascalCase). Korean typed with
-         *  shift (TkdRjvnf, 쌍꺼풀) also passes the second test; `readsAsKorean` still stops it. */
-        fun isCapitalizedName(front: String): Boolean {
-            if (front.length < 3 || !front[0].isUpperCase() || !front.any { it.isLowerCase() }) return false
-            if (hasEnglishOnlyCapital(front)) return true
-            if (!front.drop(1).any { it.isUpperCase() }) return false
-            // Every capital a shifted jamo and the keys spelling whole Hangul is Korean typed with shift,
-            // even with a typo making an odd syllable (RoRmtgkgfu, 깨끗핳려), not a name (TextEdit).
-            return HangulComposer.compose(front)?.let { it.strayJamo.isNotEmpty() } ?: true
-        }
-
-        fun hasEnglishOnlyCapital(front: String) = front.any { it.isUpperCase() && !DubeolsikLayout.isKoreanShiftKey(it) }
+        /** A capital no lingering Shift explains (RNl, 꿀 typed fast, isn't a name). */
+        fun hasEnglishOnlyCapital(front: String) = DubeolsikLayout.hasEnglishOnlyCapital(front)
     }
 }

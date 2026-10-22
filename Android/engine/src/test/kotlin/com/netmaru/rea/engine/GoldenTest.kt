@@ -9,7 +9,7 @@ import kotlin.test.assertEquals
  */
 class GoldenTest {
     /** The text field: everything before the cursor, the marked part at its end. */
-    private class Field : TextClient {
+    internal class Field : TextClient {
         var text = ""
         var marked = TextRange(TextRange.NOT_FOUND, 0)
         private val end get() = text.length

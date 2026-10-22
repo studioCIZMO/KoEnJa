@@ -3,8 +3,8 @@ package com.netmaru.rea.engine
 import java.io.File
 
 /**
- * The engine stack iOS's KeyboardViewController builds (makeHeuristic/makeSession): learned
- * corrections, then mixed words (github에, githubで), then the heuristic, weighted by the user's
+ * The engine stack iOS's KeyboardViewController builds (makeHeuristic/makeSession): the user's
+ * dictionary (learned corrections), then mixed words (github에, githubで), then the heuristic, weighted by the user's
  * language order (LanguagePreferences).
  */
 object Engines {
@@ -36,7 +36,9 @@ object Engines {
         learningFile: File? = null,
     ): InputSession {
         val heuristic = makeHeuristic(order)
-        val engine = LearningEngine(SplittingEngine(heuristic, heuristic.english, heuristic.korean, heuristic.segmenter), learningFile)
+        val engine = DictionaryEngine(SplittingEngine(heuristic, heuristic.english, heuristic.korean, heuristic.segmenter),
+                                      heuristic.english, heuristic.korean, japaneseParticles = heuristic.segmenter != null,
+                                      storeFile = learningFile)
         // Kana while typing, candidates in the bar above, as on the system's Japanese keyboard
         // (live conversion off by default: it guessed whole phrases wrong, はなしま → 話魔).
         val session = InputSession(engine, converter, heuristic.japanese != null, liveConversion, returnConfirmsOnly)
