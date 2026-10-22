@@ -3,3 +3,5 @@
 2 ICON "Off.ico"
 3 ICON "Ko.ico"
 4 ICON "Ja.ico"
+
+#include "Version.rc"

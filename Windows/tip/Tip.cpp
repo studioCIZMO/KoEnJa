@@ -21,11 +21,6 @@
 #include "../engine/src/RomajiComposer.h"
 #include "../japanese/MozcConverter.h"
 
-#pragma comment(linker, "/EXPORT:DllGetClassObject,PRIVATE")
-#pragma comment(linker, "/EXPORT:DllCanUnloadNow,PRIVATE")
-#pragma comment(linker, "/EXPORT:DllRegisterServer,PRIVATE")
-#pragma comment(linker, "/EXPORT:DllUnregisterServer,PRIVATE")
-
 using Microsoft::WRL::ComPtr;
 using rea::InputSession;
 using rea::TextRange;
@@ -1390,6 +1385,9 @@ STDAPI DllUnregisterServer() {
     ComPtr<ITfInputProcessorProfileMgr> profiles;
     if (SUCCEEDED(CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&profiles))))
         for (LANGID language : LANGUAGES) profiles->UnregisterProfile(CLSID_KoEnJa, language, PROFILE_KoEnJa, 0);
+    // The profiles' and categories' keys stay behind otherwise (CTF\TIP\{CLSID}).
+    ComPtr<ITfInputProcessorProfiles> tip;
+    if (SUCCEEDED(CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&tip)))) tip->Unregister(CLSID_KoEnJa);
     RegDeleteTreeW(HKEY_LOCAL_MACHINE, classKey().c_str());
     return S_OK;
 }

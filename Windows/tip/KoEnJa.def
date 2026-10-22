@@ -1,0 +1,6 @@
+; The COM exports, undecorated on x86 too (a /EXPORT:name pragma misses the 32-bit __stdcall names).
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE
+    DllRegisterServer PRIVATE
+    DllUnregisterServer PRIVATE
