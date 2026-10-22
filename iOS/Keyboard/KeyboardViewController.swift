@@ -62,8 +62,10 @@ final class KeyboardViewController: UIInputViewController {
                             heuristic: HeuristicEngine? = nil) -> InputSession {
         let heuristic = heuristic ?? makeHeuristic(preferences: preferences)
         let japanese = heuristic.japanese
-        let engine = LearningEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
-                                                          korean: heuristic.korean, japanese: heuristic.segmenter))
+        let engine = DictionaryEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
+                                                            korean: heuristic.korean, japanese: heuristic.segmenter),
+                                      english: heuristic.english, korean: heuristic.korean,
+                                      japaneseParticles: heuristic.segmenter != nil)
         // Kana while typing, candidates in the bar above, as on the system's Japanese keyboard
         // (live conversion off by default: it guessed whole phrases wrong, はなしま → 話魔).
         let session = InputSession(engine: engine, converter: converter, japaneseEnabled: japanese != nil,

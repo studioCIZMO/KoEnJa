@@ -1,6 +1,6 @@
 한영일(KoEnJa)는 아래 오픈소스 소프트웨어와 데이터를 사용합니다.
 
-■ Seamtype (SeamtypeCore) — MIT License — https://github.com/aimdevlee/seamtype
+■ Araso (구 Seamtype; SeamtypeCore) — MIT License — https://github.com/nyttastudio/araso
 MIT License
 
 Copyright (c) 2026 aimdevlee
@@ -77,7 +77,7 @@ SOFTWARE.
 
 ■ Tatoeba 문장 (한국어·일본어 통계) — CC BY 2.0 FR — https://tatoeba.org
 
-■ FrequencyWords (한국어 어휘) — Hermit Dave — CC BY-SA 4.0 — https://github.com/hermitdave/FrequencyWords
+■ FrequencyWords (한국어 어휘, 전체 목록 ko_full) — Hermit Dave — CC BY-SA 4.0 — https://github.com/hermitdave/FrequencyWords
 
 ────────── Apache License 2.0 전문 ──────────
                                  Apache License

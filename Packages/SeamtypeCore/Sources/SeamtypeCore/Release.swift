@@ -1,7 +1,7 @@
 import Foundation
 
 /// The latest release as GitHub's API describes it
-/// (`api.github.com/repos/aimdevlee/seamtype/releases/latest`): its version, the installer and
+/// (`api.github.com/repos/nyttastudio/araso/releases/latest`): its version, the installer and
 /// what changed.
 public struct Release: Equatable, Sendable {
     public var version: String
@@ -18,7 +18,7 @@ public struct Release: Equatable, Sendable {
         self.notes = notes
     }
 
-    /// Nil when the answer has no tag or no `Seamtype.pkg` asset.
+    /// Nil when the answer has no tag or no `Araso.pkg` asset.
     public init?(gitHubJSON data: Data) {
         struct Answer: Decodable {
             struct Asset: Decodable {
@@ -31,7 +31,7 @@ public struct Release: Equatable, Sendable {
             let assets: [Asset]
         }
         guard let answer = try? JSONDecoder().decode(Answer.self, from: data),
-              let package = answer.assets.first(where: { $0.name == "Seamtype.pkg" }) else { return nil }
+              let package = answer.assets.first(where: { $0.name == "Araso.pkg" }) else { return nil }
         let version = answer.tag_name.hasPrefix("v") ? String(answer.tag_name.dropFirst()) : answer.tag_name
         // Numbers and dots only: the version names the downloaded file, and pkgutil prints that
         // name above the certificate it checks.
@@ -83,7 +83,7 @@ public struct Release: Equatable, Sendable {
 
     /// Whether `pkgutil --check-signature` says the installer is signed with a Developer ID
     /// Installer certificate of `team` and notarized. The output starts with the package's file
-    /// name (`Package "Seamtype-0.1.11.pkg":`), then the status, then the certificate chain from
+    /// name (`Package "Araso-0.1.11.pkg":`), then the status, then the certificate chain from
     /// the signing certificate (`1. Developer ID Installer: Name (TEAM)`) up to Apple's root.
     public static func isSigned(pkgutilOutput output: String, team: String) -> Bool {
         let lines = output.components(separatedBy: .newlines).map { $0.trimmingCharacters(in: .whitespaces) }

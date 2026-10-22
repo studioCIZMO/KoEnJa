@@ -19,9 +19,9 @@ public enum SwitchKey: String, Codable, CaseIterable, Sendable {
     static func list(_ keys: Set<SwitchKey>) -> [SwitchKey] { allCases.filter(keys.contains) }
 }
 
-/// How eagerly Seamtype converts in a given app.
+/// How eagerly Araso converts in a given app.
 public struct AppPolicy: Codable, Equatable, Sendable {
-    /// When false, Seamtype passes every key through (plain English typing).
+    /// When false, Araso passes every key through (plain English typing).
     public var enabled: Bool
     /// Convert away from the typed English letters only when the engine is at least
     /// this confident. On the held-out set, raising it above 0.5 left more Korean
@@ -31,10 +31,11 @@ public struct AppPolicy: Codable, Equatable, Sendable {
     /// The keys that switch the word's language here; the others go to the app. (Inside a vim
     /// that reports its modes, Esc is vim's whatever this says.)
     public var switchKeys: Set<SwitchKey>
-    /// Space doesn't end the word but puts the space inside the underline too. Held there, it is
-    /// still the word being typed: a switch key changes it, Delete deletes (the space first), and
-    /// the next word puts it in with its space. For terminals, which can't hand a committed word
-    /// back for a change. The app then never sees the Space key, so its text replacements don't fire.
+    /// Space or a symbol doesn't end the word but goes inside the underline too. Held there, it is
+    /// still the word being typed: a switch key changes it, Delete deletes (the boundary first), and
+    /// the next word puts it in with that character. For terminals, which can't hand a committed
+    /// word back for a change. The app then never sees the Space key, so its text replacements
+    /// don't fire. (Named for the Space it started with; the key stays for existing `apps.json`.)
     public var holdSpace: Bool
     /// Full-width digits and spaces after Japanese (when turned on in the settings) apply here;
     /// false keeps them half-width in this app (a terminal, a code editor).
@@ -130,7 +131,7 @@ public struct AppPolicy: Codable, Equatable, Sendable {
     }
 }
 
-/// Picks the policy for an app from `~/Library/Application Support/Seamtype/apps.json`:
+/// Picks the policy for an app from `~/Library/Application Support/Araso/apps.json`:
 /// the `"*"` entry is the user's default, and an app's entry changes only the keys it names.
 /// Keys ending in "." match as a prefix (e.g. "com.jetbrains."). No app is listed unless the
 /// user lists it.
@@ -182,7 +183,7 @@ public struct AppPolicies: Sendable {
         return Self.lookup(id, in: overrides.filter { $0.key != Self.defaultKey })?.applied(to: base) ?? base
     }
 
-    /// Sets the default, naming only what differs from Seamtype's own.
+    /// Sets the default, naming only what differs from Araso's own.
     public mutating func setDefault(_ policy: AppPolicy) {
         let entry = AppPolicy.Override(difference: policy, from: .standard)
         overrides[Self.defaultKey] = entry == AppPolicy.Override() ? nil : entry

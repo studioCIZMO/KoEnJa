@@ -20,7 +20,7 @@ public enum Language: String, Codable, Sendable {
     /// What Esc switches to: english → mixed (when the keys split) → korean →
     /// japanese (when enabled) → english. Readings that can't exist for these keys
     /// are skipped (no Korean for "ra-men"), and so are garbled ones (dkssud as
-    /// Japanese: dkっすd) as long as a clean alternative exists — a typo can still
+    /// Japanese: dkっすd; loose consonants and ㅜ/ㅠ such as ㅁㅊ or ㅜㅜ aren't garbled) as long as a clean alternative exists — a typo can still
     /// be forced into its language when nothing reads cleanly. `splits`: whether the engine
     /// splits the keys (x에, hello월드 as well as github에); left out, the particle split decides.
     public func next(for keys: String, japanese: Bool = false, splits: Bool? = nil) -> Language {
@@ -36,7 +36,7 @@ public enum Language: String, Codable, Sendable {
         let clean = available.filter { language in
             switch language {
             case .english, .mixed: return true
-            case .korean: return HangulComposer.compose(keys: keys)?.strayJamo.isEmpty == true
+            case .korean: return HangulComposer.compose(keys: keys).map { $0.strayJamo.isEmpty || $0.isJamoAbbreviation } == true
             case .japanese: return RomajiComposer.compose(keys).strayLetters == 0
             }
         }
@@ -52,10 +52,16 @@ public struct DecisionContext: Sendable {
     public var previousLanguage: Language?
     /// The token is still being typed (used for the live preview).
     public var partial: Bool
+    /// The language the user corrected these keys to once (a weak dictionary entry).
+    public var nudge: Language?
+    /// The app typed into, for the user's dictionary entries limited to apps.
+    public var app: String?
 
-    public init(previousLanguage: Language? = nil, partial: Bool = false) {
+    public init(previousLanguage: Language? = nil, partial: Bool = false, nudge: Language? = nil, app: String? = nil) {
         self.previousLanguage = previousLanguage
         self.partial = partial
+        self.nudge = nudge
+        self.app = app
     }
 }
 
@@ -131,10 +137,17 @@ public final class HeuristicEngine: DecisionEngine, @unchecked Sendable {
     public var switchBiasFactor = 0.25
     /// Score floors for a Korean word seen in real text (two or more syllables, one), the
     /// counterpart of the English dictionary floor: 내가, 무슨 stay Korean after English.
+    /// A word only in the wider vocabulary (닥터, 했죠: too rare for Tatoeba's sentences), or a
+    /// noun the lists have only with a particle (혜택), gets the long floor too, unless the keys
+    /// are an English word: that list comes from subtitles, and work (재가) or ahem (모드) must
+    /// stay English.
     public var koreanKnownFloor = (long: -1.4, short: -2.0)
     /// How far Japanese must lead before a known English word is turned into kana
     /// outside Japanese text.
     public var englishWordProtection = 1.0
+    /// Added to the language the user corrected the keys to once (`DecisionContext.nudge`):
+    /// as much as the previous word's pull, so a close call turns and a clear one doesn't.
+    public var correctionBias = 0.8
 
     public let segmenter: JapaneseSegmenter?
 
@@ -147,8 +160,10 @@ public final class HeuristicEngine: DecisionEngine, @unchecked Sendable {
     }
 
     public func decide(_ keys: String, context: DecisionContext) -> Decision {
-        // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English.
-        if keys.contains(where: { $0.isUppercase && !DubeolsikLayout.isKoreanShiftKey($0) }) {
+        // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English,
+        // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를):
+        // then the scores decide.
+        if DubeolsikLayout.hasEnglishOnlyCapital(keys) {
             return Decision(language: .english, confidence: 0.99, output: keys, explanation: "uppercase outside QWERTOP")
         }
 
@@ -170,14 +185,25 @@ public final class HeuristicEngine: DecisionEngine, @unchecked Sendable {
         if keys.contains(where: { !$0.isLetter }) { e -= 3 } // "ra-men", "kan'i" aren't English
 
         var k = korean.score(keys: keys, partial: context.partial)
-        let knownKorean = k.map { $0.composition.strayJamo.isEmpty && korean.isKnownWord($0.composition.text) } ?? false
+        let knownKorean = k.map {
+            $0.composition.strayJamo.isEmpty && (korean.isKnownWord($0.composition.text)
+                || (!known && (korean.isVocabularyWord($0.composition.text) || korean.isRareVocabularyWord($0.composition.text)
+                    || korean.isKnownStem($0.composition.text))))
+        } ?? false
         if let score = k, knownKorean {
             let floor = score.composition.syllables.count >= 2 ? koreanKnownFloor.long : koreanKnownFloor.short
             k = KoreanModel.Score(averageLogProbability: max(score.averageLogProbability, floor), composition: score.composition)
         }
-        // A dictionary English word may already be complete: score its Japanese reading as
-        // finished too, so the preview shows what Space will commit ("to" stays to, not と).
-        let j = japanese?.score(keys: keys, partial: context.partial && !known)
+        // A dictionary English word may already be complete, and so are chat jamo (ㅜㅜ): score
+        // the Japanese reading as finished too, so the preview shows what Space will commit
+        // ("to" stays to, not と; nn shows ㅜㅜ, not ん that Space turned into ㅜㅜ). So is a
+        // doubled consonant with nothing after its っ (ff, ww): no Japanese word is only っ, so
+        // it isn't one on its way (ff showed っf and went in as ff); って (tte) still is.
+        let chat = k?.composition.isChat == true
+        let sokuonFirst = RomajiComposer.compose(keys, partial: true).isOnlySokuon
+        // A capital is never romaji: Japanese IMEs type ⇧ letters as themselves (⇧O is O, not お).
+        let j = keys.contains(where: \.isUppercase) ? nil
+            : japanese?.score(keys: keys, partial: context.partial && !known && !chat && !sokuonFirst)
         // English words inside a Japanese phrase (googlede…) score as segmented Japanese,
         // not as kana with stray letters.
         var segmented: (segments: [JapaneseSegmenter.Segment], score: Double)?
@@ -199,11 +225,14 @@ public final class HeuristicEngine: DecisionEngine, @unchecked Sendable {
             }
             scores[i].1 += bias
         }
+        if let nudge = context.nudge, nudge != .mixed, let i = scores.firstIndex(where: { $0.0 == nudge }) {
+            scores[i].1 += correctionBias
+        }
         scores.sort { $0.1 > $1.1 }
 
         // A dictionary English word only becomes kana on a clear win, unless we're already
-        // in Japanese text (where "same", "sake", "kite" are Japanese words).
-        if known, scores[0].0 == .japanese, context.previousLanguage?.sentenceLanguage != .japanese,
+        // in Japanese text or the user corrected it to Japanese once (where "same", "sake", "kite" are Japanese words).
+        if known, scores[0].0 == .japanese, context.previousLanguage?.sentenceLanguage != .japanese, context.nudge != .japanese,
            let englishIndex = scores.firstIndex(where: { $0.0 == .english }),
            scores[0].1 - scores[englishIndex].1 < englishWordProtection {
             scores.swapAt(0, englishIndex)
@@ -226,117 +255,3 @@ public final class HeuristicEngine: DecisionEngine, @unchecked Sendable {
     }
 }
 
-/// Wraps an engine with explicit per-word choices the user has made (by flipping a
-/// word with Esc). Learned choices always win.
-///
-/// One correction only changes that word: a habitual or mistaken Esc shouldn't change
-/// every later occurrence. The same correction a second time is learned.
-public final class LearningEngine: DecisionEngine, @unchecked Sendable {
-    public let base: DecisionEngine
-    private let lock = NSLock()
-    private var store: Store
-    private let storeURL: URL?
-
-    /// lexicon.json: words learned for good, and words corrected once.
-    struct Store: Codable {
-        var learned: [String: Language] = [:]
-        var once: [String: Language] = [:]
-    }
-
-    public init(base: DecisionEngine, storeURL: URL? = LearningEngine.defaultStoreURL) {
-        self.base = base
-        self.storeURL = storeURL
-        store = Self.read(storeURL)
-    }
-
-    private static func read(_ storeURL: URL?) -> Store {
-        let data = storeURL.flatMap { try? Data(contentsOf: $0) }
-        if let data, let saved = try? JSONDecoder().decode(Store.self, from: data) { return saved }
-        // Unreadable (hand-edited, or from a newer version): keep it aside, don't overwrite it.
-        if data != nil, let url = storeURL { SupportDirectory.setAside(url) }
-        return Store()
-    }
-
-    /// Words learned for good (corrected the same way twice).
-    public var learned: [String: Language] { lock.withLock { store.learned } }
-    /// Words corrected once: the same correction again learns them.
-    public var pending: [String: Language] { lock.withLock { store.once } }
-    /// The keys most recently learned for good in this process, while still learned.
-    public var lastLearned: String? {
-        lock.withLock { lastLearnedKeys.flatMap { store.learned[$0] != nil ? $0 : nil } }
-    }
-    private var lastLearnedKeys: String?
-
-    /// Re-reads lexicon.json (after the settings window changed it).
-    public func reload() {
-        let fresh = Self.read(storeURL)
-        lock.withLock { store = fresh }
-    }
-
-    /// Forgets the keys, learned or pending: the engine decides them again.
-    public func forget(_ keys: String) {
-        persist(lock.withLock {
-            guard store.learned[keys] != nil || store.once[keys] != nil else { return nil }
-            store.learned[keys] = nil
-            store.once[keys] = nil
-            return store
-        })
-    }
-
-    /// Forgets every learned and pending word.
-    public func forgetAll() {
-        persist(lock.withLock {
-            store = Store()
-            return store
-        })
-    }
-
-    public static var defaultStoreURL: URL? {
-        SupportDirectory.url?.appendingPathComponent("lexicon.json")
-    }
-
-    public func decide(_ keys: String, context: DecisionContext) -> Decision {
-        if let learned = lock.withLock({ store.learned[keys] }) {
-            // Rendered by the base engine: this engine's own render(.mixed) would ask it to
-            // decide the keys again, find them learned, and so on without end.
-            return Decision(language: learned, confidence: 1, output: base.render(keys, as: learned), explanation: "learned")
-        }
-        return base.decide(keys, context: context)
-    }
-
-    /// Records that `keys` were corrected to `language`. The second time the same
-    /// correction is made it is learned; correcting back to the engine's own choice
-    /// forgets the word.
-    ///
-    /// Pass `engineChoice` when the caller already knows what the engine decided (the
-    /// input method always does: what was on screen, which a fresh decision might not match).
-    public func learn(_ keys: String, as language: Language, engineChoice: Language? = nil) {
-        let baseChoice = engineChoice ?? base.decide(keys, context: DecisionContext()).language
-        let snapshot: Store? = lock.withLock {
-            // Already learned this way (e.g. converting a learned word again): nothing to change.
-            if store.learned[keys] == language { return nil }
-            if language == baseChoice {
-                store.learned[keys] = nil
-                store.once[keys] = nil
-            } else if store.learned[keys] == language || store.once[keys] == language {
-                store.learned[keys] = language
-                store.once[keys] = nil
-                lastLearnedKeys = keys
-            } else {
-                // A different correction than before: it starts over.
-                store.learned[keys] = nil
-                store.once[keys] = language
-            }
-            return store
-        }
-        persist(snapshot)
-    }
-
-    private func persist(_ snapshot: Store?) {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let snapshot, let url = storeURL, let data = try? encoder.encode(snapshot) else { return }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
-    }
-}

@@ -32,8 +32,10 @@ final class Field: TextClient {
     let heuristic = HeuristicEngine(korean: KoreanModel(), japanese: japanese)
     heuristic.koreanOffset = (bonus(.korean) ?? -10) - bonus(.english)!
     heuristic.japaneseOffset += (bonus(.japanese) ?? 0) - bonus(.english)!
-    let engine = LearningEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
-                                                      korean: heuristic.korean, japanese: heuristic.segmenter), storeURL: nil)
+    let engine = DictionaryEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
+                                                        korean: heuristic.korean, japanese: heuristic.segmenter),
+                                  english: heuristic.english, korean: heuristic.korean,
+                                  japaneseParticles: heuristic.segmenter != nil, storeURL: nil)
     let s = InputSession(engine: engine, japaneseEnabled: japanese != nil)
     s.activate(app: nil)
     return s

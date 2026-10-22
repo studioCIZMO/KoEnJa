@@ -6,7 +6,7 @@ import Foundation
 ///
 /// The library is private, so every function is looked up by name and `init` returns nil when one
 /// is missing; the caller falls back to `AzooKeyConverter`. The engine's own learning didn't hold
-/// across launches, so choices are learned here instead (Application Support/Seamtype/apple-learning.json).
+/// across launches, so choices are learned here instead (Application Support/Araso/apple-learning.json).
 @MainActor
 public final class AppleJapaneseConverter: JapaneseConverter {
     private typealias Create = @convention(c) (CFDictionary) -> OpaquePointer?
@@ -112,12 +112,26 @@ public final class AppleJapaneseConverter: JapaneseConverter {
         return text
     }
 
+    /// The candidates past the first `listed` conversions that cover the whole reading, in the
+    /// engine's order and not reranked: しょう has 312, 硝 at 122. Asked only when the candidate
+    /// window opens, so live conversion keeps its pace.
+    public func moreCandidates(for kana: String) -> [ConversionCandidate] {
+        guard !kana.isEmpty else { return [] }
+        return results(for: kana, mode: Self.conversionMode, limit: 1000, scan: 3000)
+            .dropFirst(Self.listed)
+            .filter { $0.covered == kana }
+            .map { ConversionCandidate(text: Self.keepingEnglish(of: kana, in: $0.text), kanaCount: kana.count) }
+    }
+
+    /// How many of the engine's candidates `candidates(for:)` takes from each mode.
+    nonisolated private static let listed = 60
+
     /// The engine's candidates in its order: text and the reading it covers.
-    private func results(for kana: String, mode: Int) -> [(text: String, covered: String)] {
+    private func results(for kana: String, mode: Int, limit: Int = listed, scan: Int = 300) -> [(text: String, covered: String)] {
         guard analyze(engine, kana as CFString, mode) else { return [] }
         var out: [(String, String)] = []
         var scanned = 0
-        while scanned < 300, out.count < 60, let candidate = next(engine) {
+        while scanned < scan, out.count < limit, let candidate = next(engine) {
             scanned += 1
             guard let text = surface(candidate)?.takeUnretainedValue() as String?, !text.isEmpty,
                   let covered = reading(candidate)?.takeUnretainedValue() as String?, !covered.isEmpty else { continue }

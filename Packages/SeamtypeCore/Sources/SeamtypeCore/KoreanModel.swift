@@ -20,6 +20,10 @@ public struct KoreanModel: Sendable {
     static let strayJamoLogP = -13.0
     /// Typing the first consonant of the next syllable is normal mid-word.
     static let pendingConsonantLogP = -3.5
+    /// The same for a consonant that joined the syllable before as its final (갷 of 소개ㅎ),
+    /// a little less sure: alr is 미국 on its way and also already (tuned on preview traces of
+    /// the top 10,000 English and Korean words).
+    static let pendingFinalPenalty = 1.0
     /// ㅋㅋ, ㅎㅎ, ㅠㅠ and friends.
     static let chatJamoLogP = -4.0
     static let chatJamo: Set<Character> = Set("ㅋㅎㅠㅜㄷㅇㄱㅅㅂㄴ")
@@ -60,14 +64,55 @@ public struct KoreanModel: Sendable {
     /// A word that occurs in real Korean text (the composed Hangul, not the keys).
     public func isKnownWord(_ hangul: String) -> Bool { words.contains(hangul) }
 
-    /// A word in the wider vocabulary (loanwords like 월드, 서버), for English + Korean splits.
+    /// A word in the wider vocabulary (loanwords like 월드, 서버; 혜택), for English + Korean splits
+    /// and the heuristic's Korean word floor.
     public func isVocabularyWord(_ hangul: String) -> Bool {
         words.contains(hangul) || Self.vocabulary.contains(hangul)
     }
 
-    private static let vocabulary: Set<String> = {
+    /// A word the subtitles have fewer than `commonCount` times (촉매, twice): for the heuristic's
+    /// Korean word floor only. The tail holds dialect and typos too (어뗘, 쓔벌, 꺼이), so it
+    /// stays out of the splits and of `knowsSyllable`, which `EU정책` and `RJ이` rely on.
+    public func isRareVocabularyWord(_ hangul: String) -> Bool { Self.rareVocabulary.contains(hangul) }
+
+    /// A noun the lists only have with a case particle (혜택 from 혜택을, 혜택으로): they
+    /// count words with their particles, so a bare noun can be missing from both.
+    public func isKnownStem(_ hangul: String) -> Bool { Self.stems.contains(hangul) }
+
+    /// Where `korean_vocabulary.txt` stops being `vocabulary`: the old 50k list's last count.
+    static let commonCount = 10
+
+    /// Case particles, by what the noun must end in: a final consonant (을), none (를), or either.
+    private static let particles: [(String, Bool?)] = [
+        ("을", true), ("은", true), ("이", true), ("과", true), ("으로", true),
+        ("를", false), ("는", false), ("가", false), ("와", false),
+        ("에", nil), ("의", nil), ("도", nil), ("에서", nil), ("만", nil),
+    ]
+
+    private static let stems: Set<String> = {
+        var stems = Set<String>()
+        for word in corpusWords.union(vocabulary).union(rareVocabulary) {
+            for (particle, final) in particles where word.hasSuffix(particle) {
+                let stem = word.dropLast(particle.count)
+                guard stem.count >= 2, let last = stem.last?.unicodeScalars.first?.value,
+                      (0xAC00...0xD7A3).contains(last) else { continue }
+                let hasFinal = (last - 0xAC00) % 28 != 0
+                if final == nil || final == hasFinal { stems.insert(String(stem)) }
+            }
+        }
+        return stems
+    }()
+
+    private static let vocabulary = Set(vocabularyCounts.filter { $0.count >= commonCount }.map(\.word))
+    private static let rareVocabulary = Set(vocabularyCounts.filter { $0.count < commonCount }.map(\.word))
+
+    private static let vocabularyCounts: [(word: String, count: Int)] = {
         guard let url = Resources.koreanVocabulary, let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        return Set(text.split(whereSeparator: \.isNewline).map(String.init))
+        return text.split(whereSeparator: \.isNewline).compactMap {
+            let parts = $0.split(separator: "\t")
+            guard parts.count == 2, let n = Int(parts[1]) else { return nil }
+            return (String(parts[0]), n)
+        }
     }()
 
     private static let corpusWords: Set<String> = {
@@ -89,15 +134,40 @@ public struct KoreanModel: Sendable {
         tiers[syllable] ?? Self.unknownSyllableLogP
     }
 
+    /// A syllable seen at all: in the tiers, the corpus or a word of the lists, however rarely
+    /// (삐, 쪄, 뾰, 쭈 are; 뗘, 쎠, 쓔 aren't). Rarer than `unknownSyllableLogP` still means
+    /// someone typed it.
+    public func knowsSyllable(_ syllable: Character) -> Bool {
+        tiers[syllable] != nil || Self.listSyllables.contains(syllable)
+    }
+
+    private static let listSyllables: Set<Character> = {
+        var set = Set<Character>()
+        for word in vocabulary { set.formUnion(word) }
+        for word in corpusWords { set.formUnion(word) }
+        return set
+    }()
+
     /// - Parameter partial: the token is still being typed, so a trailing lone
     ///   consonant is expected rather than penalized.
     public func score(keys: String, partial: Bool = false) -> Score? {
         guard let composition = HangulComposer.compose(keys: keys), !keys.isEmpty else { return nil }
-        let units = composition.units
-        let allChat = units.count >= 2 && units.allSatisfy {
-            if case .jamo(let j) = $0 { return Self.chatJamo.contains(j) }
-            return false
+        var total = logProbability(composition, partial: partial)
+        // The consonant typed last may have joined the syllable before as its final (개 + ㅎ
+        // shows 갷) while it is the next syllable's first (소개하는): score that reading too. Only
+        // on 2-set: 3-set has its own keys for finals.
+        if partial, KoreanLayout.current == .dubeolsik, !composition.isChat, let last = keys.last, DubeolsikLayout.jamo(for: last).map(Jamo.isConsonant) == true,
+           case .syllable = composition.units.last,
+           let before = HangulComposer.compose(keys: String(keys.dropLast())), before.units.count == composition.units.count,
+           case .syllable = before.units.last {
+            total = max(total, logProbability(before, partial: false) + Self.pendingConsonantLogP - Self.pendingFinalPenalty)
         }
+        return Score(averageLogProbability: total / Double(keys.count), composition: composition)
+    }
+
+    private func logProbability(_ composition: HangulComposer.Result, partial: Bool) -> Double {
+        let units = composition.units
+        let allChat = composition.isChat
         var total = 0.0
         for (i, unit) in units.enumerated() {
             switch unit {
@@ -113,6 +183,28 @@ public struct KoreanModel: Sendable {
                 }
             }
         }
-        return Score(averageLogProbability: total / Double(keys.count), composition: composition)
+        return total
+    }
+}
+
+extension HangulComposer.Result {
+    /// ㅋㅋ, ㅠㅠ, ㅜㅜ: two or more of the jamo typed on their own in chat. Korean as it is, and
+    /// already complete: they don't go on to make syllables.
+    /// On 3-set only the same jamo again (ㅋㅋ, ㅎㅎ): its consonants sit on the right hand's
+    /// letters, so a mix of them is English as often as not (jun is ㅇㄷㅅ, uhh ㄷㄴㄴ).
+    public var isChat: Bool {
+        units.count >= 2 && units.allSatisfy {
+            if case .jamo(let j) = $0 { return KoreanModel.chatJamo.contains(j) }
+            return false
+        } && (KoreanLayout.current == .dubeolsik || Set(units.map(\.character)).count == 1)
+    }
+
+    /// Two or more loose consonants, or ㅜ/ㅠ: what chat abbreviates to (ㅁㅊ, ㅈㅅ, ㄹㅇ, ㅜㅜ).
+    /// A reading worth switching to, though only the common ones (`isChat`) score as Korean.
+    public var isJamoAbbreviation: Bool {
+        units.count >= 2 && units.allSatisfy {
+            if case .jamo(let j) = $0 { return Jamo.isConsonant(j) || j == "ㅜ" || j == "ㅠ" }
+            return false
+        }
     }
 }

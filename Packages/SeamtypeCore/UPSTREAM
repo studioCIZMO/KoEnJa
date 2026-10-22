@@ -1,2 +1,3 @@
-aimdevlee/seamtype@cb22ee7972cee9ab730708c3ec57f4021b02004b
+nyttastudio/araso@22e7d3d4a31c8dd0fb81add06be6b481d8b4927f (0.2.2+), Sources/ArasoCore kept as SeamtypeCore; Tests/ArasoCoreTests as Tests/SeamtypeCoreTests.
 Local changes, marked "REA (iOS)": InputSession.typingCandidates and choose(typing:client:), AzooKeyConverter.nextWords() and forgetNextWords(), for the iOS candidate bar.
+Also unmarked: HeuristicEngine's capitalized-word floor (The, To), InputSession.isWeakFlipAllowed's runner-up clause and the short-prefix rule (shortPrefixLength/shortPrefixFlipConfidence); Resources' development paths point at Sources/SeamtypeCore.

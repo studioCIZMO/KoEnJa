@@ -27,10 +27,17 @@ public protocol JapaneseConverter: AnyObject {
     func learn(_ candidate: ConversionCandidate, for kana: String)
     /// Persist anything learned (called on deactivation).
     func save()
+    /// Candidates for all of `kana` that `candidates(for:)` leaves out, in the engine's order: the
+    /// candidate window lists them after it, as macOS's Japanese input lists every homophone.
+    func moreCandidates(for kana: String) -> [ConversionCandidate]
+}
+
+extension JapaneseConverter {
+    public func moreCandidates(for kana: String) -> [ConversionCandidate] { [] }
 }
 
 /// AzooKey's dictionary converter (code MIT, dictionary Apache-2.0), without the
-/// neural Zenzai model. Learning data lives in Application Support/Seamtype/azooKey.
+/// neural Zenzai model. Learning data lives in Application Support/Araso/azooKey.
 @MainActor
 public final class AzooKeyConverter: JapaneseConverter {
     private let converter = KanaKanjiConverter()
@@ -54,7 +61,7 @@ public final class AzooKeyConverter: JapaneseConverter {
             sharedContainerURL: memory,
             textReplacer: .empty,
             specialCandidateProviders: [],
-            metadata: .init(versionString: "Seamtype")
+            metadata: .init(versionString: "Araso")
         )
     }
 

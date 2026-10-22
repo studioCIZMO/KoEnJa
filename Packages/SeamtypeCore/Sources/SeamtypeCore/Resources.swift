@@ -1,6 +1,6 @@
 import Foundation
 
-/// Finds data files both inside the installed app (Seamtype.app/Contents/Resources)
+/// Finds data files both inside the installed app (Araso.app/Contents/Resources)
 /// and in the source tree during development and tests.
 ///
 /// SPM resource bundles are avoided on purpose: their accessor looks for the bundle
@@ -13,7 +13,7 @@ public enum Resources {
     static func url(_ name: String, development: URL) -> URL? {
         var candidates: [URL] = []
         if let resources = Bundle.main.resourceURL { candidates.append(resources.appendingPathComponent(name)) }
-        if let dir = ProcessInfo.processInfo.environment["SEAMTYPE_RESOURCES"] {
+        if let dir = ProcessInfo.processInfo.environment["ARASO_RESOURCES"] {
             candidates.append(URL(fileURLWithPath: dir).appendingPathComponent(name))
         }
         candidates.append(development)
@@ -41,7 +41,7 @@ public enum Resources {
     }
 
     /// Korean words of two or more syllables, loanwords included (FrequencyWords;
-    /// build_korean_vocabulary.py). Only for splitting `hello월드`.
+    /// build_korean_vocabulary.py): splitting `hello월드`, and the heuristic's Korean word floor.
     public static var koreanVocabulary: URL? {
         url("korean_vocabulary.txt", development: packageRoot.appendingPathComponent("Sources/SeamtypeCore/Data/korean_vocabulary.txt"))
     }

@@ -1,5 +1,5 @@
 // swift-tools-version:6.1
-// Vendored from https://github.com/aimdevlee/seamtype (MIT, see LICENSE and UPSTREAM).
+// Vendored from https://github.com/nyttastudio/araso's ArasoCore (MIT, see LICENSE and UPSTREAM), kept as SeamtypeCore.
 // Local changes: iOS platform added, Data excluded from the target (shipped as app resources).
 import PackageDescription
 
@@ -14,6 +14,7 @@ let package = Package(
         .target(name: "SeamtypeCore", dependencies: [
             .product(name: "KanaKanjiConverterModule", package: "AzooKeyKanaKanjiConverter"),
         ], exclude: ["Data"]),
+        .testTarget(name: "SeamtypeCoreTests", dependencies: ["SeamtypeCore"]),
     ],
     swiftLanguageModes: [.v5]
 )

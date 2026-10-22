@@ -48,6 +48,8 @@ public enum Jamo {
     }
 }
 
+/// The 2-set layout, and where the rest of the code asks about Korean keys: with 3-set chosen
+/// (`KoreanLayout`), the public statics answer for `SebeolsikFinal` instead.
 public enum DubeolsikLayout {
     private static let lower: [Character: Character] = [
         "q": "ㅂ", "w": "ㅈ", "e": "ㄷ", "r": "ㄱ", "t": "ㅅ", "y": "ㅛ", "u": "ㅕ", "i": "ㅑ", "o": "ㅐ", "p": "ㅔ",
@@ -60,12 +62,62 @@ public enum DubeolsikLayout {
 
     /// Keys whose shifted form produces a different jamo. Shift on any other
     /// letter is a signal the user is typing English.
-    public static func isKoreanShiftKey(_ key: Character) -> Bool { shifted[key] != nil }
+    public static func isKoreanShiftKey(_ key: Character) -> Bool {
+        if KoreanLayout.current == .sebeolsikFinal { return SebeolsikFinal.isKoreanShiftKey(key) }
+        return shifted[seat(key)] != nil
+    }
+
+    /// The QWERTY key `key` was typed on (`LatinLayout`): 2-set Korean goes by key, not letter.
+    private static func seat(_ key: Character) -> Character { LatinLayout.current.seat(of: key) }
+
+    /// A capital on a key with no shifted jamo, not counting a lingering Shift: Shift still down
+    /// for the one key right after a Korean shift key (어떤 typed fast is djEJs, 바뀌 is qkRNl:
+    /// Shift was still down for the vowel after ㄸ or ㄲ). Such keys read as Korean or English by
+    /// their scores; any other capital (Hello, API, dHello) is only ever English. A Shift lingers
+    /// between lowercase keys, so a word typed in capitals throughout (TM, RN, TL: acronyms) gets
+    /// no such allowance, nor does ㅒ/ㅖ with no consonant before it (PDF, OAuth).
+    public static func hasEnglishOnlyCapital(_ keys: String) -> Bool {
+        if KoreanLayout.current == .sebeolsikFinal { return SebeolsikFinal.hasEnglishOnlyCapital(keys) }
+        let chars = keys.map(seat)
+        let hasLowercase = chars.contains(where: \.isLowercase)
+        for (i, key) in chars.enumerated() where key.isUppercase && shifted[key] == nil {
+            if hasLowercase, i >= 1, lingers(after: chars[i - 1], twoBack: i >= 2 ? chars[i - 2] : nil, on: key) { continue }
+            return true
+        }
+        return false
+    }
+
+    /// Shift still down for `key`, right after `shiftKey`, a Korean shift key that needed it. After
+    /// a double consonant comes a vowel (djEJs, 어떤), or, when the double consonant is a final one
+    /// (a vowel key before it), the next syllable's consonant (dlTDj, 있어). After ㅒ or ㅖ typed on a
+    /// consonant comes a consonant (dPFmf, 예를); at the start of a word (PDF, OAuth) nothing lingers.
+    /// The key before has to be lowercase: a capital there (RPA, TPS) was Shift on purpose.
+    /// Takes seats (`hasEnglishOnlyCapital` translated them).
+    private static func lingers(after shiftKey: Character, twoBack: Character?, on key: Character) -> Bool {
+        let before = twoBack.flatMap { $0.isLowercase ? jamo(onSeat: $0) : nil }
+        switch shifted[shiftKey] {
+        case "ㅃ", "ㅉ", "ㄸ", "ㄲ", "ㅆ":
+            if isVowelKey(key) { return true }
+            return before.map(Jamo.isVowel) == true && isConsonantKey(key)
+        case "ㅒ", "ㅖ":
+            return before.map(Jamo.isConsonant) == true && isConsonantKey(key)
+        default:
+            return false
+        }
+    }
+
+    private static func isVowelKey(_ seat: Character) -> Bool { jamo(onSeat: seat).map(Jamo.isVowel) ?? false }
+    private static func isConsonantKey(_ seat: Character) -> Bool { jamo(onSeat: seat).map(Jamo.isConsonant) ?? false }
 
     /// The jamo a key produces, or nil for non-letters.
     /// Uppercase letters without a shifted jamo fall back to the lowercase jamo,
     /// mirroring how the macOS 2-set keyboard behaves.
     public static func jamo(for key: Character) -> Character? {
+        if KoreanLayout.current == .sebeolsikFinal { return SebeolsikFinal.jamo(for: key)?.jamo }
+        return jamo(onSeat: seat(key))
+    }
+
+    private static func jamo(onSeat key: Character) -> Character? {
         if let j = shifted[key] { return j }
         guard key.isASCII, let lowered = key.lowercased().first else { return nil }
         return lower[lowered]

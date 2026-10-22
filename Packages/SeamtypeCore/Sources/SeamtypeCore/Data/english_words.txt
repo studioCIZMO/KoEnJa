@@ -77586,9 +77586,9 @@ legates	50
 legation	50
 legation's	50
 legations	50
-legato	50
-legato's	50
-legatos	50
+araso	50
+araso's	50
+arasos	50
 legendre	50
 legendre's	50
 leger	50
