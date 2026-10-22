@@ -1,3 +1,5 @@
-// Tip.cpp's ICON_ON and ICON_OFF (made by make_icons.py). The first is the profile's icon (index 0).
+// Tip.cpp's ICON_ON, ICON_OFF, ICON_KO and ICON_JA (made by make_icons.py). The first is the profile's icon (index 0).
 1 ICON "KoEnJa.ico"
 2 ICON "Off.ico"
+3 ICON "Ko.ico"
+4 ICON "Ja.ico"

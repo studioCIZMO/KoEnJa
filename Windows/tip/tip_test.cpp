@@ -17,6 +17,7 @@
 using Microsoft::WRL::ComPtr;
 
 static const CLSID CLSID_KoEnJa = {0x113c852d, 0xc4e7, 0x4c6e, {0xb7, 0x13, 0x3f, 0x79, 0x87, 0x4d, 0xe8, 0x67}};
+static const GUID GUID_LBI_INPUTMODE = {0x2c77a81e, 0x41cc, 0x4178, {0xa3, 0xa7, 0x5f, 0x8a, 0x98, 0x75, 0x68, 0xe6}};
 
 /** A plain-text field: the text, one selection, and locks granted on the spot. */
 struct Store : ITextStoreACP {
@@ -281,6 +282,10 @@ static ComPtr<ITfTextInputProcessorEx> activate(Host& host) {
     ComPtr<ITfTextInputProcessorEx> tip;
     ComPtr<ITfClientId> clientIds;
     TfClientId tipId;
+    // The KoEnJa TSF itself activated here (the user's keyboard) has the indicator's mode button: this one's instead.
+    ComPtr<ITfLangBarItemMgr> items;
+    ComPtr<ITfLangBarItem> mode;
+    if (SUCCEEDED(host.real.As(&items)) && SUCCEEDED(items->GetItem(GUID_LBI_INPUTMODE, &mode))) items->RemoveItem(mode.Get());
     if (!check(CoCreateInstance(CLSID_KoEnJa, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&tip)), "create KoEnJa (registered?)") ||
         !check(host.real.As(&clientIds), "client ids") || !check(clientIds->GetClientId(CLSID_KoEnJa, &tipId), "KoEnJa's client id") ||
         !check(tip->ActivateEx(&host, tipId, 0), "activate KoEnJa"))
@@ -322,9 +327,10 @@ int main() {
 
     // Candidates without a dictionary: the TIP's stand-in converter (わたし, 候補1…候補11).
     SetEnvironmentVariableW(L"KOENJA_TEST_CONVERTER", L"1");
-    // A Korean/US keyboard and the usual languages, whatever the user picked.
+    // A Korean/US keyboard and Korean + English (so with nothing being typed the switch key switches
+    // KoEnJa off and on), whatever the user picked.
     setText(L"KeyboardType", L"Korean");
-    setText(L"LanguageOrder", nullptr);
+    setText(L"LanguageOrder", L"ko,en");
     DWORD off = 0;
     setSetting(L"KeyLog", REG_DWORD, &off, sizeof off);
     printf("GetKeyboardType(0) = %d\n", GetKeyboardType(0));
@@ -530,6 +536,12 @@ int main() {
         // Ctrl+Space; Shift+Space is a space then.
         {"\n\r" "rhkdrh\x06 \x07", L"rhkdrh", true, L"", L"CtrlSpace", 1},
         {"\n\r" "dkssud\x0e \x0f", L"안녕 ", false, L"", nullptr, 0},
+    };
+    run(steps);
+
+    // Japanese too (LanguageOrder unset: Korean, English, Japanese).
+    setText(L"LanguageOrder", nullptr);
+    const Step japanese[] = {
         // The Japanese word's candidates as it is typed; Tab/↓ into them (the conversion), ↑ back, a digit picks.
         {"\f\r" "watashi", L"わたし", true, L"[わたし] 候補1 候補2 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11", L"RightAlt"},
         {"\t", L"わたし", true, L"[わたし] 候補1 候補2 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11"},
@@ -564,7 +576,8 @@ int main() {
         {"\x18", L"わたし", true},
         {"\n", L"わたし", false},
     };
-    run(steps);
+    run(japanese);
+    setText(L"LanguageOrder", L"ko,en");
 
     // KeyLog = 1: a line per key event in keys.log; 0: none.
     auto lines = [&] {
@@ -637,6 +650,72 @@ int main() {
     setText(L"LanguageOrder", L"ko,ja,en");
     const Step reordered[] = {{"\f\r" "dkssud", L"안녕", true}, {"\n", L"안녕", false}};
     run(reordered);
+
+    // Korean and Japanese both on: with nothing being typed the switch key puts the other one first
+    // (saved as LanguageOrder), shows it by the caret for a second and as the indicator's 한/あ;
+    // while typing it still switches the word.
+    auto savedOrder = [] {
+        wchar_t value[64] = L"";
+        DWORD size = sizeof value;
+        RegGetValueW(HKEY_CURRENT_USER, SETTINGS, L"LanguageOrder", RRF_RT_REG_SZ, nullptr, value, &size);
+        return std::wstring(value);
+    };
+    auto shownMode = [] {
+        HWND window = FindWindowW(L"KoEnJaIndicator", nullptr);
+        wchar_t title[64] = L"";
+        if (window && IsWindowVisible(window)) GetWindowTextW(window, title, 64);
+        return std::wstring(title);
+    };
+    auto buttonText = [&] {
+        ComPtr<ITfLangBarItemMgr> items;
+        ComPtr<ITfLangBarItem> item;
+        ComPtr<ITfLangBarItemButton> button;
+        BSTR text = nullptr;
+        std::wstring out;
+        if (SUCCEEDED(host.real.As(&items)) && SUCCEEDED(items->GetItem(GUID_LBI_INPUTMODE, &item)) && SUCCEEDED(item.As(&button)) &&
+            SUCCEEDED(button->GetText(&text)) && text)
+            out = text;
+        SysFreeString(text);
+        return out;
+    };
+    auto expect = [&](bool ok, const std::wstring& what) {
+        printf("%s %s\n", ok ? "ok  " : "FAIL", utf8(what).c_str());
+        failures += !ok;
+    };
+    auto mode = [&](const wchar_t* order, const wchar_t* shown, const wchar_t* button) {
+        auto o = savedOrder(), s = shownMode();
+        expect(o == order && s == shown, L"LanguageOrder " + o + L", indicator \"" + s + L"\"");
+        // A second later the indicator is gone (its timer, in the app's message loop).
+        for (ULONGLONG end = GetTickCount64() + 1500; GetTickCount64() < end; Sleep(20)) {
+            MSG message;
+            while (PeekMessageW(&message, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&message);
+        }
+        auto b = buttonText();
+        expect(shownMode().empty() && b == button, L"indicator hidden after a second, button " + b);
+    };
+    setText(L"LanguageOrder", L"ko,en,ja");
+    const Step toJapanese[] = {{"\f\r" "dkssud", L"안녕", true}, {"\n\r\x04\x05", L"", false, L"", nullptr, 1}};
+    run(toJapanese);
+    mode(L"ja,en,ko", L"あ  日本語 · English", L"あ");
+    const Step inJapanese[] = {
+        {"kyou", L"きょう", true, L"*"},
+        // Japanese before English: after an English word, soro is そろ.
+        {"\n\r" "same", L"same", true},
+        {"\n\r" "soro", L"そろ", true, L"*"},
+        {"\n\r" "dkssud", L"안녕", true},
+        {"\x04\x05", L"dkssud", true, L"", nullptr, 1},
+        {"\n\r\x04\x05", L"", false, L"", nullptr, 1},
+    };
+    run(inJapanese);
+    mode(L"ko,en,ja", L"한  한국어 · English", L"한");
+    // English before Japanese: there soro stays; kyou is no Korean or English, so still きょう.
+    const Step inKorean[] = {{"kyou", L"きょう", true, L"*"}, {"\n\r" "same", L"same", true}, {"\n\r" "soro", L"soro", true}, {"\n\r" "dkssud", L"안녕", true}, {"\n", L"안녕", false}};
+    run(inKorean);
+    // Korean + English only: the switch key switches KoEnJa off and on again (no indicator).
+    setText(L"LanguageOrder", L"ko,en");
+    const Step pair[] = {{"\f\r\x04\x05" "dkssud", L"dkssud", false, L"", nullptr, 1}, {"\x04\x05" "dkssud\n", L"dkssud안녕", false, L"", nullptr, 1}};
+    run(pair);
+    expect(savedOrder() == L"ko,en" && shownMode().empty(), L"ko,en: on/off, order kept");
     setText(L"LanguageOrder", nullptr);
 
     // Mozc's dictionary (data\mozc.dic), as the user has it.

@@ -49,9 +49,11 @@ static const GUID* const CATEGORIES[] = {&GUID_TFCAT_TIP_KEYBOARD, &GUID_TFCAT_D
                                          &GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT, &GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT,
                                          &GUID_TFCAT_TIPCAP_UIELEMENTENABLED};
 static const wchar_t NAME[] = L"KoEnJa";
-/** Tip.rc's icons; the first is the profile's (index 0). */
-enum { ICON_ON = 1, ICON_OFF = 2 };
+/** Tip.rc's icons; the first is the profile's (index 0). The indicator: 한 or あ while on (which goes first), A off. */
+enum { ICON_ON = 1, ICON_OFF = 2, ICON_KO = 3, ICON_JA = 4 };
 static const wchar_t CANDIDATE_CLASS[] = L"KoEnJaCandidates";
+/** The priority language's name by the caret for a second after the switch key changes it. */
+static const wchar_t INDICATOR_CLASS[] = L"KoEnJaIndicator";
 /** Candidates per page of the window: 1–9 pick from the page shown. */
 static constexpr int PAGE = 9;
 
@@ -253,6 +255,19 @@ static std::vector<rea::Language> readOrder() {
     return order;
 }
 
+/** Whether Japanese goes before Korean in [order] (日本語優先), else Korean does (한국어 우선). */
+static bool japaneseFirst(const std::vector<rea::Language>& order) {
+    for (auto language : order)
+        if (language != rea::Language::ENGLISH) return language == rea::Language::JAPANESE;
+    return false;
+}
+
+/** Whether [order] has both Korean and Japanese: then the switch key picks which goes first. */
+static bool bothLanguages(const std::vector<rea::Language>& order) {
+    return std::find(order.begin(), order.end(), rea::Language::KOREAN) != order.end() &&
+           std::find(order.begin(), order.end(), rea::Language::JAPANESE) != order.end();
+}
+
 /** A symbol or digit key (set-1 scan code) and what it types, unshifted and shifted (0: nothing). */
 struct Printed { BYTE scan; char16_t plain, shifted; };
 /** A US 101 / Korean 103 keyboard (its \ key reads ₩ in Korean fonts). */
@@ -339,8 +354,10 @@ static bool darkMode() {
 }
 
 /** The candidates under the composition, a page of 9 numbered rows: topmost, and never takes the
- *  focus from the app. */
+ *  focus from the app. Unnumbered, under its own class: the priority language's indicator. */
 struct CandidateWindow {
+    const wchar_t* className = CANDIDATE_CLASS;
+    bool numbered = true;
     HWND hwnd = nullptr;
     HFONT font = nullptr;
     std::vector<std::wstring> items;
@@ -354,6 +371,7 @@ struct CandidateWindow {
         if (message == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
         auto self = reinterpret_cast<CandidateWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
         if (message == WM_PAINT && self) { self->paint(); return 0; }
+        if (message == WM_TIMER && self) { KillTimer(hwnd, w); self->hide(); return 0; } // the indicator's second is up
         return DefWindowProcW(hwnd, message, w, l);
     }
 
@@ -362,17 +380,16 @@ struct CandidateWindow {
     void show(const std::vector<std::wstring>& list, int selection, RECT text) {
         PerMonitorDpi aware;
         if (!hwnd) {
-            static const ATOM registered = [] {
-                WNDCLASSEXW c{sizeof c};
+            WNDCLASSEXW c{sizeof c};
+            if (!GetClassInfoExW(module, className, &c)) {
                 c.style = CS_DROPSHADOW;
                 c.lpfnWndProc = proc;
                 c.hInstance = module;
                 c.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-                c.lpszClassName = CANDIDATE_CLASS;
-                return RegisterClassExW(&c);
-            }();
-            if (!registered) return;
-            hwnd = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, CANDIDATE_CLASS, L"", WS_POPUP, 0, 0, 0, 0,
+                c.lpszClassName = className;
+                if (!RegisterClassExW(&c)) return;
+            }
+            hwnd = CreateWindowExW(WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW, className, L"", WS_POPUP, 0, 0, 0, 0,
                                    nullptr, nullptr, module, nullptr);
             if (!hwnd) return;
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, LONG_PTR(this));
@@ -405,7 +422,7 @@ struct CandidateWindow {
         row = tm.tmHeight + pad;
         SIZE size;
         GetTextExtentPoint32W(dc, L"9", 1, &size);
-        number = size.cx + 2 * pad;
+        number = numbered ? size.cx + 2 * pad : pad;
         int first = selected / PAGE * PAGE, count = std::min(PAGE, int(items.size()) - first), width = MulDiv(80, int(dpi), 96);
         for (int i = first; i < first + count; i++) {
             GetTextExtentPoint32W(dc, items[i].c_str(), int(items[i].size()), &size);
@@ -455,7 +472,7 @@ struct CandidateWindow {
             if (chosen) FillRect(dc, &line, GetSysColorBrush(COLOR_HIGHLIGHT));
             wchar_t digit = wchar_t(L'1' + i);
             SetTextColor(dc, chosen ? GetSysColor(COLOR_HIGHLIGHTTEXT) : dim);
-            TextOutW(dc, pad, line.top + pad / 2, &digit, 1);
+            if (numbered) TextOutW(dc, pad, line.top + pad / 2, &digit, 1);
             SetTextColor(dc, chosen ? GetSysColor(COLOR_HIGHLIGHTTEXT) : text);
             auto& item = items[first + i];
             TextOutW(dc, number, line.top + pad / 2, item.c_str(), int(item.size()));
@@ -472,13 +489,16 @@ struct CandidateWindow {
     }
 };
 
-/** The input indicator's mode button (taskbar, by the clock): KoEnJa's icon while it is on, "A"
- *  while it is off (keys go to the app as plain English). A click switches, as 한/영 does. */
+/** The input indicator's mode button (taskbar, by the clock): 한 or あ while KoEnJa is on (the
+ *  language that goes first), "A" while it is off (keys go to the app as plain English). A click
+ *  switches it off and on (the switch key picks the language). */
 struct ModeButton : ITfLangBarItemButton, ITfSource {
     COUNTED
     std::function<bool()> on;
     std::function<void()> clicked;
     ComPtr<ITfLangBarItemSink> sink;
+    /** Japanese goes first (あ), else Korean (한). */
+    bool japanese = false;
 
     virtual ~ModeButton() = default;
     STDMETHODIMP QueryInterface(REFIID iid, void** out) override {
@@ -488,7 +508,7 @@ struct ModeButton : ITfLangBarItemButton, ITfSource {
         AddRef();
         return S_OK;
     }
-    /** On or off changed: the indicator asks for the icon and text again. */
+    /** On or off, or the language, changed: the indicator asks for the icon and text again. */
     void update() {
         if (sink) sink->OnUpdate(TF_LBI_ICON | TF_LBI_TEXT | TF_LBI_TOOLTIP);
     }
@@ -505,7 +525,8 @@ struct ModeButton : ITfLangBarItemButton, ITfSource {
     STDMETHODIMP GetStatus(DWORD* status) override { *status = 0; return S_OK; }
     STDMETHODIMP Show(BOOL) override { return E_NOTIMPL; }
     STDMETHODIMP GetTooltipString(BSTR* tip) override {
-        *tip = SysAllocString(isOn() ? L"KoEnJa" : L"KoEnJa: off (English)");
+        *tip = SysAllocString(!isOn() ? L"KoEnJa: off (English) / click: on"
+                              : japanese ? L"KoEnJa: 日本語優先 / click: off" : L"KoEnJa: 한국어 우선 / click: off");
         return *tip ? S_OK : E_OUTOFMEMORY;
     }
     STDMETHODIMP OnClick(TfLBIClick click, POINT, const RECT*) override {
@@ -516,11 +537,11 @@ struct ModeButton : ITfLangBarItemButton, ITfSource {
     STDMETHODIMP OnMenuSelect(UINT) override { return E_NOTIMPL; }
     STDMETHODIMP GetIcon(HICON* icon) override {
         int size = GetSystemMetrics(SM_CXSMICON);
-        *icon = HICON(LoadImageW(module, MAKEINTRESOURCEW(isOn() ? ICON_ON : ICON_OFF), IMAGE_ICON, size, size, 0));
+        *icon = HICON(LoadImageW(module, MAKEINTRESOURCEW(!isOn() ? ICON_OFF : japanese ? ICON_JA : ICON_KO), IMAGE_ICON, size, size, 0));
         return *icon ? S_OK : E_FAIL;
     }
     STDMETHODIMP GetText(BSTR* text) override {
-        *text = SysAllocString(isOn() ? NAME : L"A");
+        *text = SysAllocString(!isOn() ? L"A" : japanese ? L"あ" : L"한");
         return *text ? S_OK : E_OUTOFMEMORY;
     }
     STDMETHODIMP AdviseSink(REFIID iid, IUnknown* unknown, DWORD* cookie) override {
@@ -568,6 +589,7 @@ public:
     /** Whether KoEnJa draws the list; false while a full-screen app draws it from the UI element. */
     BOOL drawsList = TRUE;
     CandidateWindow window;
+    CandidateWindow indicator{INDICATOR_CLASS, false};
     /** A switch key whose key-down was eaten: its key-up goes too (a lone Alt up opens the app's menu). */
     WPARAM eatenSwitch = 0;
     /** Re-read on activation and focus, so a change in KoEnJaSettings needs no restart. */
@@ -638,6 +660,7 @@ public:
             button->on = [this] { return isOpen(); };
             button->clicked = [this] { setOpen(!isOpen()); };
             if (FAILED(items->AddItem(button.Get()))) button.Reset();
+            showMode();
         }
         return S_OK;
     }
@@ -646,6 +669,7 @@ public:
         finish();
         closeList();
         window.destroy();
+        indicator.destroy();
         ComPtr<ITfLangBarItemMgr> items;
         if (button && SUCCEEDED(threadMgr.As(&items))) items->RemoveItem(button.Get());
         if (button) { button->on = nullptr; button->clicked = nullptr; }
@@ -717,7 +741,49 @@ public:
                 session->activate();
             }
             order = languages;
+            showMode();
         } catch (...) {} // the engine's data unreadable: the old session goes on
+    }
+
+    /** The indicator's 한 or あ for the order. */
+    void showMode() {
+        if (!button) return;
+        button->japanese = japaneseFirst(order);
+        button->update();
+    }
+
+    /**
+     * The switch key with nothing being typed, Korean and Japanese both on: the other one goes first
+     * (한국어 우선 ko,en,ja ↔ 日本語優先 ja,en,ko), saved as LanguageOrder so KoEnJaSettings and every
+     * app agree (the others read it on their next focus), and its name by the caret for a second.
+     * ponytail: an AppContainer app (Start search) can't write HKCU; it switches until its next focus.
+     */
+    void prioritize(ITfContext* context) {
+        using rea::Language;
+        bool japanese = !japaneseFirst(order);
+        std::vector<Language> next{japanese ? Language::JAPANESE : Language::KOREAN, Language::ENGLISH,
+                                   japanese ? Language::KOREAN : Language::JAPANESE};
+        try {
+            session = makeSession(next);
+            session->activate();
+        } catch (...) { return; } // the engine's data unreadable: the old session goes on
+        order = next;
+        const wchar_t* value = japanese ? L"ja,en,ko" : L"ko,en,ja";
+        RegSetKeyValueW(HKEY_CURRENT_USER, SETTINGS_KEY, L"LanguageOrder", REG_SZ, value, DWORD((wcslen(value) + 1) * sizeof(wchar_t)));
+        showMode();
+        RECT caret{};
+        edit(context, client, TF_ES_SYNC, [&](TfEditCookie ec) {
+            TF_SELECTION selection;
+            ULONG fetched = 0;
+            if (FAILED(context->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &selection, &fetched)) || !fetched) return;
+            caret = screenRect(ec, context, selection.range);
+            selection.range->Release();
+        });
+        indicator.show({japanese ? L"あ  日本語 · English" : L"한  한국어 · English"}, -1, caret);
+        if (indicator.hwnd) {
+            SetWindowTextW(indicator.hwnd, indicator.items[0].c_str()); // for tip_test
+            SetTimer(indicator.hwnd, 1, 1000, nullptr);
+        }
     }
 
     /** The parts of the tap switch key (0: the switch key is no tap). */
@@ -871,17 +937,8 @@ public:
         listed.clear();
         for (auto& c : candidates) listed.emplace_back(c.text.begin(), c.text.end());
         listContext = context;
-        listAnchor = {};
         ComPtr<ITfRange> range;
-        ComPtr<ITfContextView> view;
-        BOOL clipped;
-        HWND app = nullptr;
-        if (composition && SUCCEEDED(composition->GetRange(&range)) && SUCCEEDED(context->GetActiveView(&view)) &&
-            SUCCEEDED(view->GetTextExt(ec, range.Get(), &listAnchor, &clipped)) && SUCCEEDED(view->GetWnd(&app)) && app) {
-            // A DPI-unaware app measures in its scaled pixels; the window is in real ones.
-            LogicalToPhysicalPointForPerMonitorDPI(app, reinterpret_cast<POINT*>(&listAnchor.left));
-            LogicalToPhysicalPointForPerMonitorDPI(app, reinterpret_cast<POINT*>(&listAnchor.right));
-        }
+        listAnchor = composition && SUCCEEDED(composition->GetRange(&range)) ? screenRect(ec, context, range.Get()) : RECT{};
         ComPtr<ITfUIElementMgr> elements;
         if (uiElement == TF_INVALID_UIELEMENTID) {
             drawsList = TRUE;
@@ -893,6 +950,21 @@ public:
             elements->UpdateUIElement(uiElement);
         }
         if (drawsList) window.show(listed, selection, listAnchor);
+    }
+
+    /** Where [range] is on the screen, in real pixels (empty if the app doesn't say). */
+    static RECT screenRect(TfEditCookie ec, ITfContext* context, ITfRange* range) {
+        RECT out{};
+        ComPtr<ITfContextView> view;
+        BOOL clipped;
+        HWND app = nullptr;
+        if (SUCCEEDED(context->GetActiveView(&view)) && SUCCEEDED(view->GetTextExt(ec, range, &out, &clipped)) &&
+            SUCCEEDED(view->GetWnd(&app)) && app) {
+            // A DPI-unaware app measures in its scaled pixels; the window is in real ones.
+            LogicalToPhysicalPointForPerMonitorDPI(app, reinterpret_cast<POINT*>(&out.left));
+            LogicalToPhysicalPointForPerMonitorDPI(app, reinterpret_cast<POINT*>(&out.right));
+        }
+        return out;
     }
 
     void closeList() {
@@ -937,7 +1009,7 @@ private:
     /** What a key-down does: keys for the session, a listed candidate picked, KoEnJa off/on, an F8–F10
      *  form of the reading, or nothing (the key just eaten). */
     struct Action {
-        enum { Type, Pick, Toggle, Form, Nothing } what;
+        enum { Type, Pick, Toggle, Priority, Form, Nothing } what;
         InputSession::Key key{Kind::Other};
         /** Pick: the candidate; Form: the F key; Type: how many times (-1: until the conversion is done). */
         int index = 1;
@@ -964,9 +1036,13 @@ private:
             default: return false;
         }
     }
-    /** The switch key: the word being typed in its next language (the iOS keyboard's 한あA key),
-     *  or with nothing being typed, KoEnJa off (plain English) and on. */
-    Action switched() const { return typing() ? type({Kind::Cycle}) : Action{Action::Toggle}; }
+    /** The switch key: the word being typed in its next language (the iOS keyboard's 한あA key);
+     *  with nothing being typed, the other of Korean and Japanese first (both on), else KoEnJa off
+     *  (plain English) and on. */
+    Action switched() const {
+        if (typing()) return type({Kind::Cycle});
+        return Action{isOpen() && bothLanguages(order) ? Action::Priority : Action::Toggle};
+    }
 
     /** What a key-down does; nullopt leaves it to the app. Letters start or extend a word; while
      *  one is being typed every other key goes to the session too (most commit it and then reach
@@ -1161,6 +1237,7 @@ struct Client : rea::TextClient {
 /** Runs [action] in an edit session, then lists the candidates; whether the key was consumed. */
 bool Tip::perform(ITfContext* context, const Action& action) {
     if (action.what == Action::Toggle) { setOpen(!isOpen()); return true; }
+    if (action.what == Action::Priority) { prioritize(context); return true; }
     if (action.what == Action::Nothing) return true;
     bool handled = false;
     edit(context, client, TF_ES_SYNC, [&](TfEditCookie ec) {
@@ -1288,6 +1365,7 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void*) {
     } else if (reason == DLL_PROCESS_DETACH) {
         // A class outlives its DLL: loaded again, the old one would still point at this copy's code.
         UnregisterClassW(CANDIDATE_CLASS, module);
+        UnregisterClassW(INDICATOR_CLASS, module);
     }
     return TRUE;
 }
