@@ -18,6 +18,7 @@
 
 #include "../engine/src/Engines.h"
 #include "../engine/src/Resources.h"
+#include "../engine/src/RomajiComposer.h"
 #include "../japanese/MozcConverter.h"
 
 #pragma comment(linker, "/EXPORT:DllGetClassObject,PRIVATE")
@@ -36,6 +37,8 @@ static const CLSID CLSID_KoEnJa = {0x113c852d, 0xc4e7, 0x4c6e, {0xb7, 0x13, 0x3f
 static const GUID PROFILE_KoEnJa = {0x56dcc211, 0x5e23, 0x42ce, {0x9c, 0xf1, 0x20, 0xeb, 0xa0, 0x11, 0x02, 0x8e}};
 // {984A32FD-0B9D-4EA6-A0A8-AF9AE0F4CFC6}: the composition's underline.
 static const GUID ATTRIBUTE_INPUT = {0x984a32fd, 0x0b9d, 0x4ea6, {0xa0, 0xa8, 0xaf, 0x9a, 0xe0, 0xf4, 0xcf, 0xc6}};
+// {6E3C1F0A-5B7D-4C2E-9A41-2D8F0B6C7E53}: the segment being converted, underlined thick.
+static const GUID ATTRIBUTE_TARGET = {0x6e3c1f0a, 0x5b7d, 0x4c2e, {0x9a, 0x41, 0x2d, 0x8f, 0x0b, 0x6c, 0x7e, 0x53}};
 // {D89F1C7F-0686-4898-B222-C523F8060883}: the candidate list, as a UI element.
 static const GUID CANDIDATE_UI = {0xd89f1c7f, 0x0686, 0x4898, {0xb2, 0x22, 0xc5, 0x23, 0xf8, 0x06, 0x08, 0x83}};
 /** The input indicator's mode button (the SDK documents it but doesn't declare it). */
@@ -99,11 +102,13 @@ static HRESULT edit(ITfContext* context, TfClientId client, DWORD flags, std::fu
     return FAILED(hr) ? hr : result;
 }
 
-/** How the composition looks (a solid underline), and an enumerator over it, the only one. */
+/** How the composition looks: [which] 0 the reading (a solid underline), 1 the segment being
+ *  converted (a thick one); and an enumerator over both ([next]). */
 struct DisplayAttribute : ITfDisplayAttributeInfo, IEnumTfDisplayAttributeInfo {
     COUNTED
-    bool enumerated = false;
+    int which = 0, next = 0;
 
+    explicit DisplayAttribute(int which = 0) : which(which) {}
     virtual ~DisplayAttribute() = default;
     STDMETHODIMP QueryInterface(REFIID iid, void** out) override {
         if (iid == IID_IUnknown || iid == IID_ITfDisplayAttributeInfo) *out = static_cast<ITfDisplayAttributeInfo*>(this);
@@ -112,7 +117,7 @@ struct DisplayAttribute : ITfDisplayAttributeInfo, IEnumTfDisplayAttributeInfo {
         AddRef();
         return S_OK;
     }
-    STDMETHODIMP GetGUID(GUID* guid) override { *guid = ATTRIBUTE_INPUT; return S_OK; }
+    STDMETHODIMP GetGUID(GUID* guid) override { *guid = which ? ATTRIBUTE_TARGET : ATTRIBUTE_INPUT; return S_OK; }
     STDMETHODIMP GetDescription(BSTR* description) override {
         *description = SysAllocString(L"KoEnJa composition");
         return *description ? S_OK : E_OUTOFMEMORY;
@@ -123,29 +128,29 @@ struct DisplayAttribute : ITfDisplayAttributeInfo, IEnumTfDisplayAttributeInfo {
         attribute->crBk.type = TF_CT_NONE;
         attribute->crLine.type = TF_CT_NONE;
         attribute->lsStyle = TF_LS_SOLID;
-        attribute->bAttr = TF_ATTR_INPUT;
+        attribute->fBoldLine = which == 1;
+        attribute->bAttr = which ? TF_ATTR_TARGET_CONVERTED : TF_ATTR_INPUT;
         return S_OK;
     }
     STDMETHODIMP SetAttributeInfo(const TF_DISPLAYATTRIBUTE*) override { return E_NOTIMPL; }
     /** Both interfaces' Reset: nothing to restore, and the enumeration starts over. */
-    STDMETHODIMP Reset() override { enumerated = false; return S_OK; }
+    STDMETHODIMP Reset() override { next = 0; return S_OK; }
     STDMETHODIMP Clone(IEnumTfDisplayAttributeInfo** out) override {
         auto copy = new DisplayAttribute;
-        copy->enumerated = enumerated;
+        copy->next = next;
         *out = copy;
         return S_OK;
     }
     STDMETHODIMP Next(ULONG count, ITfDisplayAttributeInfo** infos, ULONG* fetched) override {
         ULONG n = 0;
-        if (count > 0 && !enumerated) { infos[0] = new DisplayAttribute; enumerated = true; n = 1; }
+        while (n < count && next < 2) infos[n++] = new DisplayAttribute(next++);
         if (fetched) *fetched = n;
         return n == count ? S_OK : S_FALSE;
     }
     STDMETHODIMP Skip(ULONG count) override {
-        if (count == 0) return S_OK;
-        bool had = !enumerated;
-        enumerated = true;
-        return had && count == 1 ? S_OK : S_FALSE;
+        bool all = next + count <= 2;
+        next = std::min(2, int(next + count));
+        return all ? S_OK : S_FALSE;
     }
 };
 
@@ -201,14 +206,46 @@ static std::unique_ptr<InputSession> makeSession() {
     return rea::Engines::makeSession({Language::KOREAN, Language::ENGLISH, Language::JAPANESE}, makeConverter());
 }
 
-/** The keyboard's language key: 한/영 (Korean keyboards), 変換 (Japanese), else right Alt where it
- *  isn't AltGr: on the layouts KoEnJa runs on (Korean, Japanese) and US English. */
-static bool isSwitchKey(WPARAM vk, LPARAM lParam) {
-    if (vk == VK_HANGUL || vk == VK_CONVERT) return true;
-    if (!(vk == VK_RMENU || (vk == VK_MENU && (lParam & (1 << 24))))) return false; // bit 24: the right one
-    LANGID layout = LOWORD(HandleToUlong(GetKeyboardLayout(0)));
-    return PRIMARYLANGID(layout) == LANG_KOREAN || PRIMARYLANGID(layout) == LANG_JAPANESE ||
-           layout == MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US);
+/** The switch key picked in KoEnJaSettings (HKCU\Software\KoEnJa\SwitchKey; these names). */
+enum class Switch { RightAlt, LeftCtrl, Hangul, Henkan, CtrlShift, ShiftSpace, CtrlSpace };
+static const wchar_t* const SWITCH_NAMES[] = {L"RightAlt", L"LeftCtrl", L"Hangul", L"Henkan", L"CtrlShift", L"ShiftSpace", L"CtrlSpace"};
+static const wchar_t SETTINGS_KEY[] = L"Software\\KoEnJa";
+
+static Switch readSwitch() {
+    wchar_t name[32];
+    DWORD size = sizeof name;
+    if (!RegGetValueW(HKEY_CURRENT_USER, SETTINGS_KEY, L"SwitchKey", RRF_RT_REG_SZ, nullptr, name, &size))
+        for (int i = 0; i < int(std::size(SWITCH_NAMES)); i++)
+            if (!_wcsicmp(name, SWITCH_NAMES[i])) return Switch(i);
+    return Switch::RightAlt;
+}
+
+/** HKCU\Software\KoEnJa\KeyLog = 1: every key the TIP gets goes to %LOCALAPPDATA%\KoEnJa\keys.log. */
+static bool readKeyLog() {
+    DWORD on = 0, size = sizeof on;
+    RegGetValueW(HKEY_CURRENT_USER, SETTINGS_KEY, L"KeyLog", RRF_RT_REG_DWORD, nullptr, &on, &size);
+    return on == 1;
+}
+
+/** Bit 24 of a key's lParam: the right Alt or Ctrl (on an AltGr layout the left Ctrl that comes
+ *  with right Alt is a plain one). */
+static bool extended(LPARAM lParam) { return lParam & (1 << 24); }
+
+/** A tap switch key's part: 1 the right Alt, 2 the left Ctrl, 4 a Shift; 0 any other key. */
+static int tapPart(WPARAM vk, LPARAM lParam) {
+    if (vk == VK_RMENU || (vk == VK_MENU && extended(lParam))) return 1;
+    if (vk == VK_LCONTROL || (vk == VK_CONTROL && !extended(lParam))) return 2;
+    if (vk == VK_SHIFT || vk == VK_LSHIFT || vk == VK_RSHIFT) return 4;
+    return 0;
+}
+
+/** [text] in its other width, for F8–F10: [flags] LCMAP_HALFWIDTH or LCMAP_FULLWIDTH. */
+static std::u16string mapped(const std::u16string& text, DWORD flags) {
+    std::u16string out(text.size() * 2 + 1, u'\0');
+    int n = LCMapStringEx(L"ja-JP", flags, reinterpret_cast<LPCWSTR>(text.c_str()), int(text.size()), reinterpret_cast<LPWSTR>(out.data()),
+                          int(out.size()), nullptr, nullptr, 0);
+    out.resize(std::max(0, n));
+    return out;
 }
 
 /** Window calls in this scope are per-monitor DPI aware, whatever the host app is: the window is
@@ -353,6 +390,7 @@ struct CandidateWindow {
             RECT line{pad, pad / 2 + count * row, all.right - pad, pad / 2 + (count + 1) * row};
             SetTextColor(dc, dim);
             DrawTextW(dc, page.c_str(), int(page.size()), &line, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
+            DrawTextW(dc, L"\u25B2\u25BC", 2, &line, DT_LEFT | DT_VCENTER | DT_SINGLELINE); // ▲▼: PageUp/PageDown
         }
         SelectObject(dc, old);
         EndPaint(hwnd, &ps);
@@ -438,7 +476,7 @@ public:
     DWORD threadMgrCookie = TF_INVALID_COOKIE;
     DWORD openCloseCookie = TF_INVALID_COOKIE;
     bool keySinkAdvised = false;
-    TfGuidAtom underline = TF_INVALID_GUIDATOM;
+    TfGuidAtom underline = TF_INVALID_GUIDATOM, thick = TF_INVALID_GUIDATOM;
     std::unique_ptr<InputSession> session;
     /** Where the word being typed is shown (the engine's marked text). */
     ComPtr<ITfComposition> composition;
@@ -457,6 +495,13 @@ public:
     CandidateWindow window;
     /** A switch key whose key-down was eaten: its key-up goes too (a lone Alt up opens the app's menu). */
     WPARAM eatenSwitch = 0;
+    /** Re-read on activation and focus, so a change in KoEnJaSettings needs no restart. */
+    Switch switchKey = Switch::RightAlt;
+    bool keyLog = false;
+    /** The tap switch key's parts (tapPart) pressed since the last other key; full means a tap. */
+    int tapped = 0;
+    /** Whether the open conversion's list shows: the first Space converts in place, the next opens it. */
+    bool listOpen = false;
 
     virtual ~Tip() = default;
 
@@ -481,6 +526,7 @@ public:
     STDMETHODIMP ActivateEx(ITfThreadMgr* manager, TfClientId id, DWORD) override {
         threadMgr = manager;
         client = id;
+        readSettings();
         ComPtr<ITfSource> source;
         ComPtr<ITfKeystrokeMgr> keystrokes;
         HRESULT hr;
@@ -492,8 +538,10 @@ public:
         }
         keySinkAdvised = true;
         ComPtr<ITfCategoryMgr> categories;
-        if (SUCCEEDED(CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&categories))))
+        if (SUCCEEDED(CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&categories)))) {
             categories->RegisterGUID(ATTRIBUTE_INPUT, &underline);
+            categories->RegisterGUID(ATTRIBUTE_TARGET, &thick);
+        }
         try {
             if (!session) session = makeSession();
         } catch (...) { // the engine's data is missing or unreadable
@@ -501,7 +549,7 @@ public:
             return E_UNEXPECTED;
         }
         session->activate();
-        // On whenever it is picked; then 한/영 (or the indicator) switches it off and on.
+        // On whenever it is picked; then the switch key (or the indicator) switches it off and on.
         setOpen(true);
         ComPtr<ITfSource> openClose;
         if (auto compartment = openCloseCompartment(); compartment && SUCCEEDED(compartment.As(&openClose)))
@@ -545,6 +593,7 @@ public:
     STDMETHODIMP OnInitDocumentMgr(ITfDocumentMgr*) override { return S_OK; }
     STDMETHODIMP OnUninitDocumentMgr(ITfDocumentMgr*) override { return S_OK; }
     STDMETHODIMP OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) override {
+        readSettings();
         finish();
         if (session) session->activate();
         return S_OK;
@@ -554,22 +603,74 @@ public:
 
     // ITfKeyEventSink
 
-    STDMETHODIMP OnSetFocus(BOOL) override { return S_OK; }
+    /** The app's thread got the keyboard back (from KoEnJaSettings, say). */
+    STDMETHODIMP OnSetFocus(BOOL foreground) override {
+        if (foreground) readSettings();
+        tapped = 0;
+        return S_OK;
+    }
     STDMETHODIMP OnTestKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override {
+        trackTap(vk, lParam);
         *eaten = actionFor(context, vk, lParam).has_value();
+        log("TestDown", vk, lParam, *eaten);
         return S_OK;
     }
     STDMETHODIMP OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override;
-    STDMETHODIMP OnTestKeyUp(ITfContext*, WPARAM vk, LPARAM, BOOL* eaten) override {
-        *eaten = eatenSwitch && vk == eatenSwitch;
+    STDMETHODIMP OnTestKeyUp(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override {
+        *eaten = (eatenSwitch && vk == eatenSwitch) || isTap(context, vk, lParam);
+        if (!*eaten && tapPart(vk, lParam)) tapped = 0;
+        log("TestUp", vk, lParam, *eaten);
         return S_OK;
     }
-    STDMETHODIMP OnKeyUp(ITfContext*, WPARAM vk, LPARAM, BOOL* eaten) override {
-        *eaten = eatenSwitch && vk == eatenSwitch;
-        if (*eaten) eatenSwitch = 0;
-        return S_OK;
-    }
+    STDMETHODIMP OnKeyUp(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override;
     STDMETHODIMP OnPreservedKey(ITfContext*, REFGUID, BOOL* eaten) override { *eaten = FALSE; return S_OK; }
+
+    void readSettings() {
+        switchKey = readSwitch();
+        keyLog = readKeyLog();
+    }
+
+    /** The parts of the tap switch key (0: the switch key is no tap). */
+    int tapParts() const {
+        return switchKey == Switch::RightAlt ? 1 : switchKey == Switch::LeftCtrl ? 2 : switchKey == Switch::CtrlShift ? 2 | 4 : 0;
+    }
+    /** A key-down: a part of the tap key adds to it (a repeat, bit 30, doesn't), any other key spoils it. */
+    void trackTap(WPARAM vk, LPARAM lParam) {
+        int part = tapPart(vk, lParam) & tapParts();
+        if (!part) tapped = 0;
+        else if (!(lParam & (1 << 30))) tapped |= part;
+    }
+    /** Whether this key-up ends a tap of the switch key: all its parts went down with nothing else. */
+    bool isTap(ITfContext* context, WPARAM vk, LPARAM lParam) const {
+        return session && tapParts() && (tapPart(vk, lParam) & tapParts()) && tapped == tapParts() && !disabled(context);
+    }
+
+    /** One line in keys.log per key event, when KeyLog is on: what reached the TIP in a real app. */
+    void log(const char* event, WPARAM vk, LPARAM lParam, BOOL eaten) const {
+        if (!keyLog) return;
+        wchar_t local[MAX_PATH];
+        if (!GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH)) return;
+        auto folder = std::wstring(local) + L"\\KoEnJa";
+        CreateDirectoryW(folder.c_str(), nullptr);
+        HANDLE file = CreateFileW((folder + L"\\keys.log").c_str(), FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, 0, nullptr);
+        if (file == INVALID_HANDLE_VALUE) return;
+        char exe[MAX_PATH] = "";
+        GetModuleFileNameA(nullptr, exe, MAX_PATH);
+        const char* name = strrchr(exe, '\\') ? strrchr(exe, '\\') + 1 : exe;
+        SYSTEMTIME t;
+        GetLocalTime(&t);
+        char line[400];
+        int n = snprintf(line, sizeof line,
+                         "%02d:%02d:%02d.%03d %s %-8s vk=%02X scan=%02X ext=%d context=%d repeat=%d up=%d lParam=%08X eaten=%d composing=%d open=%d "
+                         "ctrl=%d shift=%d alt=%d switch=%ls\r\n",
+                         t.wHour, t.wMinute, t.wSecond, t.wMilliseconds, name, event, unsigned(vk), unsigned((lParam >> 16) & 0xFF),
+                         extended(lParam), int((lParam >> 29) & 1), int((lParam >> 30) & 1), int((lParam >> 31) & 1), unsigned(lParam),
+                         int(eaten), int(typing()), int(isOpen()), GetKeyState(VK_CONTROL) < 0, GetKeyState(VK_SHIFT) < 0,
+                         GetKeyState(VK_MENU) < 0, SWITCH_NAMES[int(switchKey)]);
+        DWORD written;
+        WriteFile(file, line, DWORD(std::max(0, n)), &written, nullptr);
+        CloseHandle(file);
+    }
 
     // ITfCompositionSink
 
@@ -589,8 +690,8 @@ public:
         return S_OK;
     }
     STDMETHODIMP GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** out) override {
-        if (guid != ATTRIBUTE_INPUT) { *out = nullptr; return E_INVALIDARG; }
-        *out = new DisplayAttribute;
+        if (guid != ATTRIBUTE_INPUT && guid != ATTRIBUTE_TARGET) { *out = nullptr; return E_INVALIDARG; }
+        *out = new DisplayAttribute(guid == ATTRIBUTE_TARGET);
         return S_OK;
     }
 
@@ -676,7 +777,7 @@ public:
             if (candidates.size() > 30) candidates.resize(30);
             selection = 0;
         }
-        if (candidates.empty()) return closeList();
+        if (candidates.empty() || (session->conversion && !listOpen)) return closeList();
         listed.clear();
         for (auto& c : candidates) listed.emplace_back(c.text.begin(), c.text.end());
         listContext = context;
@@ -714,13 +815,15 @@ public:
         uiElement = TF_INVALID_UIELEMENTID;
     }
 
-    void setUnderline(ITfContext* context, TfEditCookie ec, ITfRange* range, bool on) {
+    void setUnderline(ITfContext* context, TfEditCookie ec, ITfRange* range, bool on) { setAttribute(context, ec, range, on ? underline : TF_INVALID_GUIDATOM); }
+    /** [atom]'s look on [range]; TF_INVALID_GUIDATOM: none. */
+    void setAttribute(ITfContext* context, TfEditCookie ec, ITfRange* range, TfGuidAtom atom) {
         ComPtr<ITfProperty> property;
         if (FAILED(context->GetProperty(GUID_PROP_ATTRIBUTE, &property))) return;
-        if (!on || underline == TF_INVALID_GUIDATOM) { property->Clear(ec, range); return; }
+        if (atom == TF_INVALID_GUIDATOM) { property->Clear(ec, range); return; }
         VARIANT value;
         value.vt = VT_I4;
-        value.lVal = LONG(underline);
+        value.lVal = LONG(atom);
         property->SetValue(ec, range, &value);
     }
 
@@ -741,26 +844,48 @@ private:
 
     bool typing() const { return session && (!session->keys.empty() || session->conversion); }
 
-    /** What a key-down does: a key for the session, a listed candidate picked, or KoEnJa off/on. */
+    /** What a key-down does: keys for the session, a listed candidate picked, KoEnJa off/on, an F8–F10
+     *  form of the reading, or nothing (the key just eaten). */
     struct Action {
-        enum { Type, Pick, Toggle } what;
+        enum { Type, Pick, Toggle, Form, Nothing } what;
         InputSession::Key key{Kind::Other};
-        int index = 0;
+        /** Pick: the candidate; Form: the F key; Type: how many times (-1: until the conversion is done). */
+        int index = 1;
+        /** Whether the conversion's list shows afterwards; nullopt leaves it as it is. */
+        std::optional<bool> showList;
     };
-    static Action type(InputSession::Key key) { return {Action::Type, key}; }
+    static Action type(InputSession::Key key, int times = 1, std::optional<bool> showList = std::nullopt) {
+        return {Action::Type, key, times, showList};
+    }
+
+    /** The switch key, if it acts on its key-down (the others are taps, done on their key-up). On
+     *  Korean layouts right Alt arrives as 한/영, so that picks right Alt too. */
+    bool isSwitchDown(WPARAM vk) const {
+        bool shift = GetKeyState(VK_SHIFT) < 0, ctrl = GetKeyState(VK_CONTROL) < 0, alt = GetKeyState(VK_MENU) < 0;
+        switch (switchKey) {
+            case Switch::RightAlt:
+            case Switch::Hangul: return vk == VK_HANGUL;
+            case Switch::Henkan: return vk == VK_CONVERT;
+            case Switch::ShiftSpace: return vk == VK_SPACE && shift && !ctrl && !alt;
+            case Switch::CtrlSpace: return vk == VK_SPACE && ctrl && !shift && !alt;
+            default: return false;
+        }
+    }
+    /** The switch key: the word being typed in its next language (the iOS keyboard's 한あA key),
+     *  or with nothing being typed, KoEnJa off (plain English) and on. */
+    Action switched() const { return typing() ? type({Kind::Cycle}) : Action{Action::Toggle}; }
 
     /** What a key-down does; nullopt leaves it to the app. Letters start or extend a word; while
      *  one is being typed every other key goes to the session too (most commit it and then reach
-     *  the app); with nothing being typed they are all the app's, but 한/영 switches KoEnJa off
-     *  and on. While a list shows, Tab/↓ and ↑ move in it and 1–9 pick from its page. */
-    std::optional<Action> actionFor(ITfContext* context, WPARAM vk, LPARAM lParam) const {
+     *  the app); with nothing being typed they are all the app's, except the switch key. Japanese
+     *  converts as Microsoft's IME does: Space or 変換 converts in place, the next one opens the
+     *  list; Space/Tab/↓ and Shift+Space/↑ move in it, PageDown/PageUp by pages, 1–9 pick from the
+     *  page, Return commits it all, Esc and Backspace go back to the kana; Shift+←/→ make the first
+     *  segment shorter or longer, → commits it and converts the rest. F6/F7 hiragana and katakana
+     *  (無変換 flips between them), F8 half-width katakana, F9/F10 full- and half-width romaji. */
+    std::optional<Action> actionFor(ITfContext* context, WPARAM vk, LPARAM) const {
         if (!session || disabled(context)) return std::nullopt;
-        if (isSwitchKey(vk, lParam)) {
-            // The iOS keyboard's 한あA key: the word being typed in its next language.
-            if (typing()) return type({Kind::Cycle});
-            if (vk == VK_HANGUL) return Action{Action::Toggle};
-            return std::nullopt;
-        }
+        if (isSwitchDown(vk)) return switched();
         if (!isOpen()) return std::nullopt;
         // Modifiers alone never commit: Shift is half of typing a capital.
         if ((vk >= VK_SHIFT && vk <= VK_CAPITAL) || vk == VK_LWIN || vk == VK_RWIN || (vk >= VK_LSHIFT && vk <= VK_RMENU))
@@ -773,25 +898,47 @@ private:
         }
         if (!typing()) return std::nullopt;
         if (chord) return type({Kind::Other});
+        auto& converting = session->conversion;
+        // A Japanese phrase: converting, or typed with its candidates listed.
+        bool japanese = converting || !candidates.empty();
+        if (vk >= VK_F6 && vk <= VK_F10) {
+            if (vk == VK_F6) return type({Kind::Hiragana}, 1, false);
+            if (vk == VK_F7) return type({Kind::Katakana}, 1, false);
+            return Action{Action::Form, {}, int(vk - VK_F1 + 1), false};
+        }
+        if (vk == VK_NONCONVERT) {
+            bool katakana = converting && converting->current().text == rea::RomajiComposer::katakana(converting->kana);
+            return type({katakana ? Kind::Hiragana : Kind::Katakana}, 1, false);
+        }
+        if (vk == VK_CONVERT && japanese) vk = VK_SPACE;
         if (!candidates.empty()) {
             int digit = vk >= '1' && vk <= '9' && !shift ? int(vk - '0') : vk >= VK_NUMPAD1 && vk <= VK_NUMPAD9 ? int(vk - VK_NUMPAD0) : 0;
             int index = selection / PAGE * PAGE + digit - 1;
             if (digit && index < int(candidates.size())) return Action{Action::Pick, {}, index};
-            if (vk == VK_TAB) vk = shift ? VK_UP : VK_DOWN;
-            // Into the list from the word as typed: the conversion opens on its first candidate, as Space does.
-            if (!session->conversion && vk == VK_DOWN) return type(InputSession::Key::printable(u' '));
         }
-        if (session->conversion) switch (vk) {
-            case VK_UP: return type({Kind::Up});
-            case VK_DOWN: return type({Kind::Down});
-            case VK_LEFT: return type({Kind::Left}); // the first clause shorter
-            case VK_RIGHT: return type({Kind::Right});
+        if (japanese && vk == VK_TAB) vk = shift ? VK_UP : VK_DOWN;
+        // Into the list from the word as typed: the conversion opens on its first candidate, as Space does.
+        if (!converting && !candidates.empty() && vk == VK_DOWN) return type(InputSession::Key::printable(u' '), 1, true);
+        if (converting) switch (vk) {
+            case VK_SPACE: return type(shift ? InputSession::Key{Kind::Up} : InputSession::Key::printable(u' '), 1, true);
+            case VK_UP: return type({Kind::Up}, 1, true);
+            case VK_DOWN: return type({Kind::Down}, 1, true);
+            case VK_PRIOR: return type({Kind::Up}, PAGE, true);
+            case VK_NEXT: return type({Kind::Down}, PAGE, true);
+            case VK_LEFT:
+            case VK_RIGHT:
+                if (shift) return type({vk == VK_LEFT ? Kind::Left : Kind::Right});
+                // The first segment is the one being converted: → commits it, the rest converts next.
+                if (vk == VK_RIGHT && converting->current().kanaCount < int(converting->kana.size())) return type({Kind::Enter});
+                return Action{Action::Nothing};
+            case VK_RETURN: return type({Kind::Enter}, -1);
         }
         switch (vk) {
             case VK_BACK: return type({Kind::Delete});
             case VK_RETURN: return type({Kind::Enter});
             case VK_ESCAPE: return type({Kind::Escape});
-            case VK_SPACE: return type(InputSession::Key::printable(u' '));
+            // The first Space converts in place; the list opens with the next.
+            case VK_SPACE: return type(InputSession::Key::printable(u' '), 1, false);
         }
         // Digits and punctuation as this keyboard layout types them (flag 4: leave dead-key state alone).
         BYTE state[256];
@@ -802,6 +949,7 @@ private:
         return type({Kind::Other});
     }
 
+    bool perform(ITfContext* context, const Action& action);
     void finish();
 
     /** Forgets the word being typed, its text left as shown. */
@@ -911,31 +1059,74 @@ struct Client : rea::TextClient {
     }
 };
 
-STDMETHODIMP Tip::OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) {
-    *eaten = FALSE;
-    auto action = actionFor(context, vk, lParam);
-    if (!action) return S_OK;
-    if (action->what == Action::Toggle) {
-        setOpen(!isOpen());
-        eatenSwitch = vk;
-        *eaten = TRUE;
-        return S_OK;
-    }
+/** Runs [action] in an edit session, then lists the candidates; whether the key was consumed. */
+bool Tip::perform(ITfContext* context, const Action& action) {
+    if (action.what == Action::Toggle) { setOpen(!isOpen()); return true; }
+    if (action.what == Action::Nothing) return true;
     bool handled = false;
     edit(context, client, TF_ES_SYNC, [&](TfEditCookie ec) {
         Client field(*this, ec, context);
-        if (action->what == Action::Pick) {
-            if (session->conversion) session->choose(action->index, field);
-            else session->choose(candidates[action->index], field);
+        if (action.what == Action::Pick) {
+            if (session->conversion) session->choose(action.index, field);
+            else session->choose(candidates[action.index], field);
             handled = true;
+        } else if (action.what == Action::Form) {
+            // The engine's katakana form, then this one in its place (Return commits it, as F7's).
+            handled = session->handle({Kind::Katakana}, field);
+            if (auto& c = session->conversion; handled && c) {
+                auto form = action.index == 8 ? mapped(c->current().text, LCMAP_HALFWIDTH)
+                          : mapped(c->keys, action.index == 9 ? LCMAP_FULLWIDTH : LCMAP_HALFWIDTH);
+                c->candidates = {{form, int(c->kana.size())}};
+                c->selected = 0;
+                field.setMarkedText(c->display());
+            }
         } else {
-            handled = session->handle(action->key, field);
+            bool converting = session->conversion.has_value();
+            handled = session->handle(action.key, field);
+            // Space and a resized segment convert to kanji, as Microsoft's IME: the reading (often the
+            // engine's first candidate, for iOS's bar) is no conversion.
+            bool converts = (!converting && action.showList == false && action.key == InputSession::Key::printable(u' ')) ||
+                            action.key.kind == Kind::Left || action.key.kind == Kind::Right;
+            if (auto& c = session->conversion; converts && c && c->candidates.size() > 1 &&
+                                                  c->current().text == c->kana.substr(0, c->current().kanaCount))
+                session->handle({Kind::Down}, field);
+            // Return: every segment, each as converted (64: a reading is never that long).
+            for (int i = 1; action.index < 0 ? session->conversion && i < 64 : i < action.index; i++) session->handle(action.key, field);
+        }
+        if (action.showList) listOpen = *action.showList;
+        // The segment being converted underlined thick, the rest of the reading thin.
+        if (auto& c = session->conversion; c && composition) {
+            auto marked = field.markedRange();
+            if (auto segment = field.range({marked.location, std::min(marked.length, int(c->current().text.size()))}))
+                setAttribute(context, ec, segment.Get(), thick == TF_INVALID_GUIDATOM ? underline : thick);
         }
         listCandidates(ec, context);
     });
+    return handled;
+}
+
+STDMETHODIMP Tip::OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) {
+    trackTap(vk, lParam);
+    auto action = actionFor(context, vk, lParam);
     // Not consumed (Space after a word, Tab, a shortcut…): the app gets the key after the commit.
-    *eaten = handled;
-    if (handled && isSwitchKey(vk, lParam)) eatenSwitch = vk;
+    *eaten = action && perform(context, *action);
+    if (*eaten && isSwitchDown(vk)) eatenSwitch = vk;
+    log("Down", vk, lParam, *eaten);
+    return S_OK;
+}
+
+/** A tap of the switch key switches on its key-up; the key-up goes (Alt's would open the app's menu). */
+STDMETHODIMP Tip::OnKeyUp(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) {
+    *eaten = FALSE;
+    if (eatenSwitch && vk == eatenSwitch) {
+        eatenSwitch = 0;
+        *eaten = TRUE;
+    } else if (isTap(context, vk, lParam)) {
+        perform(context, switched());
+        *eaten = TRUE;
+    }
+    if (tapPart(vk, lParam)) tapped = 0;
+    log("Up", vk, lParam, *eaten);
     return S_OK;
 }
 
