@@ -67,13 +67,13 @@ public struct KoreanModel: Sendable {
     /// A word in the wider vocabulary (loanwords like 월드, 서버; 혜택), for English + Korean splits
     /// and the heuristic's Korean word floor.
     public func isVocabularyWord(_ hangul: String) -> Bool {
-        words.contains(hangul) || Self.lists.vocabulary.contains(Self.hash(hangul)) // REA: hashes
+        words.contains(hangul) || Self.contains(Self.lists.vocabulary, hangul) // REA: hashes
     }
 
     /// A word the subtitles have fewer than `commonCount` times (촉매, twice): for the heuristic's
     /// Korean word floor only. The tail holds dialect and typos too (어뗘, 쓔벌, 꺼이), so it
     /// stays out of the splits and of `knowsSyllable`, which `EU정책` and `RJ이` rely on.
-    public func isRareVocabularyWord(_ hangul: String) -> Bool { Self.lists.rare.contains(Self.hash(hangul)) } // REA: hashes
+    public func isRareVocabularyWord(_ hangul: String) -> Bool { Self.contains(Self.lists.rare, hangul) } // REA: hashes
 
     /// A noun the lists only have with a case particle (혜택 from 혜택을, 혜택으로): they
     /// count words with their particles, so a bare noun can be missing from both.
@@ -90,12 +90,12 @@ public struct KoreanModel: Sendable {
     ]
 
     // REA: korean_vocabulary.txt (245k lines) read once, straight from its bytes, into what the
-    // lookups need, the words as 64-bit hashes: Sets of the words themselves, their counts and
-    // the text cost the iOS keyboard (killed near 70 MB) some 20 MB. Upstream has `stems`,
+    // lookups need, the words as sorted 64-bit hashes: Sets of the words themselves, their counts
+    // and the text cost the iOS keyboard (killed near 70 MB) some 20 MB. Upstream has `stems`,
     // `vocabulary`, `rareVocabulary`, `vocabularyCounts` and `listSyllables` instead.
     // ponytail: a word off the list hashing onto one on it is a 1 in 10^14 chance per lookup.
-    private static let lists: (vocabulary: Set<UInt64>, rare: Set<UInt64>, stems: Set<String>, syllables: Set<Character>) = {
-        var vocabulary = Set<UInt64>(), rare = Set<UInt64>(), stems = Set<String>(), syllables = Set<Character>()
+    private static let lists: (vocabulary: [UInt64], rare: [UInt64], stems: Set<String>, syllables: Set<Character>) = {
+        var vocabulary: [UInt64] = [], rare: [UInt64] = [], stems = Set<String>(), syllables = Set<Character>()
         func addStems(_ word: String) {
             for (particle, final) in particles where word.hasSuffix(particle) {
                 let stem = word.dropLast(particle.count)
@@ -118,15 +118,28 @@ public struct KoreanModel: Sendable {
                 let word = String(decoding: line[..<tab], as: UTF8.self)
                 addStems(word)
                 if n >= commonCount {
-                    vocabulary.insert(hash(word))
+                    vocabulary.append(hash(word))
                     syllables.formUnion(word)
                 } else {
-                    rare.insert(hash(word))
+                    rare.append(hash(word))
                 }
             }
         }
+        vocabulary.sort()
+        rare.sort()
         return (vocabulary, rare, stems, syllables)
     }()
+
+    /// REA: a binary search of the sorted hashes.
+    private static func contains(_ sorted: [UInt64], _ word: String) -> Bool {
+        let h = hash(word)
+        var low = 0, high = sorted.count
+        while low < high {
+            let mid = (low + high) / 2
+            if sorted[mid] < h { low = mid + 1 } else { high = mid }
+        }
+        return low < sorted.count && sorted[low] == h
+    }
 
     /// REA: FNV-1a of the UTF-8, the same on every launch (`Hasher` isn't).
     private static func hash(_ word: String) -> UInt64 {
