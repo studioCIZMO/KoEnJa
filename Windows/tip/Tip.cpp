@@ -18,6 +18,7 @@
 
 #include "../engine/src/Engines.h"
 #include "../engine/src/Resources.h"
+#include "../japanese/MozcConverter.h"
 
 #pragma comment(linker, "/EXPORT:DllGetClassObject,PRIVATE")
 #pragma comment(linker, "/EXPORT:DllCanUnloadNow,PRIVATE")
@@ -165,14 +166,26 @@ struct TestConverter : rea::JapaneseConverter {
 };
 
 /**
- * ==== THE JAPANESE CONVERTER PLUGS IN HERE ====
- * Windows/japanese's kana→kanji converter (Mozc's dictionary), once it lands: return it instead of
- * nullptr, its dictionary under Resources::directory. Until then Space commits Japanese as kana
- * and the candidate window only opens for tip_test.
+ * Kana → kanji over Mozc's dictionary (Windows/japanese), mapped read-only from the data folder so
+ * every app shares its pages. Learned words go to %LOCALAPPDATA%\KoEnJa (each app saves its own
+ * copy over the file; ponytail: last writer wins, a merge on save if two apps' learning matters).
+ * tip_test sets KOENJA_TEST_CONVERTER for a fixed candidate list.
  */
 static std::shared_ptr<rea::JapaneseConverter> makeConverter() {
     if (GetEnvironmentVariableW(L"KOENJA_TEST_CONVERTER", nullptr, 0)) return std::make_shared<TestConverter>();
-    return nullptr;
+    std::optional<std::filesystem::path> learning;
+    wchar_t local[MAX_PATH];
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH)) {
+        std::error_code error;
+        auto folder = std::filesystem::path(local) / L"KoEnJa";
+        std::filesystem::create_directories(folder, error);
+        if (!error) learning = folder / L"japanese.txt";
+    }
+    try {
+        return std::make_shared<rea::MozcConverter>(rea::Resources::directory / L"mozc.dic", learning);
+    } catch (...) {
+        return nullptr; // Japanese then goes in as kana
+    }
 }
 
 /** The engine's languages, most used first, as in the golden test. */
