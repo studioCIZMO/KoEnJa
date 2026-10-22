@@ -2,16 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
-#include <fstream>
 #include <limits>
-#include <sstream>
 #include <vector>
 
 #include "HangulComposer.h"
 #include "JapaneseSegmenter.h"
 #include "Jamo.h"
 #include "MixedWord.h"
-#include "Resources.h"
 #include "RomajiComposer.h"
 #include "Text.h"
 
@@ -53,7 +50,7 @@ Language nextLanguage(Language language, const std::u16string& keys, bool japane
         bool ok = true;
         if (l == Language::KOREAN) {
             auto composed = HangulComposer::compose(keys);
-            ok = composed && composed->strayJamo().empty();
+            ok = composed && (composed->strayJamo().empty() || composed->isJamoAbbreviation());
         } else if (l == Language::JAPANESE) {
             ok = RomajiComposer::compose(keys).strayLetters == 0;
         }
@@ -94,8 +91,10 @@ HeuristicEngine::HeuristicEngine(const EnglishModel& english, std::shared_ptr<Ko
       segmenter(japanese ? std::make_shared<JapaneseSegmenter>(english, *japanese) : nullptr) {}
 
 Decision HeuristicEngine::decide(const std::u16string& keys, const DecisionContext& context) {
-    // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English.
-    if (any(keys, [](char16_t c) { return isUpperCase(c) && !DubeolsikLayout::isKoreanShiftKey(c); })) {
+    // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English,
+    // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를):
+    // then the scores decide.
+    if (DubeolsikLayout::hasEnglishOnlyCapital(keys)) {
         return Decision{Language::ENGLISH, 0.99, keys, u"uppercase outside QWERTOP"};
     }
 
@@ -117,19 +116,43 @@ Decision HeuristicEngine::decide(const std::u16string& keys, const DecisionConte
     if (any(keys, [](char16_t c) { return !isLetter(c); })) e -= 3; // "ra-men", "kan'i" aren't English
 
     auto k = korean->score(keys, context.partial);
-    bool knownKorean = k && k->composition.strayJamo().empty() && korean->isKnownWord(k->composition.text());
+    bool knownKorean = false;
+    if (k && k->composition.strayJamo().empty()) {
+        auto text = k->composition.text();
+        knownKorean = korean->isKnownWord(text)
+            || (!known && (korean->isVocabularyWord(text) || korean->isRareVocabularyWord(text) || korean->isKnownStem(text)));
+    }
     if (k && knownKorean) {
         double floor = k->composition.syllables().size() >= 2 ? koreanKnownFloorLong : koreanKnownFloorShort;
         k->averageLogProbability = std::max(k->averageLogProbability, floor);
     }
-    // A dictionary English word may already be complete: score its Japanese reading as
-    // finished too, so the preview shows what Space will commit ("to" stays to, not と).
-    auto j = japanese ? japanese->score(keys, context.partial && !known) : std::nullopt;
+    // A dictionary English word may already be complete, and so are chat jamo (ㅜㅜ): score
+    // the Japanese reading as finished too, so the preview shows what Space will commit
+    // ("to" stays to, not と; nn shows ㅜㅜ, not ん that Space turned into ㅜㅜ). So is a
+    // doubled consonant with nothing after its っ (ff, ww): no Japanese word is only っ, so
+    // it isn't one on its way (ff showed っf and went in as ff); って (tte) still is.
+    bool chat = k && k->composition.isChat();
+    bool sokuonFirst = RomajiComposer::compose(keys, true).isOnlySokuon();
+    // A capital is never romaji: Japanese IMEs type ⇧ letters as themselves (⇧O is O, not お).
+    bool capital = any(keys, isUpperCase);
+    auto j = japanese && !capital ? japanese->score(keys, context.partial && !known && !chat && !sokuonFirst) : std::nullopt;
     // English words inside a Japanese phrase (googlede…) score as segmented Japanese,
     // not as kana with stray letters.
     auto segmented = j && j->composition.strayLetters > 0 && segmenter ? segmenter->scoredSegments(keys) : std::nullopt;
+    // REA: the capitals inside an English word that leads into Japanese (iPhonedetesuto is
+    // iPhone + でてすと) keep the phrase Japanese; a capital still never becomes kana.
+    if (!j && capital && segmenter) {
+        auto s = segmenter->scoredSegments(keys);
+        if (s && std::all_of(s->segments.begin(), s->segments.end(), [](auto& segment) {
+                auto japanese = std::get_if<JapaneseSegmenter::Japanese>(&segment);
+                return !japanese || !any(japanese->keys, isUpperCase);
+            })) {
+            segmented = s;
+        }
+    }
     std::optional<double> japaneseScore;
     if (j) japaneseScore = std::max(j->averageLogProbability, segmented ? segmented->score / double(keys.size()) : -std::numeric_limits<double>::infinity());
+    else if (segmented) japaneseScore = segmented->score / double(keys.size()); // REA: the segmented reading alone
 
     std::vector<std::pair<Language, double>> scores;
     scores.push_back({Language::ENGLISH, e});
@@ -149,12 +172,16 @@ Decision HeuristicEngine::decide(const std::u16string& keys, const DecisionConte
         if (!knownInPrevious && knownElsewhere) bias *= switchBiasFactor;
         i->second += bias;
     }
+    if (context.nudge && *context.nudge != Language::MIXED) {
+        auto n = std::find_if(scores.begin(), scores.end(), [&](auto& s) { return s.first == *context.nudge; });
+        if (n != scores.end()) n->second += correctionBias;
+    }
     std::stable_sort(scores.begin(), scores.end(), [](auto& a, auto& b) { return a.second > b.second; });
 
-    // A dictionary English word only becomes kana on a clear win, unless we're already
-    // in Japanese text (where "same", "sake", "kite" are Japanese words).
+    // A dictionary English word only becomes kana on a clear win, unless we're already in Japanese
+    // text or the user corrected it to Japanese once (where "same", "sake", "kite" are Japanese words).
     auto englishIndex = std::find_if(scores.begin(), scores.end(), [](auto& s) { return s.first == Language::ENGLISH; }) - scores.begin();
-    if (known && scores[0].first == Language::JAPANESE && previous != Language::JAPANESE &&
+    if (known && scores[0].first == Language::JAPANESE && previous != Language::JAPANESE && context.nudge != Language::JAPANESE &&
         englishIndex < long(scores.size()) && scores[0].second - scores[englishIndex].second < englishWordProtection) {
         std::swap(scores[0], scores[englishIndex]);
     }
@@ -178,67 +205,6 @@ Decision HeuristicEngine::decide(const std::u16string& keys, const DecisionConte
     return Decision{language, confidence, output,
                     detail + (known ? u" (dict)" : u"") + format(" margin=%+.2f", margin),
                     runnerUp ? std::optional(runnerUp->first) : std::nullopt};
-}
-
-LearningEngine::LearningEngine(std::shared_ptr<DecisionEngine> base, std::optional<std::filesystem::path> storeFile)
-    : base(std::move(base)), storeFile(std::move(storeFile)) {
-    // Unreadable lines (hand-edited, or from a newer version) are skipped.
-    if (!this->storeFile) return;
-    auto lines = Resources::fileLines(*this->storeFile);
-    if (!lines) return;
-    for (auto& line : *lines) {
-        std::vector<std::u16string> parts;
-        size_t start = 0;
-        for (size_t tab; (tab = line.find(u'\t', start)) != std::u16string::npos; start = tab + 1) parts.push_back(line.substr(start, tab - start));
-        parts.push_back(line.substr(start));
-        if (parts.size() != 3) continue;
-        for (auto l : {Language::ENGLISH, Language::KOREAN, Language::MIXED, Language::JAPANESE}) {
-            if (raw(l) != parts[2]) continue;
-            if (parts[0] == u"learned") learnedWords[parts[1]] = l;
-            else if (parts[0] == u"once") once[parts[1]] = l;
-        }
-    }
-}
-
-Decision LearningEngine::decide(const std::u16string& keys, const DecisionContext& context) {
-    if (auto it = learnedWords.find(keys); it != learnedWords.end()) {
-        // Rendered by the base engine: this engine's own render(MIXED) would ask it to
-        // decide the keys again, find them learned, and so on without end.
-        return Decision{it->second, 1.0, base->render(keys, it->second), u"learned"};
-    }
-    return base->decide(keys, context);
-}
-
-void LearningEngine::learn(const std::u16string& keys, Language language, std::optional<Language> engineChoice) {
-    Language baseChoice = engineChoice ? *engineChoice : base->decide(keys, DecisionContext{}).language;
-    // Already learned this way (e.g. converting a learned word again): nothing to change.
-    if (auto it = learnedWords.find(keys); it != learnedWords.end() && it->second == language) return;
-    if (language == baseChoice) {
-        learnedWords.erase(keys);
-        once.erase(keys);
-    } else if (auto it = once.find(keys); it != once.end() && it->second == language) {
-        learnedWords[keys] = language;
-        once.erase(keys);
-    } else {
-        // A different correction than before: it starts over.
-        learnedWords.erase(keys);
-        once[keys] = language;
-    }
-    if (!storeFile) return;
-    std::u16string snapshot;
-    for (auto& [k, l] : std::map(learnedWords.begin(), learnedWords.end())) snapshot += u"learned\t" + k + u"\t" + raw(l) + u"\n";
-    for (auto& [k, l] : std::map(once.begin(), once.end())) snapshot += u"once\t" + k + u"\t" + raw(l) + u"\n";
-    std::error_code error;
-    if (storeFile->has_parent_path()) std::filesystem::create_directories(storeFile->parent_path(), error);
-    auto temp = *storeFile;
-    temp += ".tmp";
-    {
-        std::ofstream out(temp, std::ios::binary);
-        if (!out) return;
-        out << utf8(snapshot);
-        if (!out) return;
-    }
-    std::filesystem::rename(temp, *storeFile, error);
 }
 
 } // namespace rea

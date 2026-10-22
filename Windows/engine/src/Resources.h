@@ -10,7 +10,7 @@ namespace rea {
 /**
  * Where the models' data files (Packages/SeamtypeCore/Sources/SeamtypeCore/Data) come from:
  * english_words.txt, kana_trigrams.txt, korean_words.txt,
- * korean_vocabulary.txt, korean_syllables.txt. Set [directory] before the first model loads
+ * korean_vocabulary.txt, korean_syllables.txt, and words.txt (EnglishModel::SPELLING_LIST). Set [directory] before the first model loads
  * (the IME points it at its install folder); by default it is the REA_DATA environment variable.
  */
 namespace Resources {

@@ -25,6 +25,9 @@ public:
     virtual void learn(const ConversionCandidate& candidate, const std::u16string& kana) = 0;
     /** Persist anything learned. */
     virtual void save() = 0;
+    /** Candidates for all of [kana] that `candidates` leaves out, in the engine's order: the
+     *  candidate window lists them after it, as macOS's Japanese input lists every homophone. */
+    virtual std::vector<ConversionCandidate> moreCandidates(const std::u16string&) { return {}; }
 };
 
 } // namespace rea

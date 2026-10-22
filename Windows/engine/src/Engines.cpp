@@ -4,6 +4,7 @@
 
 #include "JapaneseSegmenter.h"
 #include "MixedWord.h"
+#include "UserDictionary.h"
 
 namespace rea {
 
@@ -29,10 +30,11 @@ std::shared_ptr<HeuristicEngine> Engines::makeHeuristic(const std::vector<Langua
 
 std::unique_ptr<InputSession> Engines::makeSession(const std::vector<Language>& order, std::shared_ptr<JapaneseConverter> converter,
                                                    bool liveConversion, bool returnConfirmsOnly, bool fullWidthDigits,
-                                                   bool fullWidthSpace, std::optional<std::filesystem::path> learningFile) {
+                                                   bool fullWidthSpace, std::optional<std::filesystem::path> dictionaryFile) {
     auto heuristic = makeHeuristic(order);
     auto splitting = std::make_shared<SplittingEngine>(heuristic, heuristic->english, heuristic->korean, heuristic->segmenter);
-    auto engine = std::make_shared<LearningEngine>(splitting, std::move(learningFile));
+    auto engine = std::make_shared<DictionaryEngine>(splitting, heuristic->english, heuristic->korean,
+                                                     heuristic->segmenter != nullptr, std::move(dictionaryFile));
     // Kana while typing, candidates in the bar above, as on the system's Japanese keyboard
     // (live conversion off by default: it guessed whole phrases wrong, はなしま → 話魔).
     auto session = std::make_unique<InputSession>(engine, std::move(converter), heuristic->japanese != nullptr, liveConversion, returnConfirmsOnly);

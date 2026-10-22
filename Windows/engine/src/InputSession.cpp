@@ -24,7 +24,7 @@ InputSession::Committed InputSession::Committed::withoutBoundary() const {
     return copy;
 }
 
-InputSession::InputSession(std::shared_ptr<LearningEngine> engine, std::shared_ptr<JapaneseConverter> converter,
+InputSession::InputSession(std::shared_ptr<DictionaryEngine> engine, std::shared_ptr<JapaneseConverter> converter,
                            bool japaneseEnabled, bool liveConversion, bool returnConfirmsOnly)
     : engine(std::move(engine)), converter(std::move(converter)), japaneseEnabled(japaneseEnabled),
       liveConversion(liveConversion), returnConfirmsOnly(returnConfirmsOnly) {
@@ -44,6 +44,7 @@ void InputSession::activate() {
     closeFlipWindow();
     setPreviousLanguage(std::nullopt);
     passedRun.reset();
+    resetRun();
 }
 
 bool InputSession::handle(Key key, TextClient& client) {
@@ -53,8 +54,9 @@ bool InputSession::handle(Key key, TextClient& client) {
             return handle(Key::printable(u' '), client);
         }
         closeFlipWindow();
-        if (fullWidthSpace && previousLanguage == Language::JAPANESE) return false; // the app types " "
+        if (fullWidthSpace && previousLanguage == Language::JAPANESE) { noteRun(u" "); return false; } // the app types " "
         client.insertText(u"　", std::nullopt);
+        noteRun(u"　");
         return true;
     }
     if (conversion) return handleConverting(key, client);
@@ -75,6 +77,7 @@ bool InputSession::handle(Key key, TextClient& client) {
     // word itself can still be changed (Space before looking, then Delete and the switch key).
     if (key.kind == Kind::Delete && keys.empty() && pending && !pending->boundary.empty()) {
         lastCommit = pending->withoutBoundary();
+        noteDeleted();
         return false;
     }
     if (pending) finalize(*pending);
@@ -97,6 +100,7 @@ bool InputSession::handle(Key key, TextClient& client) {
                 afterNumberInJapanese = japaneseEnabled && previousLanguage == Language::JAPANESE
                     && passedRun && !passedRun->first.empty() && isNumber(passedRun->first.back())
                     && cursor.location != TextRange::NOT_FOUND && passedRunRange(cursor.location, client).has_value();
+                inURLRun = hasURLMarker(run(client));
             }
             addedNMarker = false;
             pinned.reset();
@@ -106,7 +110,7 @@ bool InputSession::handle(Key key, TextClient& client) {
         }
 
         case Kind::Delete: {
-            if (keys.empty()) return false;
+            if (keys.empty()) { noteDeleted(); return false; }
             auto shown = forced ? forced : pinned ? pinned : previewLanguage;
             if (!forced) pinned = shown;
             if (shown == Language::JAPANESE) deleteKana();
@@ -127,6 +131,12 @@ bool InputSession::handle(Key key, TextClient& client) {
             if (isLive() && (forced ? forced : previewLanguage) == Language::JAPANESE) {
                 liveSuppressed = true;
                 updatePreview(client);
+                return true;
+            }
+            // Kana on screen: the app's Esc cancels the phrase, as in macOS's Japanese input,
+            // rather than committing it and closing a window in the app.
+            if (!switchesLanguage && (forced ? forced : previewLanguage) == Language::JAPANESE) {
+                cancelComposition(client);
                 return true;
             }
             if (!switchesLanguage) {
@@ -150,6 +160,12 @@ bool InputSession::handle(Key key, TextClient& client) {
             if (keys.empty()) {
                 bool wasAfterDigit = afterDigit;
                 afterDigit = isNumber(ch);
+                // Inside a URL or path symbols stay half-width, whatever came before: ほ@gmail.com.
+                if (hasURLMarker(run(client) + ch)) {
+                    passedRun.reset();
+                    noteRun(std::u16string(1, ch));
+                    return false;
+                }
                 if (previousLanguage == Language::JAPANESE) {
                     if (ch == u' ' && fullWidthSpace && japaneseEnabled && policy.fullWidth) {
                         client.insertText(u"　", std::nullopt);
@@ -169,9 +185,12 @@ bool InputSession::handle(Key key, TextClient& client) {
                     return true;
                 }
                 notePassed(ch, client);
+                noteRun(std::u16string(1, ch));
                 return false;
             }
-            if (japaneseEnabled && belongsToJapanesePhrase(ch)) {
+            // A symbol that makes the run a URL or path (ho@, www.) ends the word, half-width.
+            bool endsInURL = inURLRun || hasURLMarker(run(client) + keys + ch);
+            if (japaneseEnabled && !endsInURL && belongsToJapanesePhrase(ch)) {
                 keys += ch;
                 // Digits don't read as anything: the phrase stays Japanese, as it was shown.
                 if (isNumber(ch) && !forced) { forced = Language::JAPANESE; forcedByUser = false; }
@@ -182,7 +201,7 @@ bool InputSession::handle(Key key, TextClient& client) {
                 startConversion(client);
                 return true;
             }
-            if (closesFullWidth(ch)) { // 日本語（English）
+            if (!endsInURL && closesFullWidth(ch)) { // 日本語（English）
                 commit(&client);
                 startSymbol(std::u16string(1, ch), client);
                 return true;
@@ -196,16 +215,18 @@ bool InputSession::handle(Key key, TextClient& client) {
             // system's Korean input.
             client.insertText(word.text, std::nullopt);
             lastCommit = Committed{word.keys, word.decided, word.language, word.language, word.text + ch, std::u16string(1, ch),
-                                   location, previous};
+                                   location, previous, !inURLRun};
+            noteRun(word.text + ch);
             return false;
         }
 
         case Kind::Enter: {
-            if (keys.empty()) return false;
+            if (keys.empty()) { noteRun(u"\n"); return false; }
             // Like a Japanese IME, Return on an underlined word only confirms it; the next Return
             // is the app's. A Japanese phrase is only confirmed either way.
             bool japanese = currentLanguage() == Language::JAPANESE;
             commit(&client);
+            noteRun(u"\n");
             return returnConfirmsOnly || japanese;
         }
 
@@ -227,6 +248,7 @@ bool InputSession::handle(Key key, TextClient& client) {
         case Kind::Other:
             commit(&client);
             setPreviousLanguage(std::nullopt);
+            resetRun();
             return false;
 
         case Kind::ShiftSpace:
@@ -240,6 +262,7 @@ void InputSession::commit(TextClient* client) {
     if (conversion) {
         auto display = conversion->display();
         if (client) client->insertText(display, std::nullopt);
+        noteRun(display);
         noteBrackets(display);
         if (converter) converter->learn(conversion->current(), conversion->kana);
         conversion.reset();
@@ -250,11 +273,25 @@ void InputSession::commit(TextClient* client) {
     if (keys.empty()) return;
     auto word = finishWord();
     if (client) client->insertText(word.text, std::nullopt);
+    noteRun(word.text);
+}
+
+/** Drops the word being typed: nothing goes in, as when Delete takes its last key. */
+void InputSession::cancelComposition(TextClient& client) {
+    keys = u"";
+    forced.reset();
+    forcedByUser = false;
+    pinned.reset();
+    syllableStart.reset();
+    addedNMarker = false;
+    liveSuppressed = false;
+    updatePreview(client);
 }
 
 void InputSession::commitForNewContext(TextClient* client) {
     commit(client);
     setPreviousLanguage(std::nullopt);
+    resetRun();
 }
 
 std::vector<ConversionCandidate> InputSession::typingCandidates() {
@@ -278,6 +315,60 @@ void InputSession::choose(int index, TextClient& client) {
     if (index < 0 || index >= int(conversion->candidates.size())) return;
     conversion->selected = index;
     commitCandidate(client);
+}
+
+// URLs and paths
+
+bool InputSession::hasURLMarker(const std::u16string& run) {
+    return run.find(u"://") != std::u16string::npos || run.find(u"localhost:") != std::u16string::npos
+        || startsWith(run, u"www.") || startsWith(run, u"~/") || startsWith(run, u"./") || startsWith(run, u"../")
+        || (startsWith(run, u"/") && contains(drop(run, 1), u'/'))
+        || contains(drop(run, 1), u'@')
+        || run == u"." || run == u"!."; // REA: a dotfile (.env, !.env in .gitignore): one dot starts the run
+}
+
+/** The run of text before the word being typed: what went in since the last space, with
+ *  what the field had before the caret when that isn't known (a pasted URL, a click). */
+std::u16string InputSession::run(TextClient& client) {
+    if (runKnown) return runText;
+    runKnown = true;
+    auto marked = client.markedRange(), cursor = client.selectedRange();
+    // Up to the word being typed, if there is one on screen.
+    int end = marked.location != TextRange::NOT_FOUND ? marked.location : cursor.length == 0 ? cursor.location : TextRange::NOT_FOUND;
+    if (end == TextRange::NOT_FOUND) return runText;
+    int start = std::max(0, end - RUN_LOOK_BEHIND);
+    auto before = client.text(TextRange{start, end - start});
+    if (!before) return runText;
+    size_t from = before->size();
+    while (from > 0 && !isWhitespace((*before)[from - 1])) from--;
+    auto field = before->substr(from);
+    if (endsWith(field, runText)) runText = field;
+    return runText;
+}
+
+/** Keeps the run up to date with text going in; Space, Tab and Return end it. A URL or path
+ *  counts as English for the next word. */
+void InputSession::noteRun(const std::u16string& text) {
+    for (char16_t ch : text) {
+        if (isWhitespace(ch)) {
+            if (hasURLMarker(runText)) setPreviousLanguage(Language::ENGLISH);
+            runText.clear();
+            runKnown = true;
+        } else {
+            runText += ch;
+        }
+    }
+}
+
+/** The app deleted the character before the caret, nothing being typed. */
+void InputSession::noteDeleted() {
+    if (runText.empty()) runKnown = false; else runText.pop_back();
+}
+
+/** The caret moved or the field changed: what is before the caret is read again when needed. */
+void InputSession::resetRun() {
+    runText.clear();
+    runKnown = false;
 }
 
 // Japanese conversion
@@ -354,7 +445,7 @@ void InputSession::noteBrackets(const std::u16string& text) {
  *  ("ra" → "ra-" → らー), but never take a word away from Korean. */
 bool InputSession::belongsToJapanesePhrase(char16_t ch) {
     auto pendingIsEmptyOrN = [&] {
-        auto pending = RomajiComposer::compose(keys, true).pending;
+        auto pending = lowercase(RomajiComposer::compose(keys, true).pending);
         return pending.empty() || pending == u"n";
     };
     if (isAsciiDigit(ch)) {
@@ -475,7 +566,7 @@ void InputSession::startConversion(TextClient& client) {
     auto kana = japaneseReading(false);
     if (!converter || kana.empty()) return;
     bool userForced = forced == Language::JAPANESE && forcedByUser;
-    if (userForced) record(keys, Language::JAPANESE, committedLanguage());
+    if (userForced && !inURLRun) record(keys, Language::JAPANESE, committedLanguage());
     // A number the app typed just before the phrase is part of it: 3ji is 3時, not 3 and 時
     // picked out of 地, 字, 自…
     auto marked = client.markedRange();
@@ -511,6 +602,12 @@ void InputSession::startConversion(TextClient& client) {
         for (size_t i = at; i < candidates.size(); i++) if (!isPhrase(candidates[i])) merged.push_back(candidates[i]);
         candidates = std::move(merged);
     }
+    // Every other homophone the engine has follows, for the candidate window (しょう → 硝).
+    if (converter) {
+        std::unordered_set<std::u16string> listed;
+        for (auto& c : candidates) listed.insert(c.text);
+        for (auto& c : converter->moreCandidates(kana)) if (!listed.count(c.text)) candidates.push_back(c);
+    }
     if (candidates.empty()) {
         commit(&client);
         return;
@@ -519,7 +616,13 @@ void InputSession::startConversion(TextClient& client) {
     int selected = 0;
     int i = -1;
     if (live) if (auto it = std::find(candidates.begin(), candidates.end(), *live); it != candidates.end()) i = int(it - candidates.begin());
-    if (i >= 0 && candidates.size() > 1) selected = (i + 1) % int(candidates.size());
+    if (i >= 0 && candidates.size() > 1) {
+        selected = (i + 1) % int(candidates.size());
+    } else if (liveConversion && numberPrefix.empty() && candidates.size() > 1 && candidates[0].text == kana) {
+        // The kana is on screen (a short reading kept as kana, or brought back with Esc) and the
+        // engine put it first (しょう): Space shows a conversion, 翔, as macOS does, not the kana again.
+        selected = 1;
+    }
     liveSuppressed = false;
     conversion = Conversion{kana, keys, candidates, selected, userForced, numberPrefix};
     keys = u"";
@@ -616,12 +719,16 @@ bool InputSession::handleConverting(Key key, TextClient& client) {
         conversion.reset();
         liveSuppressed = true; // "back to kana" means kana, also with live conversion
         // A number taken in from before the phrase goes back as it was typed.
-        if (!current.numberPrefix.empty()) client.insertText(current.numberPrefix, std::nullopt);
+        if (!current.numberPrefix.empty()) {
+            client.insertText(current.numberPrefix, std::nullopt);
+            noteRun(current.numberPrefix);
+        }
         auto kana = drop(current.kana, current.numberPrefix.size());
         // Back to editing the romaji — when it still spells the reading. After part of a
         // phrase with English in it was committed it may not; keep the kana rather than lose it.
         if (JapaneseSegmenter::reading(current.keys, segmenter.get()) != kana) {
             client.insertText(kana, std::nullopt);
+            noteRun(kana);
             setPreviousLanguage(Language::JAPANESE);
             return true;
         }
@@ -652,6 +759,7 @@ void InputSession::commitCandidate(TextClient& client) {
     auto candidate = current.current();
     converter->learn(candidate, current.kana);
     client.insertText(candidate.text, std::nullopt);
+    noteRun(candidate.text);
     noteBrackets(candidate.text);
     auto rest = drop(current.kana, candidate.kanaCount);
     conversion.reset();
@@ -660,6 +768,7 @@ void InputSession::commitCandidate(TextClient& client) {
     auto candidates = conversionCandidates(rest);
     if (candidates.empty()) {
         client.insertText(rest, std::nullopt);
+        noteRun(rest);
     } else {
         // The rest is the engine's Japanese, not something the user corrected.
         conversion = Conversion{rest, restKeys, candidates, 0};
@@ -692,6 +801,22 @@ std::vector<ConversionCandidate> InputSession::conversionCandidates(const std::u
 // Private
 
 Decision InputSession::decide(bool partial) {
+    // A segment of a URL or path goes in as typed, before the dictionary is asked (so in a
+    // URL is so even where it was taught to be 내).
+    if (inURLRun) {
+        keptEnglishByStrict = false;
+        Decision decision{Language::ENGLISH, 1.0, keys, u"inside a URL or path"};
+        // REA: a case particle glued to the last part of an address is still Korean
+        // (netmaru@gmail.comdmfh is netmaru@gmail.com으로), as before the URL run.
+        if (!runText.empty() && runText.back() == u'.') {
+            auto mixed = MixedWord::split(keys);
+            if (mixed && all(mixed->english, isLetter) && MixedWord::singleLetterParticles().count(mixed->korean)) {
+                decision = Decision{Language::MIXED, 1.0, mixed->text(), u"address + particle"};
+            }
+        }
+        lastTrace = Trace{keys, previousLanguage, decision, partial};
+        return decision;
+    }
     if (auto shortcut = shortcutReading(partial)) {
         // As sure as a split word, so a Strict app shows it too.
         keptEnglishByStrict = false;
@@ -740,27 +865,31 @@ Language InputSession::currentLanguage() { return forced ? *forced : pinned ? *p
  *  same rule as the preview, so what you see is what you get. */
 Language InputSession::committedLanguage() {
     auto d = decide(false);
+    // REA: what is committed is what was shown: letters the short-prefix rule kept on screen
+    // go in as letters (zi, zio), not as the kana the engine read.
+    if (enginePreview == Language::JAPANESE && previewLanguage == Language::ENGLISH) return Language::ENGLISH;
     auto shown = enginePreview;
     if (!shown || *shown == d.language) return d.language;
-    // Kanji on screen (live conversion): Space converts them, unless the keys are an English
+    // Japanese on screen, kana or kanji: Space converts it, unless the keys are an English
     // word. A short word reads as the start of a longer Japanese one while typed and as
-    // English once it ends (zi showed 地, then went in as "zi"). Kana alone keep the usual rule.
-    if (*shown == Language::JAPANESE && d.language == Language::ENGLISH && isLive() && !keptEnglishByStrict &&
-        !EnglishModel::shared().isKnownWord(keys) && RomajiComposer::compose(keys).isClean() &&
-        liveCandidate(japaneseReading(false))) {
+    // English once it ends (zi showed 地 and zio じお, then went in as "zi", "zio"), and a
+    // Strict app's short token kept English would go in as letters under its kana (ka under か).
+    if (*shown == Language::JAPANESE && d.language == Language::ENGLISH &&
+        !EnglishModel::shared().isKnownWord(keys) && RomajiComposer::compose(keys).isClean()) {
         return *shown;
     }
-    return isWeakFlipAllowed(d, *shown) ? d.language : *shown;
+    return isWeakFlipAllowed(d, *shown, false) ? d.language : *shown; // REA: runnerUp
 }
 
 /** Whether [decision] may replace the reading on screen: when it's confident, when it's
  *  a dictionary English word (which is what Space/Return will commit), or when a Strict app
  *  kept a short token English: there the typed letters win over a reading shown along the
  *  way (gs showed ㅎㄴ, but gst stays gst). Only a close second is held: Th showed てぇ, and
- *  The (Korean against English, kana far behind) went in as 手ェ. */
-bool InputSession::isWeakFlipAllowed(const Decision& decision, Language shown) {
+ *  The (Korean against English, kana far behind) went in as 手ェ. REA: on screen only
+ *  ([runnerUp]); Return commits what was shown (ufos showed うふぉs). */
+bool InputSession::isWeakFlipAllowed(const Decision& decision, Language shown, bool runnerUp) {
     return decision.confidence >= PREVIEW_FLIP_CONFIDENCE
-        || (decision.runnerUp && *decision.runnerUp != shown)
+        || (runnerUp && decision.runnerUp && *decision.runnerUp != shown)
         || (decision.language == Language::ENGLISH && (keptEnglishByStrict || EnglishModel::shared().isKnownWord(keys)))
         || !preview(shown);
 }
@@ -779,8 +908,10 @@ void InputSession::updatePreview(TextClient& client) {
         else text = engine->render(keys, *forcedOrPinned);
         show(text, client);
     } else {
-        splitOffKoreanBeforeOther(client);
-        splitOffJapaneseBeforeKorean(client);
+        if (!inURLRun) {
+            splitOffKoreanBeforeOther(client);
+            splitOffJapaneseBeforeKorean(client);
+        }
         auto decision = decide(true);
         auto language = decision.language;
         // Hysteresis: a weak flip on one keystroke (わた → "wat" → わたし) isn't shown,
@@ -793,12 +924,12 @@ void InputSession::updatePreview(TextClient& client) {
         // The first letters of an English word often read as kana for a key or two (u is う
         // before up, ta is た before table, ch is ちゃ before chair). Outside Japanese text
         // they stay as typed until the kana are near-certain (ka, wa) or the word is longer:
-        // letters are neutral, a flip that flips back looks wrong. Only what's shown: Space
-        // still commits what the engine read.
+        // letters are neutral, a flip that flips back looks wrong. REA: Space commits them as
+        // shown too (committedLanguage).
         if (language == Language::JAPANESE && keys.size() <= SHORT_PREFIX_LENGTH &&
             shown.value_or(Language::ENGLISH) == Language::ENGLISH &&
             !(previousLanguage && sentenceLanguage(*previousLanguage) == Language::JAPANESE) &&
-            decision.confidence < SHORT_PREFIX_FLIP_CONFIDENCE) {
+            decision.confidence < SHORT_PREFIX_FLIP_CONFIDENCE && !shortcutReading(true)) { // a shortcut shows (gu- is ぐー)
             language = Language::ENGLISH;
         }
         previewLanguage = language;
@@ -833,6 +964,7 @@ void InputSession::splitOffKoreanBeforeOther(TextClient& client) {
             !all(syllables, [](char16_t s) { return koreanModel().syllableLogProbability(s) > KoreanModel::UNKNOWN_SYLLABLE_LOG_P; }) ||
             !isOtherLanguageWord(back)) continue;
         client.insertText(korean->text(), std::nullopt);
+        noteRun(korean->text());
         keys = back;
         syllableStart.reset();
         setPreviousLanguage(Language::KOREAN);
@@ -886,7 +1018,9 @@ void InputSession::splitOffJapaneseBeforeKorean(TextClient& client) {
         auto decision = engine->decide(front, DecisionContext{previousLanguage});
         if (decision.language != Language::JAPANESE || decision.confidence < 0.9) continue;
         keys = front;
-        client.insertText(committedJapanese(), std::nullopt);
+        auto japanese = committedJapanese();
+        client.insertText(japanese, std::nullopt);
+        noteRun(japanese);
         keys = back;
         syllableStart.reset();
         setPreviousLanguage(Language::JAPANESE);
@@ -909,8 +1043,9 @@ std::optional<std::u16string> InputSession::preview(Language language) {
             return mixed;
         }
         case Language::JAPANESE:
-            if (japaneseEnabled) return japaneseReading(true);
-            return std::nullopt;
+            // Only っ and letters (ss: っs) is no Japanese word, so it isn't a reading to hold on to.
+            if (!japaneseEnabled || RomajiComposer::compose(keys, true).isOnlySokuon()) return std::nullopt;
+            return japaneseReading(true);
     }
     return std::nullopt;
 }
@@ -923,7 +1058,13 @@ InputSession::Word InputSession::finishWord() {
     // "Back to kana" without the user's switch, or a reading kept while deleting, isn't a
     // correction: report it as the engine's.
     Language decided = ((forced && !forcedByUser) || (!forced && pinned)) ? language : engineChoice;
-    if (forced && forcedByUser) record(keys, language, decided);
+    if (inURLRun) {
+        // Not a word: neither a correction to learn nor a use of one.
+    } else if (forced && forcedByUser) {
+        record(keys, language, decided);
+    } else {
+        engine->used(keys, language);
+    }
     std::u16string text;
     if (language == Language::JAPANESE) text = committedJapanese();
     else if (language == Language::KOREAN) { auto h = hangul(); text = h ? *h : engine->render(keys, language); }
@@ -1023,6 +1164,7 @@ std::optional<InputSession::Committed> InputSession::cycle(const Committed& comm
                                                   : engine->render(commit.keys, language);
     auto text = reading + commit.boundary;
     client.insertText(text, range);
+    if (endsWith(runText, commit.text)) runText = dropLast(runText, commit.text.size()) + text;
     setPreviousLanguage(sentenceLanguage(language));
     Committed cycled = commit;
     cycled.language = language;
@@ -1038,7 +1180,7 @@ void InputSession::closeFlipWindow() {
 /** The undo window closed: learn where the word ended up (once, not every reading the switch
  *  passed through on the way). */
 void InputSession::finalize(const Committed& commit) {
-    if (commit.language != commit.committedAs) record(commit.keys, commit.language, commit.decided);
+    if (commit.learns && commit.language != commit.committedAs) record(commit.keys, commit.language, commit.decided);
 }
 
 const std::map<char16_t, char16_t>& InputSession::closing() {

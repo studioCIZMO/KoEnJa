@@ -1,11 +1,8 @@
 #pragma once
 
-#include <filesystem>
-#include <map>
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_map>
 
 #include "EnglishModel.h"
 #include "JapaneseModel.h"
@@ -33,7 +30,7 @@ std::u16string raw(Language language);
 /** What Esc switches to: english → mixed (when the keys split) → korean →
  *  japanese (when enabled) → english. Readings that can't exist for these keys
  *  are skipped (no Korean for "ra-men"), and so are garbled ones (dkssud as
- *  Japanese: dkっすd) as long as a clean alternative exists — a typo can still
+ *  Japanese: dkっすd; loose consonants and ㅜ/ㅠ such as ㅁㅊ or ㅜㅜ aren't garbled) as long as a clean alternative exists — a typo can still
  *  be forced into its language when nothing reads cleanly. [splits]: whether the engine
  *  splits the keys (x에, hello월드 as well as github에); left out, the particle split decides. */
 Language nextLanguage(Language language, const std::u16string& keys, bool japanese = false, std::optional<bool> splits = std::nullopt);
@@ -44,6 +41,8 @@ struct DecisionContext {
     std::optional<Language> previousLanguage;
     /** The token is still being typed (used for the live preview). */
     bool partial = false;
+    /** The language the user corrected these keys to once (a weak dictionary entry). */
+    std::optional<Language> nudge;
 };
 
 struct Decision {
@@ -100,12 +99,19 @@ public:
      *  someone switching language, not a stray reading. */
     double switchBiasFactor = 0.25;
     /** Score floors for a Korean word seen in real text (two or more syllables, one), the
-     *  counterpart of the English dictionary floor: 내가, 무슨 stay Korean after English. */
+     *  counterpart of the English dictionary floor: 내가, 무슨 stay Korean after English.
+     *  A word only in the wider vocabulary (닥터, 했죠: too rare for Tatoeba's sentences), or a
+     *  noun the lists have only with a particle (혜택), gets the long floor too, unless the keys
+     *  are an English word: that list comes from subtitles, and work (재가) or ahem (모드) must
+     *  stay English. */
     double koreanKnownFloorLong = -1.4;
     double koreanKnownFloorShort = -2.0;
     /** How far Japanese must lead before a known English word is turned into kana
      *  outside Japanese text. */
     double englishWordProtection = 1.0;
+    /** Added to the language the user corrected the keys to once (DecisionContext::nudge):
+     *  as much as the previous word's pull, so a close call turns and a clear one doesn't. */
+    double correctionBias = 0.8;
 
     std::shared_ptr<JapaneseSegmenter> segmenter;
 
@@ -114,42 +120,6 @@ public:
                     const JapaneseModel* japanese = nullptr);
 
     Decision decide(const std::u16string& keys, const DecisionContext& context) override;
-};
-
-/**
- * Wraps an engine with explicit per-word choices the user has made (by flipping a
- * word with the switch key). Learned choices always win.
- *
- * One correction only changes that word: a habitual or mistaken switch shouldn't change
- * every later occurrence. The same correction a second time is learned.
- *
- * [storeFile]: where they are kept (lines of `learned|once <TAB> keys <TAB> language`); none keeps them in memory.
- * Not ported: reload, forget, forgetAll, pending, lastLearned (the macOS settings window's).
- * ponytail: no lock (Kotlin synchronizes); TSF calls the IME on one thread.
- */
-class LearningEngine : public DecisionEngine {
-public:
-    std::shared_ptr<DecisionEngine> base;
-
-    LearningEngine(std::shared_ptr<DecisionEngine> base, std::optional<std::filesystem::path> storeFile = std::nullopt);
-
-    /** Words learned for good (corrected the same way twice). */
-    const std::unordered_map<std::u16string, Language>& learned() const { return learnedWords; }
-
-    Decision decide(const std::u16string& keys, const DecisionContext& context) override;
-
-    /** Records that [keys] were corrected to [language]. The second time the same
-     *  correction is made it is learned; correcting back to the engine's own choice
-     *  forgets the word.
-     *
-     *  Pass [engineChoice] when the caller already knows what the engine decided (the
-     *  input method always does: what was on screen, which a fresh decision might not match). */
-    void learn(const std::u16string& keys, Language language, std::optional<Language> engineChoice = std::nullopt);
-
-private:
-    std::optional<std::filesystem::path> storeFile;
-    std::unordered_map<std::u16string, Language> learnedWords;
-    std::unordered_map<std::u16string, Language> once;
 };
 
 } // namespace rea

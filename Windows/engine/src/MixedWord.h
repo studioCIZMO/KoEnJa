@@ -4,6 +4,8 @@
 #include <optional>
 #include <string>
 #include <unordered_set>
+#include <utility>
+#include <vector>
 
 #include "DecisionEngine.h"
 
@@ -24,6 +26,23 @@ struct MixedWord {
 
     /** Particles and endings that commonly attach directly to a (loan)word. */
     static const std::unordered_set<std::u16string>& suffixes();
+
+    /** Particles with a form after a final consonant and one after a vowel (책을, 사과를): the
+     *  consonant form first. A final ㄹ takes the vowel form of 으로 (서울로). */
+    static const std::vector<std::pair<std::u16string, std::u16string>>& pairedParticles();
+
+    enum class FinalSound { Vowel, Consonant, Rieul };
+
+    /** Whether [particle] is the form that follows a word ending as [final] describes:
+     *  nullopt for a particle that has one form (에, 도, 의), else true or false (씨이, 쓰은 are wrong). */
+    static std::optional<bool> particleAgrees(const std::u16string& particle, FinalSound final);
+
+    /** How a Hangul syllable ends; nullopt for anything else. */
+    static std::optional<FinalSound> finalSound(char16_t syllable);
+
+    /** How an acronym ends when read letter by letter: L, M, N and R (엘, 엠, 엔, 알) on a final
+     *  consonant, every other letter's name on a vowel (TM은, TV는). */
+    static FinalSound finalSoundOfAcronym(const std::u16string& acronym);
 
     /** Particles that follow a single letter (x에, n이, a를, X축의 X): case particles only, not
      *  endings like 해/한, so short English (ago) doesn't split. */
@@ -62,12 +81,7 @@ public:
     /** With Japanese on: English word + Japanese particle (githubで), decided the same way. */
     std::shared_ptr<JapaneseSegmenter> japanese;
 
-    /** English word + Korean word (hello월드) only when the whole token spells less like
-     *  English than this; stricter still when the Korean half isn't in the word lists. */
-    double mixedWordSpellingCeiling = -2.7;
-    double unknownWordSpellingCeiling = -3.2;
-
-    /** Scores English word + particle against the whole token. */
+    /** Scores English word + particle, and English + Korean word, against the whole token. */
     std::shared_ptr<ParticleSplitter> particles;
 
     SplittingEngine(std::shared_ptr<DecisionEngine> base, const EnglishModel& english,
@@ -76,29 +90,8 @@ public:
 
     Decision decide(const std::u16string& keys, const DecisionContext& context) override;
 
-    /** An English word with a whole Korean word typed straight after it, no space:
-     *  `hellodnjfem` → `hello월드`, `designvhsxm` → `design폰트`. The front has to be a known
-     *  English word (or a name typed with capitals) and the back at least two syllables:
-     *  a known Korean word (optionally with a particle), or, when the whole token spells
-     *  nothing like English, any Hangul made of syllables people use. Prefers the longest
-     *  English front. Names that spell like English stay whole (cartman isn't car스무). */
-    std::optional<MixedWord> englishThenKoreanWord(const std::u16string& keys);
-
-    /** UI, AI, OS, API: capitals typed on purpose, with at least one that has no shifted
-     *  jamo (so it can't be ㅃㅉㄸㄲㅆㅒㅖ). Short ones count too (UI같은건). */
-    static bool isAcronym(const std::u16string& front);
-
-    /** Slack, TextEdit, VSCode, GitHub: a name typed with its capitals, so English even when
-     *  it isn't in the word list. Starts with a capital, has lowercase too, and has either a
-     *  capital with no shifted jamo or another capital inside (PascalCase). Korean typed with
-     *  shift (TkdRjvnf, 쌍꺼풀) also passes the second test; `readsAsKorean` still stops it. */
-    static bool isCapitalizedName(const std::u16string& front);
-
+    /** A capital no lingering Shift explains (RNl, 꿀 typed fast, isn't a name). */
     static bool hasEnglishOnlyCapital(const std::u16string& front);
-
-private:
-    bool isKoreanWordOrWordWithParticle(const std::u16string& hangul) const;
-    bool readsAsKorean(const std::u16string& keys) const;
 };
 
 } // namespace rea

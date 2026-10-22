@@ -12,6 +12,7 @@
 #include "DecisionEngine.h"
 #include "HangulComposer.h"
 #include "JapaneseConverter.h"
+#include "UserDictionary.h"
 
 namespace rea {
 
@@ -64,8 +65,8 @@ class JapaneseSegmenter;
  *                  Otherwise the app types them; a switch key right after digits or symbols it
  *                  typed makes them Japanese (123 → １２３, [ → 「), and in Japanese text a romaji
  *                  word straight after a number is a counter, converted with it (3ji → 3時)
- *   , . ? ! - '    inside a Japanese phrase they are part of it (、。？！ー); otherwise
- *                  they commit the word, then type the key
+ *   symbols        , . ? ! - ' inside a Japanese phrase are part of it (、。？！ー); otherwise
+ *                  a symbol commits the word, then types the key
  *   Return         commit the word as shown, and nothing else (the next Return is the app's);
  *                  with `returnConfirmsOnly` off the app gets it too, except after Japanese
  *   anything else  commit and let the app handle the key
@@ -81,7 +82,10 @@ class JapaneseSegmenter;
  * A Key::Cycle with nothing to change is dropped, never passed to the app.
  *                  The same correction made twice is learned for good.
  *
- * Not ported (macOS only): vim mode, pausing (right ⌘), `holdSpace` (terminals), per-app policies.
+ * In a URL or path (`hasURLMarker`) words go in as typed and symbols stay half-width.
+ *
+ * Not ported (macOS only): vim mode, pausing (the pause key), `holdSpace` (terminals) and ⌘
+ * (`commandPressed`), per-app policies and dictionary entries, 3-set Korean and Colemak.
  */
 class InputSession {
 public:
@@ -151,7 +155,7 @@ public:
     static constexpr size_t SHORT_PREFIX_LENGTH = 3;
     static constexpr double SHORT_PREFIX_FLIP_CONFIDENCE = 0.99;
 
-    std::shared_ptr<LearningEngine> engine;
+    std::shared_ptr<DictionaryEngine> engine;
     std::shared_ptr<JapaneseConverter> converter;
     bool japaneseEnabled;
     /** Live conversion: a Japanese phrase is shown as its top kanji candidate while it is typed,
@@ -178,7 +182,7 @@ public:
     std::map<std::u16string, std::vector<std::u16string>> replacements;
     std::optional<Trace> lastTrace;
 
-    InputSession(std::shared_ptr<LearningEngine> engine, std::shared_ptr<JapaneseConverter> converter = nullptr,
+    InputSession(std::shared_ptr<DictionaryEngine> engine, std::shared_ptr<JapaneseConverter> converter = nullptr,
                  bool japaneseEnabled = false, bool liveConversion = false, bool returnConfirmsOnly = true);
 
     /** A new text field became active: forget the sentence context. */
@@ -203,6 +207,12 @@ public:
 
     /** Commits candidate [index] of the open conversion (e.g. clicked in the candidate window). */
     void choose(int index, TextClient& client);
+
+    /** Whether a run of text without spaces is a URL or path from here on: `://`, `www.`, `~/`,
+     *  `./` or `../` at its start, a path that starts with `/` and has another, `@` after
+     *  something (an email; `@홍길동` is a mention) or `localhost:`. A lone `.` or `/` isn't one:
+     *  L.A.로, TV/라디오 and 남/여 are Korean. */
+    static bool hasURLMarker(const std::u16string& run);
 
     /** What a number reading is made of: digits and the punctuation inside numbers, either width. */
     static bool isNumberCharacter(char16_t c);
@@ -235,6 +245,8 @@ private:
         std::u16string boundary;
         int location;
         std::optional<Language> previous;
+        /** A segment of a URL or path: a switch there isn't a correction to learn. */
+        bool learns = true;
 
         /** The same word after Delete took back its boundary character. */
         Committed withoutBoundary() const;
@@ -274,6 +286,14 @@ private:
     std::optional<std::pair<std::u16string, int>> passedRun;
     /** The word being typed started right after a number, in Japanese text: a counter (3ji → 3時). */
     bool afterNumberInJapanese = false;
+    /** The text gone in since the last Space, Tab or Return ([runKnown]), or since the caret moved
+     *  or the field changed, when the text before the caret is read the first time it matters. */
+    std::u16string runText;
+    bool runKnown = false;
+    /** The word being typed is a segment of a URL or path ([hasURLMarker]): it goes in as typed. */
+    bool inURLRun = false;
+    /** How far back the field is read for the run (UTF-16 units). */
+    static constexpr int RUN_LOOK_BEHIND = 256;
     /** The language shown when Delete was pressed, held until the next letter: a shorter word
      *  may read differently (한국 → 한구, not 한rn), but it shouldn't change under the user. */
     std::optional<Language> pinned;
@@ -295,6 +315,11 @@ private:
     bool isLive() const;
     void setPreviousLanguage(std::optional<Language> value);
 
+    void cancelComposition(TextClient& client);
+    std::u16string run(TextClient& client);
+    void noteRun(const std::u16string& text);
+    void noteDeleted();
+    void resetRun();
     void startSymbol(const std::u16string& symbol, TextClient& client, std::optional<TextRange> range = std::nullopt);
     void notePassed(char16_t ch, TextClient& client);
     std::optional<TextRange> passedRunRange(int end, TextClient& client);
@@ -316,7 +341,7 @@ private:
     Decision decide(bool partial);
     Language currentLanguage();
     Language committedLanguage();
-    bool isWeakFlipAllowed(const Decision& decision, Language shown);
+    bool isWeakFlipAllowed(const Decision& decision, Language shown, bool runnerUp = true);
     void updatePreview(TextClient& client);
     void show(const std::u16string& text, TextClient& client);
     void splitOffKoreanBeforeOther(TextClient& client);

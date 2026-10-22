@@ -31,6 +31,12 @@ namespace HangulComposer {
         /** True when the last unit is a lone consonant, i.e. the user has just
          *  started the next syllable. Normal while typing, suspicious at a word end. */
         bool endsWithPendingConsonant() const;
+        /** ㅋㅋ, ㅠㅠ, ㅜㅜ: two or more of the jamo typed on their own in chat. Korean as it is, and
+         *  already complete: they don't go on to make syllables. (KoreanModel.swift's extension.) */
+        bool isChat() const;
+        /** Two or more loose consonants, or ㅜ/ㅠ: what chat abbreviates to (ㅁㅊ, ㅈㅅ, ㄹㅇ, ㅜㅜ).
+         *  A reading worth switching to, though only the common ones ([isChat]) score as Korean. */
+        bool isJamoAbbreviation() const;
     };
 
     /** Nullopt if any key is not a letter on the 2-set layout. */

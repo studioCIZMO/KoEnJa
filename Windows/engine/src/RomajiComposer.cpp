@@ -126,8 +126,16 @@ static const std::unordered_set<std::u16string>& prefixes() {
     return set;
 }
 
+bool RomajiComposer::Result::isOnlySokuon() const {
+    return !text.empty() && text[0] == u'っ' && all(text, [](char16_t c) { return c == u'っ' || isAsciiLetter(c); });
+}
+
 RomajiComposer::Result RomajiComposer::compose(const std::u16string& keys, bool partial) {
-    const std::u16string chars = lowercase(keys);
+    // Matched in lowercase; letters that don't become kana stay as typed (⇧P waiting for its
+    // vowel shows P, not p). Not ported: Swift's LatinLayout.romajiKeys (Colemak); keys are QWERTY's.
+    const std::u16string& typed = keys;
+    std::u16string chars = keys;
+    for (auto& c : chars) if (c >= u'A' && c <= u'Z') c += 0x20;
     const size_t n = chars.size();
     std::u16string out;
     int stray = 0;
@@ -158,7 +166,7 @@ RomajiComposer::Result RomajiComposer::compose(const std::u16string& keys, bool 
                 }
                 if (!contains(vowels, *next) && *next != u'y') { emit(u"ん"); i += 1; continue; }
             } else {
-                if (partial) pending = u"n"; else emit(u"ん");
+                if (partial) pending = std::u16string(1, typed[i]); else emit(u"ん");
                 i += 1;
                 continue;
             }
@@ -179,12 +187,11 @@ RomajiComposer::Result RomajiComposer::compose(const std::u16string& keys, bool 
         }
         if (matched) continue;
 
-        std::u16string rest = chars.substr(i);
-        if (partial && prefixes().count(rest)) {
-            pending = rest;
+        if (partial && prefixes().count(chars.substr(i))) {
+            pending = typed.substr(i);
             break;
         }
-        out += c;
+        out += typed[i];
         stray += 1;
         i += 1;
     }

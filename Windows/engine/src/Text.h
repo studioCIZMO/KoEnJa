@@ -46,6 +46,12 @@ inline bool isNumber(char16_t c) {
         || c == 0x3007 || (c >= 0x3021 && c <= 0x3029) || (c >= 0xFF10 && c <= 0xFF19);
 }
 
+/** Swift's Character.isWhitespace: Unicode's White_Space (Space, Tab, Return, 　…). */
+inline bool isWhitespace(char16_t c) {
+    return (c >= 0x09 && c <= 0x0D) || c == u' ' || c == 0x85 || c == 0xA0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200A)
+        || c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000;
+}
+
 /** Character.getNumericValue for what a candidate number key can be: 0–9 of either width. */
 inline int numericValue(char16_t c) {
     if (isAsciiDigit(c)) return c - u'0';

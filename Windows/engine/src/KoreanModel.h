@@ -29,6 +29,10 @@ public:
     static constexpr double STRAY_JAMO_LOG_P = -13.0;
     /** Typing the first consonant of the next syllable is normal mid-word. */
     static constexpr double PENDING_CONSONANT_LOG_P = -3.5;
+    /** The same for a consonant that joined the syllable before as its final (갷 of 소개ㅎ),
+     *  a little less sure: alr is 미국 on its way and also already (tuned on preview traces of
+     *  the top 10,000 English and Korean words). */
+    static constexpr double PENDING_FINAL_PENALTY = 1.0;
     /** ㅋㅋ, ㅎㅎ, ㅠㅠ and friends. */
     static constexpr double CHAT_JAMO_LOG_P = -4.0;
     static constexpr const char16_t* CHAT_JAMO = u"ㅋㅎㅠㅜㄷㅇㄱㅅㅂㄴ";
@@ -38,10 +42,28 @@ public:
     /** A word that occurs in real Korean text (the composed Hangul, not the keys). */
     bool isKnownWord(const std::u16string& hangul) const;
 
-    /** A word in the wider vocabulary (loanwords like 월드, 서버), for English + Korean splits. */
+    /** A word in the wider vocabulary (loanwords like 월드, 서버; 혜택), for English + Korean splits
+     *  and the heuristic's Korean word floor. */
     bool isVocabularyWord(const std::u16string& hangul) const;
 
+    /** A word the subtitles have fewer than [COMMON_COUNT] times (촉매, twice): for the heuristic's
+     *  Korean word floor only. The tail holds dialect and typos too (어뗘, 쓔벌, 꺼이), so it
+     *  stays out of the splits and of [knowsSyllable], which `EU정책` and `RJ이` rely on. */
+    bool isRareVocabularyWord(const std::u16string& hangul) const;
+
+    /** A noun the lists only have with a case particle (혜택 from 혜택을, 혜택으로): they
+     *  count words with their particles, so a bare noun can be missing from both. */
+    bool isKnownStem(const std::u16string& hangul) const;
+
+    /** Where `korean_vocabulary.txt` stops being the vocabulary: the old 50k list's last count. */
+    static constexpr int COMMON_COUNT = 10;
+
     double syllableLogProbability(char16_t syllable) const;
+
+    /** A syllable seen at all: in the tiers, the corpus or a word of the lists, however rarely
+     *  (삐, 쪄, 뾰, 쭈 are; 뗘, 쎠, 쓔 aren't). Rarer than [UNKNOWN_SYLLABLE_LOG_P] still means
+     *  someone typed it. */
+    bool knowsSyllable(char16_t syllable) const;
 
     /** [partial]: the token is still being typed, so a trailing lone consonant is expected rather than penalized. */
     std::optional<Score> score(const std::u16string& keys, bool partial = false) const;
@@ -50,6 +72,8 @@ private:
     static constexpr int SYLLABLES = 11172;
     /** Log-probability per syllable (index: syllable − 가), NaN where neither source has it. */
     std::vector<double> tiers;
+
+    double logProbability(const HangulComposer::Result& composition, bool partial) const;
 };
 
 } // namespace rea

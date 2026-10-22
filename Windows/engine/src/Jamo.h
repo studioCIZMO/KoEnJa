@@ -32,6 +32,15 @@ namespace DubeolsikLayout {
      *  letter is a signal the user is typing English. */
     bool isKoreanShiftKey(char16_t key);
 
+    /** A capital on a key with no shifted jamo, not counting a lingering Shift: Shift still down
+     *  for the one key right after a Korean shift key (어떤 typed fast is djEJs, 바뀌 is qkRNl:
+     *  Shift was still down for the vowel after ㄸ or ㄲ). Such keys read as Korean or English by
+     *  their scores; any other capital (Hello, API, dHello) is only ever English. A Shift lingers
+     *  between lowercase keys, so a word typed in capitals throughout (TM, RN, TL: acronyms) gets
+     *  no such allowance, nor does ㅒ/ㅖ with no consonant before it (PDF, OAuth).
+     *  Not ported: Swift's LatinLayout seats (Colemak) and 3-set; keys are QWERTY's. */
+    bool hasEnglishOnlyCapital(const std::u16string& keys);
+
     /** The jamo a key produces, or nullopt for non-letters.
      *  Uppercase letters without a shifted jamo fall back to the lowercase jamo,
      *  mirroring how the macOS 2-set keyboard behaves. */

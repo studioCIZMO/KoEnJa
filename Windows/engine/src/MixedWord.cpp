@@ -22,6 +22,41 @@ const std::unordered_set<std::u16string>& MixedWord::suffixes() {
     return set;
 }
 
+const std::vector<std::pair<std::u16string, std::u16string>>& MixedWord::pairedParticles() {
+    static const std::vector<std::pair<std::u16string, std::u16string>> list = {
+        {u"을", u"를"}, {u"은", u"는"}, {u"이", u"가"}, {u"과", u"와"}, {u"이랑", u"랑"}, {u"이랑은", u"랑은"},
+        {u"으로", u"로"}, {u"으로는", u"로는"}, {u"으로도", u"로도"}, {u"으론", u"론"}, {u"으로서", u"로서"},
+        {u"이나", u"나"}, {u"이야", u"야"}, {u"이라", u"라"}, {u"이라고", u"라고"}, {u"이라는", u"라는"}, {u"이란", u"란"},
+        {u"이에요", u"예요"},
+    };
+    return list;
+}
+
+std::optional<bool> MixedWord::particleAgrees(const std::u16string& particle, FinalSound final) {
+    for (auto& [consonant, vowel] : pairedParticles()) {
+        if (particle == consonant) return final == FinalSound::Consonant || (final == FinalSound::Rieul && !startsWith(consonant, u"으"));
+        if (particle == vowel) return final == FinalSound::Vowel || (final == FinalSound::Rieul && startsWith(consonant, u"으"));
+    }
+    return std::nullopt;
+}
+
+std::optional<MixedWord::FinalSound> MixedWord::finalSound(char16_t syllable) {
+    if (syllable < 0xAC00 || syllable > 0xD7A3) return std::nullopt;
+    switch ((syllable - 0xAC00) % 28) {
+        case 0: return FinalSound::Vowel;
+        case 8: return FinalSound::Rieul;
+        default: return FinalSound::Consonant;
+    }
+}
+
+MixedWord::FinalSound MixedWord::finalSoundOfAcronym(const std::u16string& acronym) {
+    char16_t last = acronym.empty() ? 0 : acronym.back();
+    if (last >= u'a' && last <= u'z') last -= 0x20;
+    if (last == u'L' || last == u'R') return FinalSound::Rieul;
+    if (last == u'M' || last == u'N') return FinalSound::Consonant;
+    return FinalSound::Vowel;
+}
+
 const std::unordered_set<std::u16string>& MixedWord::singleLetterParticles() {
     static const auto list = words(uR"(
         에 에서 에게 에는 에서는 에도 의 을 를 은 는 이 가 도 로 으로 와 과 랑 이랑 하고 한테 까지 부터 만 보다
@@ -81,71 +116,12 @@ Decision SplittingEngine::decide(const std::u16string& keys, const DecisionConte
         return Decision{Language::JAPANESE, CONFIDENCE, japanese.english + japanese.particle, u"split " + japanese.english + u"+" + japanese.particle};
     }
     auto single = MixedWord::splitSingleLetter(keys);
-    if (single && !english.isKnownWord(keys) && !readsAsKorean(keys)) {
+    if (single && !english.isKnownWord(keys) && !particles->readsAsKorean(keys)) {
         return Decision{Language::MIXED, CONFIDENCE, single->text(), u"split " + single->english + u"+" + single->korean};
-    }
-    if (auto mixed = englishThenKoreanWord(keys)) {
-        return Decision{Language::MIXED, CONFIDENCE, mixed->text(), u"split " + mixed->english + u"+" + mixed->korean};
     }
     return base->decide(keys, context);
 }
 
-std::optional<MixedWord> SplittingEngine::englishThenKoreanWord(const std::u16string& keys) {
-    if (keys.size() < 5 || english.isKnownWord(keys)) return std::nullopt;
-    double spelling = english.averageLogProbability(keys);
-    // Clean romaji (hasansowo, はさんそを) is Japanese, not English + Hangul.
-    if (spelling >= mixedWordSpellingCeiling || RomajiComposer::compose(keys).isClean()) return std::nullopt;
-    for (size_t start = keys.size() - 2; start >= 2; start--) {
-        auto front = keys.substr(0, start);
-        auto back = keys.substr(start);
-        // Capitals count only when one has no Korean meaning (ThkT is 쐈, not a name).
-        if (!((hasEnglishOnlyCapital(front) && (isAcronym(front) || isCapitalizedName(front)))
-              || (front.size() >= 3 && english.isKnownWord(front)))) continue;
-        if (!DubeolsikLayout::startsSyllable(back[0])) continue;
-        auto composed = HangulComposer::compose(back);
-        if (!composed) continue;
-        auto syllables = composed->syllables();
-        if (!composed->strayJamo().empty() || syllables.size() < 2) continue;
-        if (!(isKoreanWordOrWordWithParticle(composed->text())
-              || (spelling < unknownWordSpellingCeiling
-                  && all(syllables, [&](char16_t s) { return korean->syllableLogProbability(s) > KoreanModel::UNKNOWN_SYLLABLE_LOG_P; })))) continue;
-        if (!(hasEnglishOnlyCapital(front) || !readsAsKorean(keys))) return std::nullopt;
-        return MixedWord{front, back, composed->text()};
-    }
-    return std::nullopt;
-}
-
-bool SplittingEngine::isKoreanWordOrWordWithParticle(const std::u16string& hangul) const {
-    if (korean->isVocabularyWord(hangul)) return true;
-    for (size_t cut = 1; cut < hangul.size(); cut++) {
-        if (cut >= 2 && korean->isVocabularyWord(hangul.substr(0, cut)) && MixedWord::suffixes().count(hangul.substr(cut))) return true;
-    }
-    return false;
-}
-
-bool SplittingEngine::readsAsKorean(const std::u16string& keys) const {
-    auto composed = HangulComposer::compose(keys);
-    if (!composed || !composed->strayJamo().empty()) return false;
-    return all(composed->syllables(), [&](char16_t s) { return korean->syllableLogProbability(s) > KoreanModel::UNKNOWN_SYLLABLE_LOG_P; });
-}
-
-bool SplittingEngine::isAcronym(const std::u16string& front) {
-    return front.size() >= 2 && front.size() <= 6 && all(front, isUpperCase)
-        && any(front, [](char16_t c) { return !DubeolsikLayout::isKoreanShiftKey(c); });
-}
-
-bool SplittingEngine::isCapitalizedName(const std::u16string& front) {
-    if (front.size() < 3 || !isUpperCase(front[0]) || !any(front, isLowerCase)) return false;
-    if (hasEnglishOnlyCapital(front)) return true;
-    if (!any(drop(front, 1), isUpperCase)) return false;
-    // Every capital a shifted jamo and the keys spelling whole Hangul is Korean typed with shift,
-    // even with a typo making an odd syllable (RoRmtgkgfu, 깨끗핳려), not a name (TextEdit).
-    auto composed = HangulComposer::compose(front);
-    return composed ? !composed->strayJamo().empty() : true;
-}
-
-bool SplittingEngine::hasEnglishOnlyCapital(const std::u16string& front) {
-    return any(front, [](char16_t c) { return isUpperCase(c) && !DubeolsikLayout::isKoreanShiftKey(c); });
-}
+bool SplittingEngine::hasEnglishOnlyCapital(const std::u16string& front) { return DubeolsikLayout::hasEnglishOnlyCapital(front); }
 
 } // namespace rea

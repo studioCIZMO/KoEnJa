@@ -63,6 +63,38 @@ static const std::unordered_map<char16_t, char16_t>& shifted() {
 
 bool DubeolsikLayout::isKoreanShiftKey(char16_t key) { return shifted().count(key) > 0; }
 
+/** Shift still down for [key], right after [shiftKey], a Korean shift key that needed it. After
+ *  a double consonant comes a vowel (djEJs, 어떤), or, when the double consonant is a final one
+ *  (a vowel key before it), the next syllable's consonant (dlTDj, 있어). After ㅒ or ㅖ typed on a
+ *  consonant comes a consonant (dPFmf, 예를); at the start of a word (PDF, OAuth) nothing lingers.
+ *  The key before has to be lowercase: a capital there (RPA, TPS) was Shift on purpose. */
+static bool lingers(char16_t shiftKey, std::optional<char16_t> twoBack, char16_t key) {
+    auto before = twoBack && isLowerCase(*twoBack) ? DubeolsikLayout::jamo(*twoBack) : std::nullopt;
+    auto j = DubeolsikLayout::jamo(key);
+    bool consonantKey = j && Jamo::isConsonant(*j);
+    auto it = shifted().find(shiftKey);
+    if (it == shifted().end()) return false;
+    switch (it->second) {
+        case u'ㅃ': case u'ㅉ': case u'ㄸ': case u'ㄲ': case u'ㅆ':
+            if (j && Jamo::isVowel(*j)) return true;
+            return before && Jamo::isVowel(*before) && consonantKey;
+        case u'ㅒ': case u'ㅖ':
+            return before && Jamo::isConsonant(*before) && consonantKey;
+        default:
+            return false;
+    }
+}
+
+bool DubeolsikLayout::hasEnglishOnlyCapital(const std::u16string& keys) {
+    bool hasLowercase = any(keys, isLowerCase);
+    for (size_t i = 0; i < keys.size(); i++) {
+        if (!isUpperCase(keys[i]) || shifted().count(keys[i])) continue;
+        if (hasLowercase && i >= 1 && lingers(keys[i - 1], i >= 2 ? std::optional(keys[i - 2]) : std::nullopt, keys[i])) continue;
+        return true;
+    }
+    return false;
+}
+
 std::optional<char16_t> DubeolsikLayout::jamo(char16_t key) {
     if (auto it = shifted().find(key); it != shifted().end()) return it->second;
     if (!isAscii(key)) return std::nullopt;

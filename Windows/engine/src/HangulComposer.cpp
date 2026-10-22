@@ -1,6 +1,7 @@
 #include "HangulComposer.h"
 
 #include "Jamo.h"
+#include "KoreanModel.h"
 
 namespace rea {
 
@@ -28,6 +29,18 @@ bool Result::isBroken() const { return strayJamo().size() > (endsWithPendingCons
 
 bool Result::endsWithPendingConsonant() const {
     return !units.empty() && !units.back().isSyllable && Jamo::isConsonant(units.back().character);
+}
+
+bool Result::isChat() const {
+    return units.size() >= 2 && std::all_of(units.begin(), units.end(), [](auto& u) {
+        return !u.isSyllable && contains(KoreanModel::CHAT_JAMO, u.character);
+    });
+}
+
+bool Result::isJamoAbbreviation() const {
+    return units.size() >= 2 && std::all_of(units.begin(), units.end(), [](auto& u) {
+        return !u.isSyllable && (Jamo::isConsonant(u.character) || u.character == u'ㅜ' || u.character == u'ㅠ');
+    });
 }
 
 std::optional<Result> HangulComposer::compose(const std::u16string& keys) {

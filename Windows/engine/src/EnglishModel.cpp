@@ -51,10 +51,19 @@ static std::unordered_map<std::u16string, int> wordLevels(const std::unordered_m
     return levels;
 }
 
-EnglishModel::EnglishModel(const std::unordered_map<std::u16string, int>& raw, const std::vector<std::u16string>* spelling)
+EnglishModel::EnglishModel(const std::unordered_map<std::u16string, int>& raw, const std::vector<std::u16string>* spelling,
+                           const std::vector<std::u16string>& extraWords)
     : words(std::vector<std::u16string>{}) {
     const int n = SYMBOLS;
     auto levels = wordLevels(raw);
+    // REA: upstream normalizes the list with the extra words in and keeps a second copy without.
+    std::unordered_map<std::u16string, int> extra;
+    for (auto& word : extraWords) extra[lowercase(word)] = EXTRA_LEVEL;
+    for (auto& [word, _] : wordLevels(extra)) {
+        auto old = levels.find(word);
+        stemLevels[word] = old == levels.end() ? std::nullopt : std::optional(old->second);
+        levels[word] = old == levels.end() ? EXTRA_LEVEL : std::min(old->second, int(EXTRA_LEVEL));
+    }
     auto train = [&](const std::u16string& word) {
         if (word.empty() || !all(word, isAsciiLetter)) return;
         auto codes = encode(word);
@@ -96,8 +105,14 @@ std::optional<int> EnglishModel::level(const std::u16string& token) const {
     const std::u16string_view w = lowered;
     if (auto l = levelOf(w)) return l;
     std::optional<int> best;
+    // SCOWL lists the inflections of its words, so a guessed one counts only for a stem the
+    // list itself ranks above its rarest known level: thru (50, and 35 only as one of
+    // [commonWords]) + s is no word, and thrus is 소견.
     auto consider = [&](std::u16string_view stem) {
-        if (auto l = levelOf(stem)) best = best ? std::min(*best, *l) : *l;
+        // REA: stemLevels holds only the words [commonWords] changed.
+        auto listed = stemLevels.find(std::u16string(stem));
+        auto l = listed != stemLevels.end() ? listed->second : levelOf(stem);
+        if (l && *l < KNOWN_LEVEL) best = best ? std::min(*best, *l) : *l;
     };
     // Stems of 3+ letters: ths isn't the+s, ehs isn't eh+s.
     for (std::u16string_view suffix : {u"s", u"es", u"ed", u"d", u"ing", u"ly", u"er", u"ers", u"est"}) {
@@ -126,11 +141,23 @@ bool EnglishModel::isCommonWord(const std::u16string& token) const {
 }
 
 const EnglishModel& EnglishModel::shared() {
-    static const EnglishModel model = load(SPELLING_LIST_PATH);
+    static const EnglishModel model = load(spellingListPath());
     return model;
 }
 
-EnglishModel EnglishModel::load(const char* spellingPath) {
+std::optional<std::filesystem::path> EnglishModel::spellingListPath() {
+    std::error_code error;
+    if (!Resources::directory.empty() && std::filesystem::is_regular_file(Resources::directory / SPELLING_LIST, error)) {
+        return Resources::directory / SPELLING_LIST;
+    }
+#ifdef _WIN32
+    return std::nullopt;
+#else
+    return SPELLING_LIST_PATH;
+#endif
+}
+
+EnglishModel EnglishModel::load(const std::optional<std::filesystem::path>& spellingPath) {
     std::unordered_map<std::u16string, int> levels;
     if (auto lines = Resources::lines("english_words.txt")) {
         for (auto& line : *lines) {
@@ -139,18 +166,14 @@ EnglishModel EnglishModel::load(const char* spellingPath) {
             if (auto level = toInt(line.substr(tab + 1))) levels[line.substr(0, tab)] = *level;
         }
     }
-    for (auto& word : commonWords()) {
-        auto lower = lowercase(word);
-        auto old = levels.find(lower);
-        levels[lower] = old == levels.end() ? EXTRA_LEVEL : std::min(old->second, int(EXTRA_LEVEL));
-    }
-    auto lines = spellingPath ? Resources::fileLines(spellingPath) : std::nullopt;
-    if (!lines) return EnglishModel(levels);
+    // REA: the extra words go in in the constructor, not into a copy of the 119k-word list.
+    auto lines = spellingPath ? Resources::fileLines(*spellingPath) : std::nullopt;
+    if (!lines) return EnglishModel(levels, nullptr, commonWords());
     std::vector<std::u16string> spelling;
     spelling.reserve(lines->size() + commonWords().size());
     for (auto& line : *lines) spelling.push_back(lowercase(line));
     spelling.insert(spelling.end(), commonWords().begin(), commonWords().end());
-    return EnglishModel(levels, &spelling);
+    return EnglishModel(levels, &spelling, commonWords());
 }
 
 const std::unordered_set<std::u16string>& EnglishModel::shortWords() {

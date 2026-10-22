@@ -11,8 +11,8 @@
 namespace rea {
 
 /**
- * The engine stack iOS's KeyboardViewController builds (makeHeuristic/makeSession): learned
- * corrections, then mixed words (github에, githubで), then the heuristic, weighted by the user's
+ * The engine stack iOS's KeyboardViewController builds (makeHeuristic/makeSession): the user's
+ * dictionary (learned corrections), then mixed words (github에, githubで), then the heuristic, weighted by the user's
  * language order (LanguagePreferences).
  */
 namespace Engines {
@@ -31,7 +31,7 @@ namespace Engines {
         bool returnConfirmsOnly = true,
         bool fullWidthDigits = false,
         bool fullWidthSpace = false,
-        std::optional<std::filesystem::path> learningFile = std::nullopt);
+        std::optional<std::filesystem::path> dictionaryFile = std::nullopt);
 }
 
 } // namespace rea

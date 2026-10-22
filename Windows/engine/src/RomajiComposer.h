@@ -25,6 +25,9 @@ namespace RomajiComposer {
         int kanaCount;
 
         bool isClean() const { return strayLetters == 0 && pending.empty(); }
+        /** Only っ and letters (ff: っf, sss: っっs): a doubled consonant at the start with no
+         *  kana after it, which no Japanese word is (って has kana after its っ). */
+        bool isOnlySokuon() const;
     };
 
     /** [partial]: the word is still being typed, so a trailing "k" or "n" is waiting for its vowel rather than stray. */
