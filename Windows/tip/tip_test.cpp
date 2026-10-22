@@ -142,6 +142,14 @@ struct Store : ITextStoreACP {
     STDMETHODIMP GetScreenExt(TsViewCookie, RECT* rect) override { *rect = {}; return S_OK; }
     STDMETHODIMP GetWnd(TsViewCookie, HWND* window) override { *window = nullptr; return S_OK; }
 
+    /** The user selects all and deletes it, so each test starts on an empty field. */
+    void clear() {
+        TS_TEXTCHANGE change{0, LONG(text.size()), 0};
+        text.clear();
+        selStart = selEnd = 0;
+        if (sink) { sink->OnTextChange(0, &change); sink->OnSelectionChange(); }
+    }
+
     /** What the app does with a key the TIP left alone: types it, outside any lock, and tells TSF. */
     void type(wchar_t c) {
         LONG start = selStart, end = selEnd;
@@ -257,6 +265,10 @@ int main() {
         return 1;
     host.context = context.Get();
 
+
+    // Candidates without a dictionary: the TIP's stand-in converter (わたし, 候補1…候補11).
+    SetEnvironmentVariableW(L"KOENJA_TEST_CONVERTER", L"1");
+
     // Created through its registration, as TSF would.
     ComPtr<ITfTextInputProcessorEx> tip;
     ComPtr<ITfClientId> clientIds;
@@ -267,6 +279,9 @@ int main() {
         !check(tip->ActivateEx(&host, tipId, 0), "activate KoEnJa"))
         return 1;
     printf("activated in %llu ms (engine data loaded)\n", GetTickCount64() - started);
+    // Right Alt is a switch key only where it isn't AltGr; the steps that use it assume so.
+    LANGID layout = LOWORD(HandleToUlong(GetKeyboardLayout(0)));
+    printf("keyboard layout %04x\n", layout);
 
     ComPtr<ITfContextComposition> compositions;
     context.As(&compositions);
@@ -276,12 +291,32 @@ int main() {
         ULONG n = 0;
         return SUCCEEDED(compositions->EnumCompositions(&views)) && views->Next(1, &view, &n) == S_OK && n == 1;
     };
+    // The candidate list as a full-screen app reads it, and whether the TIP's window shows it.
+    ComPtr<ITfCandidateListUIElement> list;
+    if (!check(tip.As(&list), "candidate list UI element")) return 1;
+    auto listed = [&] {
+        UINT count = 0, selected = 0;
+        list->GetCount(&count);
+        list->GetSelection(&selected);
+        std::wstring out;
+        for (UINT i = 0; i < count; i++) {
+            BSTR text = nullptr;
+            list->GetString(i, &text);
+            out += (i == selected ? L"[" : L"") + std::wstring(text ? text : L"") + (i == selected ? L"]" : L"") + (i + 1 < count ? L" " : L"");
+            SysFreeString(text);
+        }
+        HWND window = FindWindowW(L"KoEnJaCandidates", nullptr);
+        if (count && !(window && IsWindowVisible(window))) out += L" (window hidden!)";
+        if (!count && window && IsWindowVisible(window)) out += L" (window still shown!)";
+        return out;
+    };
 
-    // keys: letters, ' ', '\n' Enter, '\b' Backspace, '\x1b' Esc, '\f' focus to another field and
-    // back (commits what's being typed). Each step checks the whole text.
+    // keys: letters, digits, ' ', '\n' Enter, '\b' Backspace, '\x1b' Esc, '\t' Tab, '\x11' ↑, '\x12' ↓,
+    // '\x01' 한/영, '\x02' 変換, '\x03' right Alt, '\f' focus to another field and back (commits
+    // what's being typed), '\r' empty the field. Each step checks the whole text and the list.
     ComPtr<ITfDocumentMgr> elsewhere;
     host.real->CreateDocumentMgr(&elsewhere);
-    struct Step { const char* keys; const wchar_t* text; bool composing; };
+    struct Step { const char* keys; const wchar_t* text; bool composing; const wchar_t* list = L""; };
     const Step steps[] = {
         {"dkssud", L"안녕", true},
         {"gktpdy ", L"안녕하세요 ", false},
@@ -292,6 +327,29 @@ int main() {
         {"\n", L"안녕하세요 hello 한구\n", false},
         {"Hello\x1b", L"안녕하세요 hello 한구\nHello", false},
         {" dkssud\f", L"안녕하세요 hello 한구\nHello 안녕", false},
+        // 한/영 while typing: the word in its next language, as iOS's 한あA key.
+        {"\r" "dkssud\x01", L"dkssud", true},
+        {"\x01", L"안녕", true},
+        {" ", L"안녕 ", false},
+        // With nothing being typed: KoEnJa off (plain English), and on again.
+        {"\r\x01" "dkssud ", L"dkssud ", false},
+        {"\x01" "dkssud ", L"dkssud 안녕 ", false},
+        // 変換 and right Alt with nothing being typed are the app's; while typing they switch too.
+        {"\r\x02\x03", L"", false},
+        {"gksrnr\x02", L"gksrnr", true},
+        {"\n\r" "gksrnr\x03", L"gksrnr", true},
+        // The Japanese word's candidates as it is typed; Tab/↓ into them (the conversion), ↑ back, a digit picks.
+        {"\f\r" "watashi", L"わたし", true, L"[わたし] 候補1 候補2 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11"},
+        {"\t", L"わたし", true, L"[わたし] 候補1 候補2 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11"},
+        {"\t\x12", L"候補2", true, L"わたし 候補1 [候補2] 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11"},
+        {"\x11", L"候補1", true, L"わたし [候補1] 候補2 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11"},
+        {"3", L"候補2", false},
+        // Space, ↓ to the second page; its 2 is the 11th candidate.
+        {"\r" "watashi \x12\x12\x12\x12\x12\x12\x12\x12\x12", L"候補9", true, L"わたし 候補1 候補2 候補3 候補4 候補5 候補6 候補7 候補8 [候補9] 候補10 候補11"},
+        {"2", L"候補10", false},
+        // Esc: back to the kana, and its candidates as typed; Return commits it as shown.
+        {"\r" "watashi \t\x1b", L"わたし", true, L"[わたし] 候補1 候補2 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11"},
+        {"\n", L"わたし", false},
     };
     int failures = 0;
     for (auto& step : steps) {
@@ -307,24 +365,39 @@ int main() {
                 events->OnSetFocus(document.Get(), elsewhere.Get());
                 continue;
             }
-            WPARAM vk = c == ' ' ? VK_SPACE : c == '\n' ? VK_RETURN : c == '\b' ? VK_BACK : c == '\x1b' ? VK_ESCAPE : WPARAM(toupper(c));
+            if (c == '\r') { store.clear(); continue; }
+            WPARAM vk = c == ' ' ? VK_SPACE : c == '\n' ? VK_RETURN : c == '\b' ? VK_BACK : c == '\x1b' ? VK_ESCAPE : c == '\t' ? VK_TAB
+                      : c == '\x11' ? VK_UP : c == '\x12' ? VK_DOWN : c == '\x01' ? VK_HANGUL : c == '\x02' ? VK_CONVERT
+                      : c == '\x03' ? VK_MENU : WPARAM(toupper(c));
             // Capitals the way a keyboard types them: Shift held in this thread's key state.
             BYTE keys[256];
             GetKeyboardState(keys);
             keys[VK_SHIFT] = isupper(c) ? 0x80 : 0;
             SetKeyboardState(keys);
-            LPARAM lParam = 1 | (LPARAM(MapVirtualKeyW(UINT(vk), MAPVK_VK_TO_VSC)) << 16);
+            LPARAM lParam = 1 | (LPARAM(MapVirtualKeyW(UINT(vk), MAPVK_VK_TO_VSC)) << 16) | (c == '\x03' ? 1 << 24 : 0);
             BOOL eaten = FALSE;
             if (!check(host.KeyDown(vk, lParam, &eaten), "KeyDown")) return 1;
-            if (!eaten && c != '\x1b') store.type(c == '\n' ? L'\n' : wchar_t(c));
-            host.KeyUp(vk, lParam | 0xC0000000, &eaten);
+            if (!eaten && (c >= ' ' || c == '\n' || c == '\t')) store.type(c == '\n' ? L'\n' : wchar_t(c));
+            BOOL upEaten = FALSE;
+            host.KeyUp(vk, lParam | 0xC0000000, &upEaten);
+            if (upEaten != eaten && (c == '\x01' || c == '\x02' || c == '\x03')) {
+                printf("FAIL switch key %d: down %s but up %s\n", c, eaten ? "eaten" : "passed", upEaten ? "eaten" : "passed");
+                failures++;
+            }
         }
-        bool ok = store.text == step.text && composing() == step.composing;
+        auto shown = listed();
+        bool ok = store.text == step.text && composing() == step.composing && shown == step.list;
         failures += !ok;
         std::wstring keys;
-        for (const char* k = step.keys; *k; k++) keys += *k == '\n' ? L"⏎" : *k == '\b' ? L"⌫" : *k == '\x1b' ? L"⎋" : *k == '\f' ? L"↹" : std::wstring(1, *k);
-        printf("%s %-10s -> \"%s\"%s\n", ok ? "ok  " : "FAIL", utf8(keys).c_str(), utf8(store.text).c_str(), composing() ? " (composing)" : "");
-        if (!ok) printf("     expected \"%s\"%s\n", utf8(step.text).c_str(), step.composing ? " (composing)" : "");
+        for (const char* k = step.keys; *k; k++) {
+            const wchar_t* names[] = {L"", L"한영", L"変換", L"RAlt"};
+            keys += *k == '\n' ? L"⏎" : *k == '\b' ? L"⌫" : *k == '\x1b' ? L"⎋" : *k == '\f' ? L"↹" : *k == '\r' ? L"∅" : *k == '\t' ? L"⇥"
+                  : *k == '\x11' ? L"↑" : *k == '\x12' ? L"↓" : *k >= 1 && *k <= 3 ? names[int(*k)] : std::wstring(1, wchar_t(*k));
+        }
+        printf("%s %-12s -> \"%s\"%s%s%s\n", ok ? "ok  " : "FAIL", utf8(keys).c_str(), utf8(store.text).c_str(), composing() ? " (composing)" : "",
+               shown.empty() ? "" : "\n       list: ", utf8(shown).c_str());
+        if (!ok) printf("     expected \"%s\"%s%s%s\n", utf8(step.text).c_str(), step.composing ? " (composing)" : "", *step.list ? "\n       list: " : "",
+                        utf8(step.list).c_str());
     }
 
     tip->Deactivate();
