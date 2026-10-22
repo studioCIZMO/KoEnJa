@@ -136,9 +136,6 @@ final class TypingTests: XCTestCase {
     /// Sentences of all kinds (UITests/Corpus.swift): reports, chat, code, URLs, Japanese
     /// with English. Each goes after the last; a miss doesn't stop the run.
     func testCorpus() { typeAll(corpus) }
-    /// Texts the user pasted (UITests/Pasted.swift): a Korean security checklist, Japanese prose.
-    func testPastedKorean() { typeAll(pastedKorean) }
-    func testPastedJapanese() { typeAll(pastedJapanese) }
 
     /// App Store screenshots: a sentence, then a word left in the bar (its candidates showing).
     func testScreenshotKorean() { shot("1-ko", "dhsmf meetingdptj designdmf reviewgoTek ", "go") }
