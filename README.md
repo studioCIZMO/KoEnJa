@@ -52,6 +52,17 @@ What you type stays on the device. The keyboards have no networking (the Windows
 
 [Open an issue](https://github.com/studioCIZMO/KoEnJa/issues/new?template=bug.yml). On Windows, **Report a problem…** in KoEnJa Settings opens the same form with your version, Windows build and settings filled in (never what you typed). Issues are public, so leave out private text.
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.1.0 is unsigned; signing starts once SignPath Foundation accepts the project.)
+
+- Committers and reviewers: [studioCIZMO](https://github.com/studioCIZMO)
+- Approvers: [studioCIZMO](https://github.com/studioCIZMO)
+
+Only the Windows installer and the files it installs are signed. Each one is built by GitHub Actions from this repository's source (`.github/workflows/windows.yml`), and every release is approved by hand before signing.
+
+Privacy: this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. *Report a problem…* opens a GitHub page in your browser only when you click it.
+
 ## License
 
 MIT — see `LICENSE`. Third-party code and data: `THIRD_PARTY_NOTICES.txt` (Araso MIT, Mozc dictionary, SCOWL, Tatoeba, FrequencyWords and others); the iOS app adds `iOS/App/Licenses.txt` (AzooKeyKanaKanjiConverter, MIT, and its dictionary, Apache-2.0).
