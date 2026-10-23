@@ -1,0 +1,2 @@
+# LF everywhere: the engines split their data and the golden files on \n (Windows checkouts would add \r).
+* text=auto eol=lf
