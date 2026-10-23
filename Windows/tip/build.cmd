@@ -8,7 +8,9 @@ cd /d "%~dp0"
 set ARCH=x64
 set OUT=..\..\.build\windows-tip
 if /i "%~1"=="x86" (set ARCH=x86& set OUT=..\..\.build\windows-tip-x86)
-if /i not "%VSCMD_ARG_TGT_ARCH%"=="%ARCH%" call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvarsall.bat" %ARCH% >nul || exit /b 1
+rem Any Visual Studio with C++ (Build Tools here, Enterprise on GitHub's runners).
+for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do set VS=%%i
+if /i not "%VSCMD_ARG_TGT_ARCH%"=="%ARCH%" call "%VS%\VC\Auxiliary\Build\vcvarsall.bat" %ARCH% >nul || exit /b 1
 set FLAGS=/nologo /std:c++20 /utf-8 /fp:precise /EHsc /O2 /W3 /MT /MP /DUNICODE /D_UNICODE /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS
 if not exist %OUT%\obj mkdir %OUT%\obj
 cl %FLAGS% /c ..\engine\src\*.cpp ..\japanese\MozcConverter.cpp Tip.cpp /Fo%OUT%\obj\ || exit /b 1

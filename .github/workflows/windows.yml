@@ -1,0 +1,39 @@
+# Windows: the engine's golden test under MSVC, then the installer (x64 + x86 TIP).
+# A v* tag publishes the installer as a GitHub release.
+name: windows
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Golden test (MSVC)
+        shell: cmd
+        run: |
+          mkdir .build\golden
+          cl /nologo /std:c++20 /utf-8 /fp:precise /EHsc /O2 /DNOMINMAX /D_CRT_SECURE_NO_WARNINGS Windows\engine\src\*.cpp Windows\engine\test\golden_test.cpp /Fo.build\golden\ /Fe.build\golden\golden_test.exe || exit /b 1
+          .build\golden\golden_test.exe Packages\SeamtypeCore\Sources\SeamtypeCore\Data Android\engine\src\test\resources
+      - name: Inno Setup
+        shell: pwsh
+        run: if (!(Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Installer
+        shell: cmd
+        run: Windows\installer\build.cmd
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KoEnJa-Setup
+          path: .build/installer/KoEnJa-Setup-*.exe
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" .build/installer/KoEnJa-Setup-*.exe --title "KoEnJa $GITHUB_REF_NAME" --generate-notes
