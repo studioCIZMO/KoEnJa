@@ -48,6 +48,10 @@ Araso's macOS input method, its app and its installer are not part of KoEnJa. We
 
 What you type stays on the device. The keyboards have no networking (the Windows version will only check for updates).
 
+## Report a problem · 문제 보고 · 問題の報告
+
+[Open an issue](https://github.com/studioCIZMO/KoEnJa/issues/new?template=bug.yml). On Windows, **Report a problem…** in KoEnJa Settings opens the same form with your version, Windows build and settings filled in (never what you typed). Issues are public, so leave out private text.
+
 ## License
 
 MIT — see `LICENSE`. Third-party code and data: `THIRD_PARTY_NOTICES.txt` (Araso MIT, Mozc dictionary, SCOWL, Tatoeba, FrequencyWords and others); the iOS app adds `iOS/App/Licenses.txt` (AzooKeyKanaKanjiConverter, MIT, and its dictionary, Apache-2.0).

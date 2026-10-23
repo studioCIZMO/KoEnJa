@@ -1,0 +1,38 @@
+name: 문제 보고 · 問題の報告 · Report a problem
+description: 입력이 이상하거나 설치·실행에 문제가 있을 때 / 入力やインストールの問題 / Wrong input, install or crash
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        이 내용은 **공개**됩니다. 비밀번호나 개인적인 글은 적지 마세요. / この内容は**公開**されます。パスワードや個人的な文章は書かないでください。 / This is **public**: don't paste passwords or private text.
+  - type: input
+    id: platform
+    attributes:
+      label: 플랫폼 · プラットフォーム · Platform
+      placeholder: Windows / iOS / Android
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: KoEnJa 버전 · バージョン · Version
+      placeholder: 0.1.0
+  - type: textarea
+    id: environment
+    attributes:
+      label: 환경과 설정 · 環境と設定 · Environment and settings
+      description: Windows는 설정 창의 '문제 보고'가 채워 줍니다. / Windows では設定画面の「問題を報告」が自動で入力します。 / Filled in by "Report a problem" on Windows.
+      placeholder: "Windows 24H2, keyboard JIS, ko,en,ja, Muhenkan / iPhone 17 Pro, iOS 27.0"
+  - type: textarea
+    id: what
+    attributes:
+      label: 무슨 일이 있었나요 · 何が起きましたか · What happened
+      description: 어떤 앱에서, 무엇을 하다가 / どのアプリで、何をしていたとき / In which app, doing what
+    validations:
+      required: true
+  - type: textarea
+    id: keys
+    attributes:
+      label: 누른 키 → 나온 글자 → 기대한 글자 · 押したキー → 出た文字 → 期待した文字 · Keys → got → expected
+      placeholder: "dkssud → 안녕 → 안녕 ✓ / kyouha → きょうは → 今日は"
