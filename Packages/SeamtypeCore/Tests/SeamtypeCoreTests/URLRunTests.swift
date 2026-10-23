@@ -104,6 +104,14 @@ import Testing
         #expect(field.text.hasPrefix("안녕 "))
     }
 
+    @Test func aWordLeftComposingStaysInTheOldField() {
+        type("kaiginoshiryou", into: japanese)
+        japanese.commitForNewContext(client: nil) // the app was killed with the word on screen
+        field.text = ""; field.cursor = 0; field.marked = NSRange(location: NSNotFound, length: 0) // another app's field
+        type("dhsmf ", into: japanese)
+        #expect(field.text == "오늘 ")
+    }
+
     @Test func aPastedURLCounts() {
         _ = session.handle(.other, client: field) // ⌘V
         field.insertText("https://x.io/", replacing: nil)

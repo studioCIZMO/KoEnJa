@@ -140,10 +140,11 @@ final class TypingTests: XCTestCase {
     /// App Store screenshots: a sentence, then a word left in the bar (its candidates showing).
     func testScreenshotKorean() { shot("1-ko", "dhsmf meetingdptj designdmf reviewgoTek ", "go") }
     func testScreenshotJapanese() { shot("2-ja", "kyouhaiitenkidesune⏎", "kaiginoshiryou") }
-    func testScreenshotEnglish() { shot("3-en", "The keyboard now matches the system layout. ", "dhsmf meetingdms ", "keyboa") }
+    func testScreenshotEnglish() { shot("3-en", "See you at the meeting tomorrow. ", "dhsmf meetingdms ", "Thank") }
 
     func shot(_ name: String, _ keys: String...) {
-        type(String(repeating: "⌫", count: text.count)) // the field keeps the last run's text
+        // The field keeps the last run's text; a word still being composed takes more than one ⌫ a letter.
+        for _ in 0..<5 where !text.isEmpty { type(String(repeating: "⌫", count: text.count + 4)) }
         keys.forEach(type)
         sleep(2)
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
