@@ -29,13 +29,27 @@ bool UserDictionary::learn(const std::u16string& keys, Language language, Langua
     auto index = std::find_if(entries.begin(), entries.end(), [&](auto& e) { return e.keys == keys && e.source == Entry::Source::Learned; });
     std::optional<Entry> current;
     if (index != entries.end()) current = *index;
-    if (current && current->language == language && current->strength == Entry::Strength::Sure) return false;
+    if (current && current->language == language && current->strength == Entry::Strength::Sure) {
+        index->next.reset(); // chosen as remembered: a switch noted since was a slip
+        return false;
+    }
     // Back to what the engine showed, or away from what a weak entry turned it to: the
     // nudge was wrong, and a weak entry for the reading switched back to isn't a correction.
     bool rejected = current && current->strength == Entry::Strength::Weak && current->language == shown;
     if (language == shown || rejected) {
         if (index != entries.end()) entries.erase(index);
         return false;
+    }
+    // A remembered word switched to yet another reading (switching back to Araso's own forgets
+    // it before this): the memory stays until the same switch comes a second time.
+    if (current && current->strength == Entry::Strength::Sure) {
+        index->last = day(today);
+        if (index->next != language) {
+            index->next = language;
+            return false;
+        }
+        *index = Entry{keys, language, Entry::Source::Learned, Entry::Strength::Sure, day(today)};
+        return true;
     }
     if (keys.size() > LONGEST_LEARNED) return false;
     bool sure = current && current->language == language;
@@ -46,10 +60,19 @@ bool UserDictionary::learn(const std::u16string& keys, Language language, Langua
 
 bool UserDictionary::used(const std::u16string& keys, Language language, std::chrono::sys_days today) {
     auto d = day(today);
+    auto noted = std::find_if(entries.begin(), entries.end(), [&](auto& e) { return e.keys == keys && e.strength == Entry::Strength::Sure && e.next; });
+    if (noted != entries.end() && noted->language == language) {
+        noted->next.reset();
+        return true;
+    }
     auto index = std::find_if(entries.begin(), entries.end(), [&](auto& e) { return e.keys == keys && e.strength == Entry::Strength::Weak; });
     if (index == entries.end() || index->language != language || index->last == d) return false;
     index->last = d;
     return true;
+}
+
+bool UserDictionary::forgetLearned(const std::u16string& keys) {
+    return std::erase_if(entries, [&](auto& e) { return e.keys == keys && e.source == Entry::Source::Learned; }) > 0;
 }
 
 bool UserDictionary::dropExpired(std::chrono::sys_days today) {
@@ -81,9 +104,11 @@ UserDictionary UserDictionary::decode(const std::vector<std::u16string>& lines, 
         if (!l || parts[0].empty()) continue;
         if (parts.size() == 3 && parts[2] == u"user") {
             dictionary.entries.push_back({parts[0], *l, Entry::Source::User, std::nullopt, u""});
-        } else if (parts.size() == 5 && parts[2] == u"learned" && (parts[3] == u"weak" || parts[3] == u"sure")) {
+        } else if ((parts.size() == 5 || (parts.size() == 6 && parts[3] == u"sure")) && parts[2] == u"learned" &&
+                   (parts[3] == u"weak" || parts[3] == u"sure")) {
             dictionary.entries.push_back({parts[0], *l, Entry::Source::Learned,
-                                          parts[3] == u"sure" ? Entry::Strength::Sure : Entry::Strength::Weak, parts[4]});
+                                          parts[3] == u"sure" ? Entry::Strength::Sure : Entry::Strength::Weak, parts[4],
+                                          parts.size() == 6 ? language(parts[5]) : std::nullopt});
         }
     }
     return dictionary;
@@ -94,7 +119,8 @@ std::u16string UserDictionary::encoded() const {
     for (auto& e : entries) {
         out += e.keys + u"\t" + raw(e.language);
         if (e.source == Entry::Source::User) out += u"\tuser\n";
-        else out += std::u16string(u"\tlearned\t") + (e.strength == Entry::Strength::Sure ? u"sure" : u"weak") + u"\t" + e.last + u"\n";
+        else out += std::u16string(u"\tlearned\t") + (e.strength == Entry::Strength::Sure ? u"sure" : u"weak") + u"\t" + e.last +
+                    (e.next ? u"\t" + raw(*e.next) : u"") + u"\n";
     }
     return out;
 }
@@ -227,8 +253,13 @@ std::optional<std::u16string> DictionaryEngine::japaneseParticle(const std::u16s
 
 void DictionaryEngine::learn(const std::u16string& keys, Language language, std::optional<Language> engineChoice) {
     Language shown = engineChoice ? *engineChoice : decide(keys, DecisionContext{}).language;
+    // Araso's own reading: the engine under the dictionary, without a nudge.
+    Language own = base->decide(keys, DecisionContext{}).language;
     auto before = store.entries;
-    store.learn(keys, language, shown, UserDictionary::today());
+    auto learned = std::find_if(store.entries.begin(), store.entries.end(), [&](auto& e) { return e.keys == keys && e.source == Entry::Source::Learned; });
+    // Switched away from the reading the dictionary gave, back to Araso's own: forgotten in one go.
+    bool forgot = language == own && learned != store.entries.end() && learned->language == shown && store.forgetLearned(keys);
+    if (!forgot) store.learn(keys, language, shown, UserDictionary::today());
     if (store.entries != before) persist();
 }
 

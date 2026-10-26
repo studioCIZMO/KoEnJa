@@ -57,6 +57,8 @@ class JapaneseSegmenter;
  *   Delete         remove the last kana of a Japanese phrase; in Korean the last jamo of the
  *                  syllable being typed, then whole syllables (as the system's 2-set does);
  *                  else the last keystroke. The word keeps its language until the next letter.
+ *                  With live conversion the last clause goes back to kana (今日はいい天気 →
+ *                  今日はいいてん) until a letter completes a kana, as in macOS's.
  *   Space          English/Korean: commit, then a space. Japanese: convert to kanji
  *                  (with `fullWidthSpace`, a space after Japanese text is full-width; ⇧Space
  *                  types the other width)
@@ -73,7 +75,10 @@ class JapaneseSegmenter;
  * While converting to kanji (candidate window open):
  *   Space / ↓      next candidate          ↑      previous candidate
  *   1–9            commit that candidate   Return commit the selected candidate
- *   Esc / Delete   back to kana            letters/punctuation  commit, then keep typing
+ *   Esc            back to kana            letters/punctuation  commit, then keep typing
+ *   Delete         as macOS's Japanese input: without live conversion, commit what is shown less
+ *                  its last character (変換 → 変); with it, back to typing the phrase, its last
+ *                  clause as kana less one (今日はいい天気 → 今日はいいてん)
  *   A candidate that covers only the start of the reading commits that part and
  *   continues converting the rest.
  * Right after a word was committed with space/punctuation:
@@ -232,6 +237,12 @@ public:
      *  the rest ("kya" for き is "ki"; "kitte" for きっ is "kiltu"). Kotlin's keys(spelling, from). */
     static std::optional<std::u16string> keysSpelling(const std::u16string& spelling, const std::u16string& from);
 
+    /** The clauses before the last of [text], a conversion of [reading], and how much of the
+     *  reading they cover. The last clause is the last run of kanji (or katakana, or anything not
+     *  typed as it shows) with the kana after it: 天気です in 今日はいい天気です. ("", 0) when
+     *  there is nothing before it, or the text can't be matched to the reading. */
+    static std::pair<std::u16string, int> dropLastClause(const std::u16string& text, const std::u16string& reading);
+
 private:
     struct Committed {
         std::u16string keys;
@@ -304,6 +315,16 @@ private:
     /** Esc showed the current phrase's kana instead (the next switch changes language as usual). */
     bool liveSuppressed = false;
     std::optional<std::pair<std::u16string, std::optional<ConversionCandidate>>> liveCache;
+    /** What live conversion keeps on screen after Delete, as macOS's does: the clauses before the
+     *  last as they were shown ([prefix], a conversion of the first [prefixLength] kana of
+     *  [reading]), the rest as kana. Only while the reading stays [reading]: a letter that
+     *  completes a kana converts the whole phrase again. */
+    struct LiveKept {
+        std::u16string prefix;
+        int prefixLength;
+        std::u16string reading;
+    };
+    std::optional<LiveKept> liveKept;
     /** Full-width openers not closed yet in this sentence, so ) ] } close them full-width
      *  after an English word too. */
     std::vector<char16_t> openBrackets;
@@ -331,6 +352,9 @@ private:
     std::u16string japaneseReading(bool partial);
     std::optional<ConversionCandidate> liveCandidate(const std::u16string& kana);
     std::u16string japaneseDisplay();
+    std::optional<std::pair<std::u16string, std::u16string>> liveReading();
+    std::optional<std::u16string> keptOnScreen(const std::u16string& kana);
+    void deleteLive(std::optional<std::pair<std::u16string, std::u16string>> shown = std::nullopt);
     std::u16string committedJapanese();
     void startConversion(TextClient& client);
     void showKanaForms(bool katakanaFirst, std::optional<std::u16string> kana, std::optional<std::u16string> romaji, TextClient& client);
@@ -348,6 +372,7 @@ private:
     bool isOtherLanguageWord(const std::u16string& keys);
     void splitOffJapaneseBeforeKorean(TextClient& client);
     std::optional<std::u16string> preview(Language language);
+    void wordEnds(Language language, Language engineChoice);
     Word finishWord();
     void deleteKana();
     void deleteJamoOrSyllable();

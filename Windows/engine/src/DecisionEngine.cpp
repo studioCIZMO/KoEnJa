@@ -91,6 +91,8 @@ HeuristicEngine::HeuristicEngine(const EnglishModel& english, std::shared_ptr<Ko
       segmenter(japanese ? std::make_shared<JapaneseSegmenter>(english, *japanese) : nullptr) {}
 
 Decision HeuristicEngine::decide(const std::u16string& keys, const DecisionContext& context) {
+    // A number is a number.
+    if (!keys.empty() && all(keys, isNumber)) return Decision{Language::ENGLISH, 0.99, keys, u"a number"};
     // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English,
     // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를):
     // then the scores decide.

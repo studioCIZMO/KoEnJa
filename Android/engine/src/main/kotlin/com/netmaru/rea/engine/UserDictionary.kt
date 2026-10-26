@@ -9,7 +9,9 @@ import java.time.temporal.ChronoUnit
  *
  * `USER` entries were added by hand and stay until removed. `LEARNED` ones come from corrections
  * with the switch key: corrected once they are `WEAK` and only nudge the decision (and are dropped
- * after [WEAK_LIFETIME] days unused), corrected the same way again they are `SURE` and win.
+ * after [WEAK_LIFETIME] days unused), corrected the same way again they are `SURE` and win. A sure
+ * word switched once to another reading notes it ([Entry.next]): switched there again, that reading
+ * is remembered instead; typed as remembered, the note goes.
  *
  * Not ported (the macOS settings window's): text entries, entries limited to apps, add/remove/pin,
  * lexicon.json migration (the old learning file's lines are read instead, see [DictionaryEngine]).
@@ -26,6 +28,8 @@ class UserDictionary(entries: List<Entry> = emptyList()) {
         val strength: Strength? = null,
         /** The day a learned entry was last corrected or typed. */
         val last: LocalDate? = null,
+        /** A sure entry's word was switched once to this reading since it was last typed as remembered. */
+        val next: Language? = null,
     ) {
         /** A language entry that wins the decision: added by hand, or corrected twice. */
         val wins get() = strength != Strength.WEAK
@@ -45,13 +49,26 @@ class UserDictionary(entries: List<Entry> = emptyList()) {
         if (keys.isEmpty() || entries.any { it.keys == keys && it.source == Source.USER }) return false
         val index = entries.indexOfFirst { it.keys == keys && it.source == Source.LEARNED }
         val current = entries.getOrNull(index)
-        if (current?.language == language && current.strength == Strength.SURE) return false
+        if (current?.language == language && current.strength == Strength.SURE) {
+            entries[index] = current.copy(next = null) // chosen as remembered: a switch noted since was a slip
+            return false
+        }
         // Back to what the engine showed, or away from what a weak entry turned it to: the
         // nudge was wrong, and a weak entry for the reading switched back to isn't a correction.
         val rejected = current?.strength == Strength.WEAK && current.language == shown
         if (language == shown || rejected) {
             if (index >= 0) entries.removeAt(index)
             return false
+        }
+        // A remembered word switched to yet another reading (switching back to Araso's own forgets
+        // it before this): the memory stays until the same switch comes a second time.
+        if (current?.strength == Strength.SURE) {
+            if (current.next != language) {
+                entries[index] = current.copy(last = today, next = language)
+                return false
+            }
+            entries[index] = Entry(keys, language, Source.LEARNED, Strength.SURE, today)
+            return true
         }
         if (keys.length > LONGEST_LEARNED) return false
         val sure = current?.language == language
@@ -60,14 +77,23 @@ class UserDictionary(entries: List<Entry> = emptyList()) {
         return sure
     }
 
-    /** A weak entry's word went in as it says: it is still in use, so it stays.
+    /** A weak entry's word went in as it says: it is still in use, so it stays. A sure one's
+     *  did: a switch away from it noted since was a slip.
      *  Returns true when something changed. */
     fun used(keys: String, language: Language, today: LocalDate): Boolean {
+        val noted = entries.indexOfFirst { it.keys == keys && it.strength == Strength.SURE && it.next != null }
+        if (noted >= 0 && entries[noted].language == language) {
+            entries[noted] = entries[noted].copy(next = null)
+            return true
+        }
         val index = entries.indexOfFirst { it.keys == keys && it.strength == Strength.WEAK }
         if (index < 0 || entries[index].language != language || entries[index].last == today) return false
         entries[index] = entries[index].copy(last = today)
         return true
     }
+
+    /** Removes the keys' learned entries, leaving a word added by hand. Returns true when something was removed. */
+    fun forgetLearned(keys: String): Boolean = entries.removeAll { it.keys == keys && it.source == Source.LEARNED }
 
     /** Drops weak entries not corrected or typed for [WEAK_LIFETIME] days. */
     fun dropExpired(today: LocalDate): Boolean = entries.removeAll { entry ->
@@ -88,7 +114,7 @@ class UserDictionary(entries: List<Entry> = emptyList()) {
  * typed straight after them (촉매를, github에, githubで, hogeで); a weak one (corrected once)
  * passes the base engine a nudge toward its language, so only a close call turns.
  *
- * [storeFile]: where it is kept (lines of `user|sure|weak <TAB> keys <TAB> language [<TAB> yyyy-MM-dd]`;
+ * [storeFile]: where it is kept (lines of `user|sure|weak <TAB> keys <TAB> language [<TAB> yyyy-MM-dd [<TAB> next]]`;
  * LearningEngine's `learned|once` lines are read as sure and weak); null keeps it in memory.
  */
 class DictionaryEngine(
@@ -183,13 +209,20 @@ class DictionaryEngine(
      *  always does: a fresh decision might not match). */
     fun learn(keys: String, language: Language, engineChoice: Language? = null) {
         val shown = engineChoice ?: decide(keys, DecisionContext()).language
+        val own = ownDecision(keys, DecisionContext()).language
         val day = today()
         persist(synchronized(this) {
             val before = store.entries.toList()
-            store.learn(keys, language, shown, day)
+            // Switched away from the reading the dictionary gave, back to Araso's own: forgotten in one go.
+            val learned = store.entries.firstOrNull { it.keys == keys && it.source == UserDictionary.Source.LEARNED }
+            if (!(language == own && learned?.language == shown && store.forgetLearned(keys))) store.learn(keys, language, shown, day)
             changed(before)
         })
     }
+
+    /** The keys decided by the engine under the dictionary alone, as if the user had never
+     *  corrected or added them: Araso's own reading. */
+    fun ownDecision(keys: String, context: DecisionContext): Decision = base.decide(keys, context.copy(nudge = null))
 
     /** The word went in as [language] without a correction: a weak entry saying so stays. */
     fun used(keys: String, language: Language) {
@@ -237,7 +270,8 @@ class DictionaryEngine(
                 val last = parts.getOrNull(3)?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: today
                 entries += when (parts[0]) {
                     "user" -> UserDictionary.Entry(parts[1], language, UserDictionary.Source.USER)
-                    "sure", "learned" -> UserDictionary.Entry(parts[1], language, UserDictionary.Source.LEARNED, UserDictionary.Strength.SURE, last)
+                    "sure", "learned" -> UserDictionary.Entry(parts[1], language, UserDictionary.Source.LEARNED, UserDictionary.Strength.SURE, last,
+                                                              Language.entries.firstOrNull { it.raw == parts.getOrNull(4) })
                     "weak", "once" -> UserDictionary.Entry(parts[1], language, UserDictionary.Source.LEARNED, UserDictionary.Strength.WEAK, last)
                     else -> return@forEachLine
                 }
@@ -248,7 +282,7 @@ class DictionaryEngine(
         fun text(entries: List<UserDictionary.Entry>) = buildString {
             for (e in entries) {
                 val kind = e.strength?.name?.lowercase() ?: "user"
-                append("$kind\t${e.keys}\t${e.language.raw}${e.last?.let { "\t$it" } ?: ""}\n")
+                append("$kind\t${e.keys}\t${e.language.raw}${e.last?.let { "\t$it" } ?: ""}${e.next?.let { "\t${it.raw}" } ?: ""}\n")
             }
         }
 

@@ -138,6 +138,8 @@ class HeuristicEngine(
     val segmenter: JapaneseSegmenter? = japanese?.let { JapaneseSegmenter(english, it) }
 
     override fun decide(keys: String, context: DecisionContext): Decision {
+        // A number is a number.
+        if (keys.isNotEmpty() && keys.all { it.isDigit() }) return Decision(Language.ENGLISH, 0.99, keys, "a number")
         // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English,
         // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를):
         // then the scores decide.

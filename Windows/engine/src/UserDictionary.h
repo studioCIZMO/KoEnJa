@@ -19,9 +19,10 @@ namespace rea {
  * `User` entries were added by hand and stay until removed. `Learned` ones come from
  * corrections with the switch key: corrected once they are `Weak` and only nudge the
  * decision (and are dropped after [WEAK_LIFETIME] days unused), corrected the same way again
- * they are `Sure` and win.
+ * they are `Sure` and win. A sure word switched once to another reading notes it (`next`):
+ * switched there again, that reading is remembered instead; typed as remembered, the note goes.
  *
- * Kept as lines of `keys <TAB> language <TAB> user|learned [<TAB> weak|sure <TAB> yyyy-MM-dd]`
+ * Kept as lines of `keys <TAB> language <TAB> user|learned [<TAB> weak|sure <TAB> yyyy-MM-dd [<TAB> next]]`
  * (Swift: dictionary.json); a LearningEngine file's `learned|once <TAB> keys <TAB> language`
  * lines are read as sure and weak entries. Unreadable lines are skipped.
  * Not ported: entries with the user's own text, per-app entries (`apps`), and the settings
@@ -39,6 +40,8 @@ struct UserDictionary {
         std::optional<Strength> strength;
         /** The day a learned entry was last corrected or typed (`yyyy-MM-dd`). */
         std::u16string last;
+        /** A sure entry's word was switched once to this reading since it was last typed as remembered. */
+        std::optional<Language> next;
 
         /** A language entry that wins the decision: added by hand, or corrected twice. */
         bool wins() const { return strength != Strength::Weak; }
@@ -62,9 +65,13 @@ struct UserDictionary {
      *  Keys the user added by hand aren't changed by corrections. */
     bool learn(const std::u16string& keys, Language language, Language shown, std::chrono::sys_days today);
 
-    /** A weak entry's word went in as it says: it is still in use, so it stays.
+    /** A weak entry's word went in as it says: it is still in use, so it stays. A sure one's
+     *  did: a switch away from it noted since was a slip.
      *  Returns true when something changed. */
     bool used(const std::u16string& keys, Language language, std::chrono::sys_days today);
+
+    /** Removes the keys' learned entries, leaving a word added by hand. Returns true when something was removed. */
+    bool forgetLearned(const std::u16string& keys);
 
     /** Drops weak entries not corrected or typed for [WEAK_LIFETIME] days. */
     bool dropExpired(std::chrono::sys_days today);
@@ -115,7 +122,8 @@ public:
     std::optional<Decision> withParticle(const std::u16string& keys);
 
     /** Records that [keys] were corrected to [language]: once is weak, the same again sure,
-     *  back to the engine's choice forgets the word.
+     *  back to the engine's choice forgets the word, and so does a switch from the dictionary's
+     *  reading back to the engine's own (as if never corrected).
      *
      *  Pass [engineChoice] when the caller already knows what was shown (the input method
      *  always does: a fresh decision might not match). */

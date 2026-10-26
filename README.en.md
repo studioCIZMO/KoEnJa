@@ -154,7 +154,9 @@ English word, a particle after an address, and dotfiles in URLs.
 
 We ran Araso's own evaluation tools (`tools/prepare.sh`, `eval_convert.py`, `eval_context.py`) unchanged on upstream
 Araso (22e7d3d) and on KoEnJa's engine, side by side on the same Mac with the same data (2026-10-23, Apple M4,
-macOS 26.7.2). All tables, commands and data hashes are in [docs/evaluation.md](docs/evaluation.md).
+macOS 26.7.2). All tables, commands and data hashes are in [docs/evaluation.md](docs/evaluation.md). After moving
+the engine to Araso 0.3.1 (eee3cbd, 2026-10-26) we ran it again the same way: the language and kanji numbers below
+came out the same for Araso 0.3.1 and for KoEnJa.
 
 **Held-out data** (2,011 English words, 1,987 Korean words, 2,000 Japanese phrases)
 
@@ -246,7 +248,7 @@ KoEnJa uses the **engine** of [Araso](https://github.com/nyttastudio/araso) (© 
 
 | Part | Where it comes from |
 |---|---|
-| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.2.2), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
+| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.3.1), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
 | Language engine, Android (`Android/engine`, Kotlin) and Windows (`Windows/engine`, C++20) | Written for KoEnJa to follow Araso's engine, then checked against it. The Swift, Kotlin and C++ engines replay the same golden file (`Android/engine/src/test/resources/golden.tsv`) and must match line for line. |
 | iOS keyboard and app (`iOS/`) | Written for KoEnJa: the key layout, candidate bar, switch key and settings. |
 | Android keyboard (`Android/app`, `Android/japanese`) | Written for KoEnJa, including a Japanese converter over the Mozc dictionary. |

@@ -6,6 +6,10 @@ changes do, we ran Araso's own evaluation twice on the same machine, with the sa
 commands: once on upstream Araso, once with Araso's engine replaced by ours. Nothing was tuned for this.
 
 - Date: 2026-10-23
+- Re-run 2026-10-26 after our engine moved to Araso 0.3.1 ([`eee3cbd`](https://github.com/nyttastudio/araso/commit/eee3cbd014ad9395bf673b7270011548f91b6f8e)), upstream 0.3.1 against KoEnJa at 0.3.1, same data and commands:
+  language accuracy (Japanese off 99.77%, on 99.40%) and every AzooKey conversion number are unchanged, and the two
+  engines still agree. The one difference from the tables below is macOS's engine without reranking on phrases,
+  77.2% for both (67.2% at 22e7d3d). Memory was not measured again.
 - Araso: [`22e7d3d`](https://github.com/nyttastudio/araso/commit/22e7d3d4a31c8dd0fb81add06be6b481d8b4927f) (0.2.2+), the commit our engine is based on
 - KoEnJa engine: `Packages/SeamtypeCore/Sources/SeamtypeCore` at KoEnJa `99ba133`
 - Machine: Apple M4, macOS 26.7.2 (25G330), Apple Swift 6.4 (swiftlang-6.4.0.33.1), python3 standard library only

@@ -37,6 +37,8 @@ interface TextClient {
  *   Delete         remove the last kana of a Japanese phrase; in Korean the last jamo of the
  *                  syllable being typed, then whole syllables (as the system's 2-set does);
  *                  else the last keystroke. The word keeps its language until the next letter.
+ *                  With live conversion the last clause goes back to kana (今日はいい天気 →
+ *                  今日はいいてん) until a letter completes a kana, as in macOS's.
  *   Space          English/Korean: commit, then a space. Japanese: convert to kanji
  *                  (with `fullWidthSpace`, a space after Japanese text is full-width; ⇧Space
  *                  types the other width)
@@ -54,7 +56,10 @@ interface TextClient {
  * While converting to kanji (candidate window open):
  *   Space / ↓      next candidate          ↑      previous candidate
  *   1–9            commit that candidate   Return commit the selected candidate
- *   Esc / Delete   back to kana            letters/punctuation  commit, then keep typing
+ *   Esc            back to kana            letters/punctuation  commit, then keep typing
+ *   Delete         as macOS's Japanese input: without live conversion, commit what is shown less
+ *                  its last character (変換 → 変); with it, back to typing the phrase, its last
+ *                  clause as kana less one (今日はいい天気 → 今日はいいてん)
  *   A candidate that covers only the start of the reading commits that part and
  *   continues converting the rest.
  * Right after a word was committed with space/punctuation:
@@ -194,6 +199,12 @@ class InputSession(
     /** Esc showed the current phrase's kana instead (the next switch changes language as usual). */
     private var liveSuppressed = false
     private var liveCache: Pair<String, ConversionCandidate?>? = null
+    /** What live conversion keeps on screen after Delete, as macOS's does: the clauses before the
+     *  last as they were shown ([prefix], a conversion of the first [prefixLength] kana of
+     *  [reading]), the rest as kana. Only while the reading stays [reading]: a letter that
+     *  completes a kana converts the whole phrase again. */
+    private class LiveKept(val prefix: String, val prefixLength: Int, val reading: String)
+    private var liveKept: LiveKept? = null
 
     /** Splits English words out of a Japanese phrase (google in kyouhagoogledekensaku). */
     var segmenter: JapaneseSegmenter? =
@@ -257,6 +268,7 @@ class InputSession(
                 if (keys.isEmpty()) { // a new word
                     lastRecorded = null
                     liveSuppressed = false
+                    liveKept = null
                     val cursor = client.selectedRange()
                     afterNumberInJapanese = japaneseEnabled && previousLanguage == Language.JAPANESE
                         && passedRun?.first?.lastOrNull()?.isNumber == true && cursor.location != TextRange.NOT_FOUND
@@ -275,7 +287,7 @@ class InputSession(
                 val shown = forced ?: pinned ?: previewLanguage
                 if (forced == null) pinned = shown
                 when (shown) {
-                    Language.JAPANESE -> deleteKana()
+                    Language.JAPANESE -> if (isLive) deleteLive(deleteKeys = ::deleteKana) else deleteKana()
                     Language.KOREAN -> deleteJamoOrSyllable()
                     else -> keys = keys.dropLast(1)
                 }
@@ -289,8 +301,10 @@ class InputSession(
                 // The switch key is the keyboard's own: with nothing to change it goes nowhere.
                 if (keys.isEmpty()) return key == Key.Cycle
                 // A live-converted phrase goes back to its kana first, also with an Esc that isn't a
-                // switch key, as in macOS's live conversion.
-                if (isLive && (forced ?: previewLanguage) == Language.JAPANESE) {
+                // switch key, as in macOS's live conversion. Only with a conversion on screen: a
+                // phrase showing its kana anyway (たけ, whose first candidate is the kana) switches
+                // or cancels at once, not after a press that changes nothing.
+                if (isLive && (forced ?: previewLanguage) == Language.JAPANESE && japaneseDisplay() != japaneseReading(partial = true)) {
                     liveSuppressed = true
                     updatePreview(client)
                     return true
@@ -398,6 +412,7 @@ class InputSession(
                     commit(client)
                     return false
                 }
+                wordEnds(Language.JAPANESE, committedLanguage())
                 showKanaForms(key == Key.Katakana, client = client)
                 return true
             }
@@ -441,6 +456,7 @@ class InputSession(
         syllableStart = null
         addedNMarker = false
         liveSuppressed = false
+        liveKept = null
         updatePreview(client)
     }
 
@@ -530,6 +546,7 @@ class InputSession(
     private fun startSymbol(symbol: String, client: TextClient, range: TextRange? = null) {
         lastRecorded = null
         liveSuppressed = false
+        liveKept = null
         keys = symbol
         forced = Language.JAPANESE
         forcedByUser = false
@@ -688,12 +705,55 @@ class InputSession(
     private fun japaneseDisplay(): String {
         val reading = japaneseReading(partial = true)
         if (!isLive) return reading
-        val pending = RomajiComposer.compose(keys, partial = true).pending
-        if (!reading.endsWith(pending)) return reading
-        val kana = reading.dropLast(pending.length)
+        val (kana, pending) = liveReading() ?: return reading
+        keptOnScreen(kana)?.let { return it + pending }
         if (kana.isEmpty()) return reading
         val candidate = liveCandidate(kana) ?: return reading
         return candidate.text + pending
+    }
+
+    /** The phrase's reading without the letters still waiting for their vowel, and those letters. */
+    private fun liveReading(): Pair<String, String>? {
+        val reading = japaneseReading(partial = true)
+        val pending = RomajiComposer.compose(keys, partial = true).pending
+        if (!reading.endsWith(pending)) return null
+        return reading.dropLast(pending.length) to pending
+    }
+
+    /** What Delete left of a live-converted [kana] on screen ([liveKept]), if that is still it. */
+    private fun keptOnScreen(kana: String): String? {
+        val kept = liveKept ?: return null
+        return if (kept.reading == kana) kept.prefix + kana.drop(kept.prefixLength) else null
+    }
+
+    /** Delete with live conversion, as macOS's: the last clause on screen goes back to kana, less
+     *  its last kana (今日はいい天気 → 今日はいいてん, 漢字k → かんじ), the clauses before it stay
+     *  as they were shown, and further Deletes take kana off the end. [deleteKeys] takes the kana
+     *  off the keys; [shown] (text, kana) is a conversion on screen instead of live conversion's. */
+    private fun deleteLive(shown: Pair<String, String>? = null, deleteKeys: () -> Unit) {
+        val typed = liveReading()?.first ?: return deleteKeys()
+        val kana = shown?.second ?: typed
+        val kept = liveKept
+        var prefix: String
+        var length: Int
+        val candidate = if (shown == null && kana.isNotEmpty()) liveCandidate(kana) else null
+        when {
+            shown != null -> { prefix = shown.first; length = kana.length }
+            kept != null && kept.reading == kana -> { prefix = kept.prefix; length = kept.prefixLength }
+            candidate != null -> { prefix = candidate.text; length = kana.length }
+            else -> { prefix = ""; length = 0 }
+        }
+        deleteKeys()
+        val after = liveReading()?.first ?: ""
+        // Nothing shown as kana after the conversion: this Delete reaches its last clause.
+        if (length >= kana.length || after.length < length) {
+            do {
+                val (p, l) = dropLastClause(prefix, kana.take(length))
+                prefix = p
+                length = l
+            } while (after.length < length)
+        }
+        liveKept = if (after.isEmpty()) null else LiveKept(prefix, length, after)
     }
 
     /** What a Japanese phrase commits as without the candidate window: the kana, or with
@@ -705,6 +765,8 @@ class InputSession(
         val pending = RomajiComposer.compose(keys, partial = true).pending
         val kana = if (reading.endsWith(pending)) reading.dropLast(pending.length) else reading
         val letters = reading.drop(kana.length)
+        // What Delete left on screen goes in as shown; nothing was chosen to learn.
+        if (isLive) keptOnScreen(kana)?.let { return it + letters }
         val converter = converter
         if (!isLive || converter == null || kana.isEmpty()) return reading
         val candidate = liveCandidate(kana) ?: return reading
@@ -715,8 +777,14 @@ class InputSession(
     private fun startConversion(client: TextClient) {
         var kana = japaneseReading(partial = false)
         if (converter == null || kana.isEmpty()) return
+        // After a Delete live conversion shows the end as kana (へんかn), not a candidate: Space
+        // shows the first one (変換), as macOS does.
+        val kept = if (isLive) liveReading()?.let { keptOnScreen(it.first) } else null
+        // Nor is one on screen with a letter waiting for its vowel: 変化n was へんか's, so Space on
+        // henkan shows へんかん's first, 変換, as macOS does, not the one after it.
+        val pendingShown = isLive && liveReading()?.second?.isNotEmpty() == true
         val userForced = forced == Language.JAPANESE && forcedByUser
-        if (userForced && !inURLRun) record(keys, Language.JAPANESE, committedLanguage())
+        wordEnds(Language.JAPANESE, committedLanguage())
         // A number the app typed just before the phrase is part of it: 3ji is 3時, not 3 and 時
         // picked out of 地, 字, 自…
         val marked = client.markedRange()
@@ -737,7 +805,7 @@ class InputSession(
             candidates = candidates.filter { it.text.startsWith(numberPrefix) } + candidates.filter { !it.text.startsWith(numberPrefix) }
         }
         // Live conversion showed the phrase without the number, so no candidate is on screen yet.
-        val live = if (isLive && numberPrefix.isEmpty()) liveCandidate(kana) else null
+        val live = if (isLive && numberPrefix.isEmpty() && kept == null && !pendingShown) liveCandidate(kana) else null
         val phrases = replacements[kana]
         if (!phrases.isNullOrEmpty()) {
             // Text replacements come first, or right after the live candidate already on screen.
@@ -764,6 +832,7 @@ class InputSession(
             selected = 1
         }
         liveSuppressed = false
+        liveKept = null
         val conversion = Conversion(kana, keys, candidates, selected, userForced, numberPrefix)
         this.conversion = conversion
         keys = ""
@@ -865,7 +934,18 @@ class InputSession(
 
             key == Key.Escape || key == Key.Cycle || key == Key.Delete -> {
                 this.conversion = null
-                liveSuppressed = true // "back to kana" means kana, also with live conversion
+                // Delete with live conversion off: the conversion on screen goes in less its last
+                // character (変換 → 変), as in macOS's Japanese input.
+                if (key == Key.Delete && !liveConversion) {
+                    val text = conversion.display.dropLast(1)
+                    client.insertText(text, null)
+                    noteRun(text)
+                    noteBrackets(text)
+                    previousLanguage = Language.JAPANESE
+                    return true
+                }
+                // "Back to kana" means kana, also with live conversion; Delete goes on with it.
+                liveSuppressed = key != Key.Delete
                 // A number taken in from before the phrase goes back as it was typed.
                 if (conversion.numberPrefix.isNotEmpty()) {
                     client.insertText(conversion.numberPrefix, null)
@@ -875,15 +955,27 @@ class InputSession(
                 // Back to editing the romaji — when it still spells the reading. After part of a
                 // phrase with English in it was committed it may not; keep the kana rather than lose it.
                 if (JapaneseSegmenter.reading(conversion.keys, segmenter) != kana) {
-                    client.insertText(kana, null)
-                    noteRun(kana)
+                    val text = if (key == Key.Delete) kana.dropLast(1) else kana
+                    client.insertText(text, null)
+                    noteRun(text)
                     previousLanguage = Language.JAPANESE
+                    return true
+                }
+                keys = conversion.keys
+                syllableStart = null
+                if (key == Key.Delete) {
+                    // With live conversion, as macOS's: typing the phrase again, its last clause back
+                    // to kana less the last one (今日はいい天気 → 今日はいいてん), the clauses before it as shown.
+                    forced = Language.JAPANESE
+                    forcedByUser = conversion.userForced
+                    val shown = if (conversion.numberPrefix.isEmpty()) conversion.display else ""
+                    deleteLive(shown to kana, ::deleteKana)
+                    if (keys.isEmpty()) { forced = null; forcedByUser = false }
+                    updatePreview(client)
                     return true
                 }
                 // A final "n" was shown as ん; keep it ("henkan" → "henkan'") instead of
                 // letting it wait for a vowel again.
-                keys = conversion.keys
-                syllableStart = null
                 if (keys.endsWith("n") && !keys.endsWith("nn")) { keys += "'"; addedNMarker = true }
                 forced = Language.JAPANESE
                 forcedByUser = conversion.userForced
@@ -1194,6 +1286,14 @@ class InputSession(
 
     private class Word(val keys: String, val text: String, val language: Language, val decided: Language)
 
+    /** The word being typed ends as [language]: it goes in, or its conversion or kana forms start.
+     *  A correction the user made to it is learned; otherwise it was typed again (a weak entry
+     *  saying so stays). Inside a URL or path it isn't a word: neither. */
+    private fun wordEnds(language: Language, engineChoice: Language) {
+        if (inURLRun) return
+        if (forced != null && forcedByUser) record(keys, language, engineChoice) else engine.used(keys, language)
+    }
+
     /** Decides the current word, learns a switch-key override, and resets the buffer. */
     private fun finishWord(): Word {
         val engineChoice = committedLanguage()
@@ -1202,15 +1302,14 @@ class InputSession(
         // "Back to kana" without the user's switch, or a reading kept while deleting, isn't a
         // correction: report it as the engine's.
         val decided = if ((forced != null && !forcedByUser) || (forced == null && pinned != null)) language else engineChoice
-        if (inURLRun) {
-            // Not a word: neither a correction to learn nor a use of one.
-        } else if (forced != null && forcedByUser) record(keys, language, decided) else engine.used(keys, language)
+        wordEnds(language, decided)
         val text = when (language) {
             Language.JAPANESE -> committedJapanese()
             Language.KOREAN -> hangul() ?: engine.render(keys, language)
             else -> engine.render(keys, language)
         }
         liveSuppressed = false
+        liveKept = null
         noteBrackets(text)
         val word = Word(keys, text, language, decided)
         previousLanguage = language.sentenceLanguage
@@ -1319,6 +1418,31 @@ class InputSession(
         private val pairs = mapOf('）' to '（', '」' to '「', '｝' to '｛', '』' to '『', '】' to '【')
 
         private val koreanModel by lazy { KoreanModel() }
+
+        /** The clauses before the last of [text], a conversion of [reading], and how much of the
+         *  reading they cover. The last clause is the last run of kanji (or katakana, or anything not
+         *  typed as it shows) with the kana after it: 天気です in 今日はいい天気です. ("", 0) when
+         *  there is nothing before it, or the text can't be matched to the reading. */
+        internal fun dropLastClause(text: String, reading: String): Pair<String, Int> {
+            /** Kana and letters show as typed; anything else converted some of the reading. */
+            fun literal(c: Char) = c.code < 0x80 || c.code in 0x3041..0x309F
+            var start = text.indexOfLast { !literal(it) }
+            if (start < 0) return "" to 0
+            while (start > 0 && !literal(text[start - 1])) start--
+            val prefix = text.substring(0, start)
+            // How much of the reading the prefix covers, its conversions as short as they can be
+            // (今日 is きょう in きょうははこ, so 箱 is はこ); the last clause keeps at least one kana.
+            fun covered(p: Int, r: Int): Int? {
+                if (p >= prefix.length) return if (r < reading.length) r else null
+                if (literal(prefix[p])) return if (r < reading.length && reading[r] == prefix[p]) covered(p + 1, r + 1) else null
+                var end = p
+                while (end < prefix.length && !literal(prefix[end])) end++
+                for (r2 in r + 1..reading.length) covered(end, r2)?.let { return it }
+                return null
+            }
+            val length = if (prefix.isEmpty()) null else covered(0, 0)
+            return if (length == null) "" to 0 else prefix to length
+        }
 
         /** Whether a run of text without spaces is a URL or path from here on: `://`, `www.`, `~/`,
          *  `./` or `../` at its start, a path that starts with `/` and has another, `@` after

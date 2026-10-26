@@ -151,7 +151,8 @@ KoEnJa での変更は `Packages/SeamtypeCore/UPSTREAM` に記載し、コード
 
 Araso の評価ツール（`tools/prepare.sh`、`eval_convert.py`、`eval_context.py`）をそのまま使い、同じ Mac・同じデータで
 Araso 本家（22e7d3d）と KoEnJa のエンジンを並べて測りました（2026-10-23、Apple M4、macOS 26.7.2）。すべての表、
-コマンド、データのハッシュは [docs/evaluation.md](docs/evaluation.md)（英語）にあります。
+コマンド、データのハッシュは [docs/evaluation.md](docs/evaluation.md)（英語）にあります。エンジンを Araso 0.3.1（eee3cbd）に
+更新したあと（2026-10-26）同じ方法で測り直し、下の言語判定と漢字変換の数値は Araso 0.3.1・KoEnJa ともに変わりませんでした。
 
 **学習に使っていないデータ**（英単語 2,011 件、韓国語の単語 1,987 件、日本語のフレーズ 2,000 件）
 
@@ -242,7 +243,7 @@ Araso は macOS 用の入力メソッドで、エンジンはそのうち単語�
 
 | 部分 | 出どころ |
 | --- | --- |
-| 言語エンジン、iOS（`Packages/SeamtypeCore`） | Araso のエンジンのソース（`ArasoCore`、0.2.2）を MIT ライセンスに基づいて使い、KoEnJa の変更を加えています。変更は `// REA:` で印をつけ、`Packages/SeamtypeCore/UPSTREAM` に記載しています。韓国語の単語リストのメモリ、画面に表示したとおりの確定、混在言語の規則です。 |
+| 言語エンジン、iOS（`Packages/SeamtypeCore`） | Araso のエンジンのソース（`ArasoCore`、0.3.1）を MIT ライセンスに基づいて使い、KoEnJa の変更を加えています。変更は `// REA:` で印をつけ、`Packages/SeamtypeCore/UPSTREAM` に記載しています。韓国語の単語リストのメモリ、画面に表示したとおりの確定、混在言語の規則です。 |
 | 言語エンジン、Android（`Android/engine`、Kotlin）と Windows（`Windows/engine`、C++20） | Araso のエンジンに倣って KoEnJa 用に書き、照合しました。Swift・Kotlin・C++ のエンジンは同じゴールデンファイル（`Android/engine/src/test/resources/golden.tsv`）を再生し、1 行も違ってはいけません。 |
 | iOS のキーボードとアプリ（`iOS/`） | KoEnJa 用に作成：キー配置、候補バー、切り替えキー、設定 |
 | Android のキーボード（`Android/app`、`Android/japanese`） | KoEnJa 用に作成：Mozc 辞書を使う日本語変換器を含む |

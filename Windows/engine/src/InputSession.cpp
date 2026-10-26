@@ -1,6 +1,7 @@
 #include "InputSession.h"
 
 #include <algorithm>
+#include <tuple>
 #include <unordered_set>
 
 #include "EnglishModel.h"
@@ -96,6 +97,7 @@ bool InputSession::handle(Key key, TextClient& client) {
             if (keys.empty()) { // a new word
                 lastRecorded.reset();
                 liveSuppressed = false;
+                liveKept.reset();
                 auto cursor = client.selectedRange();
                 afterNumberInJapanese = japaneseEnabled && previousLanguage == Language::JAPANESE
                     && passedRun && !passedRun->first.empty() && isNumber(passedRun->first.back())
@@ -113,7 +115,8 @@ bool InputSession::handle(Key key, TextClient& client) {
             if (keys.empty()) { noteDeleted(); return false; }
             auto shown = forced ? forced : pinned ? pinned : previewLanguage;
             if (!forced) pinned = shown;
-            if (shown == Language::JAPANESE) deleteKana();
+            if (shown == Language::JAPANESE && isLive()) deleteLive();
+            else if (shown == Language::JAPANESE) deleteKana();
             else if (shown == Language::KOREAN) deleteJamoOrSyllable();
             else keys = dropLast(keys, 1);
             addedNMarker = false;
@@ -127,8 +130,10 @@ bool InputSession::handle(Key key, TextClient& client) {
             // The switch key is the keyboard's own: with nothing to change it goes nowhere.
             if (keys.empty()) return key.kind == Kind::Cycle;
             // A live-converted phrase goes back to its kana first, also with an Esc that isn't a
-            // switch key, as in macOS's live conversion.
-            if (isLive() && (forced ? forced : previewLanguage) == Language::JAPANESE) {
+            // switch key, as in macOS's live conversion. Only with a conversion on screen: a phrase
+            // showing its kana anyway (たけ, whose first candidate is the kana) switches or cancels
+            // at once, not after a press that changes nothing.
+            if (isLive() && (forced ? forced : previewLanguage) == Language::JAPANESE && japaneseDisplay() != japaneseReading(true)) {
                 liveSuppressed = true;
                 updatePreview(client);
                 return true;
@@ -237,6 +242,7 @@ bool InputSession::handle(Key key, TextClient& client) {
                 commit(&client);
                 return false;
             }
+            wordEnds(Language::JAPANESE, committedLanguage());
             showKanaForms(key.kind == Kind::Katakana, std::nullopt, std::nullopt, client);
             return true;
         }
@@ -285,6 +291,7 @@ void InputSession::cancelComposition(TextClient& client) {
     syllableStart.reset();
     addedNMarker = false;
     liveSuppressed = false;
+    liveKept.reset();
     updatePreview(client);
 }
 
@@ -379,6 +386,7 @@ void InputSession::resetRun() {
 void InputSession::startSymbol(const std::u16string& symbol, TextClient& client, std::optional<TextRange> range) {
     lastRecorded.reset();
     liveSuppressed = false;
+    liveKept.reset();
     keys = symbol;
     forced = Language::JAPANESE;
     forcedByUser = false;
@@ -536,14 +544,82 @@ std::optional<ConversionCandidate> InputSession::liveCandidate(const std::u16str
  *  candidate followed by letters still waiting for their vowel (今日はいい天気でs). */
 std::u16string InputSession::japaneseDisplay() {
     auto reading = japaneseReading(true);
-    if (!isLive()) return reading;
-    auto pending = RomajiComposer::compose(keys, true).pending;
-    if (!endsWith(reading, pending)) return reading;
-    auto kana = dropLast(reading, pending.size());
+    auto live = isLive() ? liveReading() : std::nullopt;
+    if (!live) return reading;
+    auto& [kana, pending] = *live;
+    if (auto kept = keptOnScreen(kana)) return *kept + pending;
     if (kana.empty()) return reading;
     auto candidate = liveCandidate(kana);
     if (!candidate) return reading;
     return candidate->text + pending;
+}
+
+/** The phrase's reading without the letters still waiting for their vowel, and those letters. */
+std::optional<std::pair<std::u16string, std::u16string>> InputSession::liveReading() {
+    auto reading = japaneseReading(true);
+    auto pending = RomajiComposer::compose(keys, true).pending;
+    if (!endsWith(reading, pending)) return std::nullopt;
+    return std::pair(dropLast(reading, pending.size()), pending);
+}
+
+/** What Delete left of a live-converted [kana] on screen ([liveKept]), if that is still it. */
+std::optional<std::u16string> InputSession::keptOnScreen(const std::u16string& kana) {
+    if (!liveKept || liveKept->reading != kana) return std::nullopt;
+    return liveKept->prefix + drop(kana, liveKept->prefixLength);
+}
+
+/** Delete with live conversion, as macOS's: the last clause on screen goes back to kana, less
+ *  its last kana (今日はいい天気 → 今日はいいてん, 漢字k → かんじ), the clauses before it stay
+ *  as they were shown, and further Deletes take kana off the end. [shown] (text, kana) is a
+ *  conversion on screen instead of live conversion's. */
+void InputSession::deleteLive(std::optional<std::pair<std::u16string, std::u16string>> shown) {
+    auto typed = liveReading();
+    if (!typed) return deleteKana();
+    auto kana = shown ? shown->second : typed->first;
+    std::u16string prefix;
+    int length = 0;
+    if (shown) {
+        prefix = shown->first; length = int(kana.size());
+    } else if (liveKept && liveKept->reading == kana) {
+        prefix = liveKept->prefix; length = liveKept->prefixLength;
+    } else if (auto candidate = kana.empty() ? std::nullopt : liveCandidate(kana)) {
+        prefix = candidate->text; length = int(kana.size());
+    }
+    deleteKana();
+    auto now = liveReading();
+    auto after = now ? now->first : std::u16string();
+    // Nothing shown as kana after the conversion: this Delete reaches its last clause.
+    if (length >= int(kana.size()) || int(after.size()) < length) {
+        do {
+            std::tie(prefix, length) = dropLastClause(prefix, kana.substr(0, length));
+        } while (int(after.size()) < length);
+    }
+    if (after.empty()) liveKept.reset(); else liveKept = LiveKept{prefix, length, after};
+}
+
+std::pair<std::u16string, int> InputSession::dropLastClause(const std::u16string& text, const std::u16string& reading) {
+    // Kana and letters show as typed; anything else converted some of the reading.
+    auto literal = [](char16_t c) { return c < 0x80 || (c >= 0x3041 && c <= 0x309F); };
+    int start = int(text.size()) - 1;
+    while (start >= 0 && literal(text[start])) start--;
+    if (start < 0) return {u"", 0};
+    while (start > 0 && !literal(text[start - 1])) start--;
+    const std::u16string prefix = text.substr(0, start);
+    const int p_end = int(prefix.size()), k_end = int(reading.size());
+    // How much of the reading the prefix covers, its conversions as short as they can be
+    // (今日 is きょう in きょうははこ, so 箱 is はこ); the last clause keeps at least one kana.
+    auto covered = [&](auto& self, int p, int r) -> std::optional<int> {
+        if (p >= p_end) return r < k_end ? std::optional<int>(r) : std::nullopt;
+        if (literal(prefix[p])) return r < k_end && reading[r] == prefix[p] ? self(self, p + 1, r + 1) : std::nullopt;
+        int end = p;
+        while (end < p_end && !literal(prefix[end])) end++;
+        for (int r2 = r + 1; r2 <= k_end; r2++) if (auto found = self(self, end, r2)) return found;
+        return std::nullopt;
+    };
+    if (prefix.empty()) return {u"", 0};
+    auto length = covered(covered, 0, 0);
+    if (!length) return {u"", 0};
+    return {prefix, *length};
 }
 
 /** What a Japanese phrase commits as without the candidate window: the kana, or with
@@ -555,6 +631,8 @@ std::u16string InputSession::committedJapanese() {
     auto pending = RomajiComposer::compose(keys, true).pending;
     auto kana = endsWith(reading, pending) ? dropLast(reading, pending.size()) : reading;
     auto letters = drop(reading, kana.size());
+    // What Delete left on screen goes in as shown; nothing was chosen to learn.
+    if (isLive()) if (auto kept = keptOnScreen(kana)) return *kept + letters;
     if (!isLive() || !converter || kana.empty()) return reading;
     auto candidate = liveCandidate(kana);
     if (!candidate) return reading;
@@ -565,8 +643,15 @@ std::u16string InputSession::committedJapanese() {
 void InputSession::startConversion(TextClient& client) {
     auto kana = japaneseReading(false);
     if (!converter || kana.empty()) return;
+    // After a Delete live conversion shows the end as kana (へんかn), not a candidate: Space
+    // shows the first one (変換), as macOS does.
+    auto live0 = isLive() ? liveReading() : std::nullopt;
+    bool kept = live0 && keptOnScreen(live0->first);
+    // Nor is one on screen with a letter waiting for its vowel: 変化n was へんか's, so Space on
+    // henkan shows へんかん's first, 変換, as macOS does, not the one after it.
+    bool pendingShown = live0 && !live0->second.empty();
     bool userForced = forced == Language::JAPANESE && forcedByUser;
-    if (userForced && !inURLRun) record(keys, Language::JAPANESE, committedLanguage());
+    wordEnds(Language::JAPANESE, committedLanguage());
     // A number the app typed just before the phrase is part of it: 3ji is 3時, not 3 and 時
     // picked out of 地, 字, 自…
     auto marked = client.markedRange();
@@ -587,7 +672,7 @@ void InputSession::startConversion(TextClient& client) {
         std::stable_partition(candidates.begin(), candidates.end(), [&](auto& c) { return startsWith(c.text, numberPrefix); });
     }
     // Live conversion showed the phrase without the number, so no candidate is on screen yet.
-    auto live = isLive() && numberPrefix.empty() ? liveCandidate(kana) : std::nullopt;
+    auto live = isLive() && numberPrefix.empty() && !kept && !pendingShown ? liveCandidate(kana) : std::nullopt;
     auto phrases = replacements.find(kana);
     if (phrases != replacements.end() && !phrases->second.empty()) {
         // Text replacements come first, or right after the live candidate already on screen.
@@ -624,6 +709,7 @@ void InputSession::startConversion(TextClient& client) {
         selected = 1;
     }
     liveSuppressed = false;
+    liveKept.reset();
     conversion = Conversion{kana, keys, candidates, selected, userForced, numberPrefix};
     keys = u"";
     forced.reset();
@@ -717,7 +803,19 @@ bool InputSession::handleConverting(Key key, TextClient& client) {
     }
     if (key.kind == Kind::Escape || key.kind == Kind::Cycle || key.kind == Kind::Delete) {
         conversion.reset();
-        liveSuppressed = true; // "back to kana" means kana, also with live conversion
+        bool deletes = key.kind == Kind::Delete;
+        // Delete with live conversion off: the conversion on screen goes in less its last
+        // character (変換 → 変), as in macOS's Japanese input.
+        if (deletes && !liveConversion) {
+            auto text = dropLast(current.display(), 1);
+            client.insertText(text, std::nullopt);
+            noteRun(text);
+            noteBrackets(text);
+            setPreviousLanguage(Language::JAPANESE);
+            return true;
+        }
+        // "Back to kana" means kana, also with live conversion; Delete goes on with it.
+        liveSuppressed = !deletes;
         // A number taken in from before the phrase goes back as it was typed.
         if (!current.numberPrefix.empty()) {
             client.insertText(current.numberPrefix, std::nullopt);
@@ -727,15 +825,26 @@ bool InputSession::handleConverting(Key key, TextClient& client) {
         // Back to editing the romaji — when it still spells the reading. After part of a
         // phrase with English in it was committed it may not; keep the kana rather than lose it.
         if (JapaneseSegmenter::reading(current.keys, segmenter.get()) != kana) {
-            client.insertText(kana, std::nullopt);
-            noteRun(kana);
+            auto text = deletes ? dropLast(kana, 1) : kana;
+            client.insertText(text, std::nullopt);
+            noteRun(text);
             setPreviousLanguage(Language::JAPANESE);
+            return true;
+        }
+        keys = current.keys;
+        syllableStart.reset();
+        if (deletes) {
+            // With live conversion, as macOS's: typing the phrase again, its last clause back
+            // to kana less the last one (今日はいい天気 → 今日はいいてん), the clauses before it as shown.
+            forced = Language::JAPANESE;
+            forcedByUser = current.userForced;
+            deleteLive(std::pair(current.numberPrefix.empty() ? current.display() : u"", kana));
+            if (keys.empty()) { forced.reset(); forcedByUser = false; }
+            updatePreview(client);
             return true;
         }
         // A final "n" was shown as ん; keep it ("henkan" → "henkan'") instead of
         // letting it wait for a vowel again.
-        keys = current.keys;
-        syllableStart.reset();
         if (endsWith(keys, u"n") && !endsWith(keys, u"nn")) { keys += u"'"; addedNMarker = true; }
         forced = Language::JAPANESE;
         forcedByUser = current.userForced;
@@ -1050,6 +1159,15 @@ std::optional<std::u16string> InputSession::preview(Language language) {
     return std::nullopt;
 }
 
+/** The word being typed ends as [language]: it goes in, or its conversion or kana forms start.
+ *  A correction the user made to it is learned; otherwise it was typed again (a weak entry
+ *  saying so stays). Inside a URL or path it isn't a word: neither. */
+void InputSession::wordEnds(Language language, Language engineChoice) {
+    if (inURLRun) return;
+    if (forced && forcedByUser) record(keys, language, engineChoice);
+    else engine->used(keys, language);
+}
+
 /** Decides the current word, learns a switch-key override, and resets the buffer. */
 InputSession::Word InputSession::finishWord() {
     Language engineChoice = committedLanguage();
@@ -1058,18 +1176,13 @@ InputSession::Word InputSession::finishWord() {
     // "Back to kana" without the user's switch, or a reading kept while deleting, isn't a
     // correction: report it as the engine's.
     Language decided = ((forced && !forcedByUser) || (!forced && pinned)) ? language : engineChoice;
-    if (inURLRun) {
-        // Not a word: neither a correction to learn nor a use of one.
-    } else if (forced && forcedByUser) {
-        record(keys, language, decided);
-    } else {
-        engine->used(keys, language);
-    }
+    wordEnds(language, decided);
     std::u16string text;
     if (language == Language::JAPANESE) text = committedJapanese();
     else if (language == Language::KOREAN) { auto h = hangul(); text = h ? *h : engine->render(keys, language); }
     else text = engine->render(keys, language);
     liveSuppressed = false;
+    liveKept.reset();
     noteBrackets(text);
     Word word{keys, text, language, decided};
     setPreviousLanguage(sentenceLanguage(language));

@@ -149,7 +149,8 @@ KoEnJa가 바꾼 점은 `Packages/SeamtypeCore/UPSTREAM`에 적고 코드에 `//
 
 Araso의 평가 도구(`tools/prepare.sh`, `eval_convert.py`, `eval_context.py`)를 그대로 써서, 같은 Mac에서 같은 데이터로
 Araso 원본(22e7d3d)과 KoEnJa 엔진을 나란히 쟀습니다(2026-10-23, Apple M4, macOS 26.7.2). 전체 표, 명령, 데이터
-해시는 [docs/evaluation.md](docs/evaluation.md)에 있습니다.
+해시는 [docs/evaluation.md](docs/evaluation.md)에 있습니다. 엔진을 Araso 0.3.1(eee3cbd)로 올린 뒤(2026-10-26) 같은 방법으로
+다시 쟀고, 아래 언어 판단과 한자 변환 수치는 Araso 0.3.1과 KoEnJa 모두 그대로였습니다.
 
 **학습에 쓰지 않은 데이터** (영어 단어 2,011개, 한국어 단어 1,987개, 일본어 구절 2,000개)
 
@@ -239,7 +240,7 @@ Araso는 iOS, Android, Windows에서 돌아가지 않고, KoEnJa의 앱·키보�
 
 | 부분 | 출처 |
 | --- | --- |
-| 언어 엔진, iOS (`Packages/SeamtypeCore`) | Araso의 엔진 소스(`ArasoCore`, 0.2.2)를 MIT 라이선스에 따라 쓰고 KoEnJa의 변경을 더했습니다. 변경은 `// REA:`로 표시하고 `Packages/SeamtypeCore/UPSTREAM`에 적었습니다. 한국어 단어 목록의 메모리, 화면에 보인 그대로 확정하기, 섞인 언어 규칙입니다. |
+| 언어 엔진, iOS (`Packages/SeamtypeCore`) | Araso의 엔진 소스(`ArasoCore`, 0.3.1)를 MIT 라이선스에 따라 쓰고 KoEnJa의 변경을 더했습니다. 변경은 `// REA:`로 표시하고 `Packages/SeamtypeCore/UPSTREAM`에 적었습니다. 한국어 단어 목록의 메모리, 화면에 보인 그대로 확정하기, 섞인 언어 규칙입니다. |
 | 언어 엔진, Android (`Android/engine`, Kotlin)와 Windows (`Windows/engine`, C++20) | Araso의 엔진을 따라 KoEnJa용으로 새로 작성하고 대조했습니다. Swift, Kotlin, C++ 엔진은 같은 골든 파일(`Android/engine/src/test/resources/golden.tsv`)을 재생해 한 줄도 다르지 않아야 합니다. |
 | iOS 키보드와 앱 (`iOS/`) | KoEnJa용으로 작성: 키 배치, 후보 막대, 전환 키, 설정 |
 | Android 키보드 (`Android/app`, `Android/japanese`) | KoEnJa용으로 작성: Mozc 사전 위의 일본어 변환기 포함 |
