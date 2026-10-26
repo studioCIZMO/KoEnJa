@@ -106,7 +106,7 @@ public struct MixedWord: Equatable, Sendable {
 extension DubeolsikLayout {
     /// A Korean syllable has to start with a consonant key.
     static func startsSyllable(_ key: Character) -> Bool {
-        if KoreanLayout.current == .sebeolsikFinal { return SebeolsikFinal.startsSyllable(key) }
+        if KoreanLayout.current.isSebeolsik { return Sebeolsik.startsSyllable(key) }
         return jamo(for: key).map(Jamo.isConsonant) ?? false
     }
 }

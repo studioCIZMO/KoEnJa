@@ -24,6 +24,14 @@ public enum Language: String, Codable, Sendable {
     /// be forced into its language when nothing reads cleanly. `splits`: whether the engine
     /// splits the keys (x에, hello월드 as well as github에); left out, the particle split decides.
     public func next(for keys: String, japanese: Bool = false, splits: Bool? = nil) -> Language {
+        let cycle = cycle(for: keys, japanese: japanese, splits: splits)
+        guard let index = cycle.firstIndex(of: self) else { return cycle.first ?? .english }
+        return cycle[(index + 1) % cycle.count]
+    }
+
+    /// The readings `next` goes through for these keys, in order (this one among them, even
+    /// when garbled, so it can be cycled away from).
+    public func cycle(for keys: String, japanese: Bool = false, splits: Bool? = nil) -> [Language] {
         let order: [Language] = [.english, .mixed, .korean, .japanese]
         let available = order.filter { language in
             switch language {
@@ -40,9 +48,7 @@ public enum Language: String, Codable, Sendable {
             case .japanese: return RomajiComposer.compose(keys).strayLetters == 0
             }
         }
-        let cycle = clean.count >= 2 ? available.filter { clean.contains($0) || $0 == self } : available
-        guard let index = cycle.firstIndex(of: self) else { return cycle.first ?? .english }
-        return cycle[(index + 1) % cycle.count]
+        return clean.count >= 2 ? available.filter { clean.contains($0) || $0 == self } : available
     }
 }
 
@@ -75,6 +81,12 @@ public struct Decision: Sendable {
     public let explanation: String
     /// The second most likely language, when the engine compared several.
     public var runnerUp: Language? = nil
+    /// How many characters at the start of `output` are a word of the user's dictionary that
+    /// won (one learned for good or added by hand): all of it, or the word before a particle
+    /// (ghostty in ghostty에). Nil when the dictionary didn't decide.
+    public var remembered: Int? = nil
+    /// The keys of that dictionary word (ghostty for ghosttydp).
+    public var rememberedKeys: String? = nil
 
     public init(language: Language, confidence: Double, output: String, explanation: String, runnerUp: Language? = nil) {
         self.language = language
@@ -160,6 +172,10 @@ public final class HeuristicEngine: DecisionEngine, @unchecked Sendable {
     }
 
     public func decide(_ keys: String, context: DecisionContext) -> Decision {
+        // A number is a number, also where 3-set types ㅋ on 0 (00 has ㅋㅋ as a reading to switch to).
+        if !keys.isEmpty, keys.allSatisfy(\.isNumber) {
+            return Decision(language: .english, confidence: 0.99, output: keys, explanation: "a number")
+        }
         // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English,
         // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를):
         // then the scores decide.

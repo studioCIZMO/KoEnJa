@@ -1,3 +1,4 @@
+#if canImport(Darwin)
 import Foundation
 import Testing
 @testable import SeamtypeCore
@@ -52,3 +53,5 @@ import Testing
         #expect(later.candidates(for: "きょうは").first?.text == "京は")
     }
 }
+
+#endif

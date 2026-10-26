@@ -136,6 +136,20 @@ import Testing
         #expect(field.text == "今日はいい天気ですね")
     }
 
+    /// The clause the candidates are for is marked as the selected one, so the app draws where
+    /// ←/→ put the boundary; the kana typed before Space are plain marked text.
+    @Test func conversionMarksTheSelectedClause() {
+        type("kyouhaiitenkidesune")
+        #expect(field.selectedClause == nil)
+        type(" ")
+        #expect(field.selectedClause == NSRange(location: 0, length: 10)) // 今日はいい天気ですね, all of it
+        session.handle(.down, client: field) // 今日は|いいてんきですね
+        #expect(field.text == "今日はいいてんきですね")
+        #expect(field.selectedClause == NSRange(location: 0, length: 3))
+        session.handle(.enter, client: field) // 今日は goes in; the rest is converted on its own
+        #expect(field.selectedClause == NSRange(location: 0, length: 7)) // いい天気ですね
+    }
+
     /// The homophones past the converter's list follow it in the candidate window, once each.
     @Test func candidateWindowListsEveryHomophone() {
         type("shou ")
@@ -160,6 +174,35 @@ import Testing
         #expect(field.text == "しょう")
         _ = session.handle(.printable(" "), client: field)
         #expect(field.text == "翔")
+    }
+
+    /// With live conversion a switch key takes a converted phrase back to its kana first, but a
+    /// phrase showing its kana anyway (きょうは, whose first candidate is the kana) switches at once.
+    @Test func switchKeyOnAKanaShownLivePhraseSwitchesAtOnce() {
+        let session = InputSession(engine: session.engine, converter: converter, japaneseEnabled: true, liveConversion: true)
+        for ch in "kyouha" { _ = session.handle(.letter(ch), client: field) }
+        #expect(field.text == "きょうは")
+        #expect(session.handle(.cycle, client: field))
+        #expect(field.text == "kyouha")
+    }
+
+    @Test func switchKeyOnAConvertedLivePhraseShowsTheKanaFirst() {
+        let session = InputSession(engine: session.engine, converter: converter, japaneseEnabled: true, liveConversion: true)
+        for ch in "kyouhaiitenkidesune" { _ = session.handle(.letter(ch), client: field) }
+        #expect(field.text == "今日はいい天気ですね")
+        _ = session.handle(.cycle, client: field)
+        #expect(field.text == "きょうはいいてんきですね")
+        _ = session.handle(.cycle, client: field)
+        #expect(!field.text.contains("きょう"))
+    }
+
+    /// Where Esc isn't a switch key, it cancels a phrase showing its kana anyway at once, as it
+    /// does a converted one once that is back to its kana.
+    @Test func escapeCancelsAKanaShownLivePhrase() {
+        let session = InputSession(engine: session.engine, converter: converter, japaneseEnabled: true, liveConversion: true)
+        for ch in "kyouha" { _ = session.handle(.letter(ch), client: field) }
+        #expect(session.handle(.escape, client: field))
+        #expect(field.text.isEmpty && session.keys.isEmpty)
     }
 
     @Test func escapeReturnsToKana() {
@@ -203,6 +246,121 @@ import Testing
         #expect(field.text == "きっ")
         type("ta")
         #expect(field.text == "きった")
+    }
+
+    /// Without live conversion, Delete on a conversion commits it less its last character, as
+    /// macOS's Japanese input does (変換 → 変); the next Delete is the app's.
+    @Test func deleteInConversionCommitsAllButTheLastCharacter() {
+        type("henkan ")
+        #expect(field.text == "変換")
+        #expect(session.handle(.delete, client: field))
+        #expect(field.text == "変" && field.marked.location == NSNotFound)
+        #expect(session.conversion == nil && session.keys.isEmpty)
+        #expect(converter.learned.isEmpty)
+        #expect(!session.handle(.delete, client: field))
+        field.text = String(field.text.dropLast()); field.cursor = (field.text as NSString).length // the app's Delete
+        type("kidesu")
+        session.handle(.enter, client: field)
+        #expect(field.text == "きです") // a new word after what went in
+        type("kyouhaiitenkidesune ")
+        session.handle(.delete, client: field)
+        #expect(field.text == "きです今日はいい天気です")
+    }
+
+    @Test func deleteInConversionTakesTheNumberWithIt() {
+        type("henkan ")
+        session.handle(.enter, client: field)
+        type("3ji ")
+        #expect(field.text == "変換3時")
+        session.handle(.delete, client: field)
+        #expect(field.text == "変換3" && session.conversion == nil)
+    }
+
+    /// With live conversion, Delete on a conversion goes back to typing the phrase, as macOS's
+    /// does: its last clause as kana less the last one, the clauses before it as they were shown.
+    @Test func deleteInLiveConversionKeepsTheClausesBefore() {
+        let session = InputSession(engine: session.engine, converter: converter, japaneseEnabled: true, liveConversion: true)
+        for ch in "kyouhaiitenkidesune" { _ = session.handle(.letter(ch), client: field) }
+        #expect(field.text == "今日はいい天気ですね")
+        _ = session.handle(.printable(" "), client: field)
+        #expect(field.text == "今日はいいてんきですね") // the next candidate covers 今日は only
+        #expect(session.handle(.delete, client: field))
+        #expect(session.conversion == nil)
+        #expect(field.text == "きょうはいいてんきです") // 今日は|いいてんきですね: no clause before 今日は
+        _ = session.handle(.escape, client: field)
+        _ = session.handle(.enter, client: field)
+        field.text = ""; field.cursor = 0
+
+        for ch in "kyouhaiitenkidesune" { _ = session.handle(.letter(ch), client: field) }
+        #expect(session.handle(.delete, client: field))
+        #expect(field.text == "今日はいいてんきです")
+        _ = session.handle(.delete, client: field)
+        #expect(field.text == "今日はいいてんきで")
+        _ = session.handle(.enter, client: field)
+        #expect(field.text == "今日はいいてんきで" && field.marked.location == NSNotFound)
+        #expect(converter.learned.isEmpty)
+        field.text = ""; field.cursor = 0
+
+        // Esc then shows it all as kana, as after any live conversion.
+        for ch in "kyouhaiitenkidesune" { _ = session.handle(.letter(ch), client: field) }
+        _ = session.handle(.delete, client: field)
+        _ = session.handle(.escape, client: field)
+        #expect(field.text == "きょうはいいてんきです")
+    }
+
+    /// A number taken into a live conversion goes back as typed, the phrase less a kana after it.
+    @Test func deleteInLiveConversionPutsTheNumberBack() {
+        let session = InputSession(engine: session.engine, converter: converter, japaneseEnabled: true, liveConversion: true)
+        for ch in "henkan" { _ = session.handle(.letter(ch), client: field) }
+        _ = session.handle(.enter, client: field)
+        if !session.handle(.printable("3"), client: field) { field.insertText("3", replacing: nil) }
+        for ch in "ji" { _ = session.handle(.letter(ch), client: field) }
+        _ = session.handle(.printable(" "), client: field)
+        #expect(field.text.hasPrefix("変換") && field.text.contains("時"))
+        _ = session.handle(.delete, client: field)
+        #expect(field.text == "変換3")
+        #expect(session.conversion == nil && session.keys.isEmpty)
+    }
+
+    /// After a Delete with live conversion the end stays kana while only a letter waiting for its
+    /// vowel follows (へんかn); Space then shows the first candidate, nothing being on screen.
+    @Test func deleteInLiveConversionThenSpaceShowsTheFirstCandidate() {
+        let session = InputSession(engine: session.engine, converter: converter, japaneseEnabled: true, liveConversion: true)
+        for ch in "henkan" { _ = session.handle(.letter(ch), client: field) }
+        _ = session.handle(.printable(" "), client: field)
+        _ = session.handle(.delete, client: field)
+        #expect(field.text == "へんか")
+        _ = session.handle(.letter("n"), client: field)
+        #expect(field.text == "へんかn")
+        _ = session.handle(.printable(" "), client: field)
+        #expect(field.text == "変換")
+    }
+
+    /// With live conversion Space shows the candidate after the one on screen (変換 → 返還), but a
+    /// letter waiting for its vowel meant none of the whole reading's was (へんかn): Space then
+    /// shows the first, as macOS does.
+    @Test func spaceAfterAPendingLetterShowsTheFirstCandidate() {
+        let session = InputSession(engine: session.engine, converter: converter, japaneseEnabled: true, liveConversion: true)
+        for ch in "henkan" { _ = session.handle(.letter(ch), client: field) }
+        #expect(field.text == "へんかn")
+        _ = session.handle(.printable(" "), client: field)
+        #expect(field.text == "変換")
+        _ = session.handle(.escape, client: field)
+        _ = session.handle(.escape, client: field)
+        field.text = ""; field.cursor = 0
+        for ch in "henkann" { _ = session.handle(.letter(ch), client: field) }
+        #expect(field.text == "変換")
+        _ = session.handle(.printable(" "), client: field)
+        #expect(field.text == "返還")
+    }
+
+    @Test func lastClauseOfAConversion() {
+        #expect(InputSession.dropLastClause("今日はいい天気です", reading: "きょうはいいてんきです") == ("今日はいい", 6))
+        #expect(InputSession.dropLastClause("今日は箱", reading: "きょうははこ") == ("今日は", 4))
+        #expect(InputSession.dropLastClause("googleで検索", reading: "googleでけんさく") == ("googleで", 7))
+        #expect(InputSession.dropLastClause("変換", reading: "へんかん") == ("", 0))
+        #expect(InputSession.dropLastClause("きょうは", reading: "きょうは") == ("", 0))
+        #expect(InputSession.dropLastClause("今日は天気", reading: "ちがう") == ("", 0))
     }
 
     @Test func returnWithoutConvertingCommitsKanaOnly() {
@@ -547,6 +705,52 @@ import Testing
         }
         #expect(field.text == typed)
     }
+
+    /// A word that goes in through its conversion or its kana forms was typed again, as one
+    /// that goes in with Return: a weak correction to it stays, a switch away from a remembered
+    /// one noted since was a slip, and a word the dictionary decided is listed.
+    @Test(arguments: [false, true])
+    func convertedWordIsTypedAgain(katakana: Bool) {
+        let lex = FileManager.default.temporaryDirectory.appendingPathComponent("araso-lj-\(UUID().uuidString).json")
+        let base = SplittingEngine(base: trilingual, english: trilingual.english, japanese: trilingual.segmenter)
+        let corrected = Date(timeIntervalSince1970: 1_790_000_000)
+        let typed = corrected.addingTimeInterval(20 * 86_400)
+        let before = DictionaryEngine(base: base, storeURL: lex, today: { corrected })
+        before.learn("kyouha", as: .japanese, engineChoice: .english) // once: weak
+        before.learn("sugoi", as: .japanese, engineChoice: .english)
+        before.learn("sugoi", as: .japanese, engineChoice: .english)  // twice: remembered
+        before.learn("sugoi", as: .korean, engineChoice: .japanese)   // a switch away, noted
+        #expect(before.dictionary.languageEntry(for: "sugoi")?.next == .korean)
+        let engine = DictionaryEngine(base: base, storeURL: lex, today: { typed })
+        let session = InputSession(engine: engine, converter: FakeConverter(), japaneseEnabled: true)
+        let field = FakeTextField()
+        for word in ["kyouha", "sugoi"] {
+            for ch in word { _ = session.handle(.letter(ch), client: field) }
+            _ = session.handle(katakana ? .katakana : .printable(" "), client: field)
+            #expect(session.conversion != nil)
+            _ = session.handle(.enter, client: field)
+        }
+        #expect(field.text == (katakana ? "キョウハスゴイ" : "きょうはすごい"))
+        #expect(engine.dictionary.languageEntry(for: "kyouha")?.last == UserDictionary.day(typed))
+        #expect(engine.dictionary.languageEntry(for: "sugoi")?.next == nil)
+        #expect(engine.recentlyApplied.map(\.keys) == ["sugoi"])
+    }
+
+    /// A word switched to Japanese and put in its kana forms learns the switch, as with Space.
+    @Test func kanaFormsLearnTheSwitch() {
+        let lex = FileManager.default.temporaryDirectory.appendingPathComponent("araso-lj-\(UUID().uuidString).json")
+        let engine = DictionaryEngine(base: SplittingEngine(base: trilingual, english: trilingual.english, japanese: trilingual.segmenter), storeURL: lex)
+        let session = InputSession(engine: engine, converter: FakeConverter(), japaneseEnabled: true)
+        let field = FakeTextField()
+        for ch in "sushi" { _ = session.handle(.letter(ch), client: field) }
+        #expect(field.text == "sushi")
+        for _ in 0..<4 where field.text != "すし" { _ = session.handle(.cycle, client: field) }
+        #expect(field.text == "すし")
+        _ = session.handle(.katakana, client: field)
+        _ = session.handle(.enter, client: field)
+        #expect(field.text == "スシ")
+        #expect(engine.correctedOnce("sushi", app: nil) == .japanese)
+    }
 }
 
 /// A Strict app with Japanese on: a consonant at the end, still waiting for its vowel while
@@ -640,6 +844,60 @@ import Testing
         type("kyouha go")
         #expect(session.lastTrace?.decision.explanation != "text replacement shortcut")
     }
+
+    /// A Korean shortcut entered more than once offers its phrases on Space as a Japanese one
+    /// does, then the shortcut as typed; the chosen one goes in with the space.
+    @Test func koreanShortcutWithSeveralPhrasesOffersThem() {
+        session.replacements["ㅈㅅ"] = ["죄송합니다", "잠시만요"]
+        type("wt ")
+        #expect(session.conversion?.candidates.map(\.text) == ["죄송합니다", "잠시만요", "ㅈㅅ"])
+        #expect(field.text == "죄송합니다")
+        type(" ")
+        #expect(field.text == "잠시만요")
+        _ = session.handle(.enter, client: field)
+        #expect(field.text == "잠시만요 " && session.conversion == nil)
+    }
+
+    /// So does an English one the engine reads as English; typing on takes the phrase and its space.
+    @Test func englishShortcutWithSeveralPhrasesOffersThem() {
+        session.replacements["go"] = ["gone", "going"]
+        type("go ")
+        #expect(session.conversion?.candidates.map(\.text) == ["gone", "going", "go"])
+        type("x")
+        #expect(field.text == "gone x")
+    }
+
+    /// A digit picks a phrase on the page; Esc goes back to the shortcut, and Space offers them again.
+    @Test func phrasesByDigitAndBackWithEscape() {
+        session.replacements["ㅈㅅ"] = ["죄송합니다", "잠시만요"]
+        type("wt ")
+        _ = session.handle(.escape, client: field)
+        #expect(session.conversion == nil && field.text == "ㅈㅅ" && session.keys == "wt")
+        type(" 2")
+        #expect(field.text == "잠시만요 ")
+    }
+
+    /// Without Japanese input a Korean shortcut's phrases are offered all the same.
+    @Test func phrasesWithoutJapanese() {
+        let session = InputSession(engine: session.engine)
+        let field = FakeTextField()
+        session.replacements = ["ㅈㅅ": ["죄송합니다", "잠시만요"]]
+        for ch in "wt" { _ = session.handle(.letter(ch), client: field) }
+        #expect(session.handle(.printable(" "), client: field))
+        #expect(session.conversion?.candidates.count == 3)
+        session.choose(1, client: field)
+        #expect(field.text == "잠시만요 ")
+    }
+
+    /// A shortcut whose phrases are offered was typed as a word: one its dictionary entry
+    /// decided is listed, as when it goes in.
+    @Test func offeredShortcutIsListed() {
+        session.replacements["ㅈㅅ"] = ["죄송합니다", "잠시만요"]
+        session.engine.add(.init(keys: "wt", language: .korean, source: .user))
+        type("wt ")
+        #expect(session.conversion?.candidates.count == 3)
+        #expect(session.engine.recentlyApplied == [.init(keys: "wt", text: "ㅈㅅ", language: .korean)])
+    }
 }
 
 /// A converter whose first candidate for ゆーちゅ is a completion.
@@ -649,4 +907,53 @@ import Testing
     }
     func learn(_ candidate: ConversionCandidate, for kana: String) {}
     func save() {}
+}
+
+/// With three readings the list's pill stays on a remembered one until another reading is chosen
+/// twice; switching back to Araso's own forgets it at once. Araso's own is marked throughout.
+@MainActor @Suite struct ThreeReadingsTests {
+    let field = FakeTextField()
+    let engine: DictionaryEngine
+    let session: InputSession
+
+    init() {
+        let lex = FileManager.default.temporaryDirectory.appendingPathComponent("araso-three-\(UUID().uuidString).json")
+        engine = DictionaryEngine(base: SplittingEngine(base: trilingual, english: trilingual.english, japanese: trilingual.segmenter), storeURL: lex)
+        session = InputSession(engine: engine, converter: FakeConverter(), japaneseEnabled: true)
+    }
+
+    /// Types tori, switches until `target` is shown, and commits it; returns the list as first
+    /// shown: each reading with its marks (● remembered, ○ corrected once, ✦ Araso's own).
+    @discardableResult
+    func type(_ target: String) -> [String] {
+        for ch in "tori" { _ = session.handle(.letter(ch), client: field) }
+        _ = session.handle(.cycle, client: field)
+        let first = session.readings!
+        while let r = session.readings, r.texts[r.selected] != target { _ = session.handle(.cycle, client: field) }
+        for ch in " x " where !session.handle(ch == "x" ? .letter(ch) : .printable(ch), client: field) {
+            field.insertText(String(ch), replacing: nil)
+        }
+        return first.texts.indices.map {
+            first.texts[$0] + ($0 == first.remembered ? "●" : "") + ($0 == first.once ? "○" : "") + ($0 == first.own ? "✦" : "")
+        }
+    }
+
+    @Test func pillStaysOnTheRememberedReading() {
+        engine.learn("tori", as: .english, engineChoice: .japanese)
+        engine.learn("tori", as: .english, engineChoice: .japanese)
+        #expect(type("새갸") == ["tori●", "새갸", "とり✦"])
+        #expect(type("새갸") == ["tori●", "새갸○", "とり✦"])
+        #expect(type("とり") == ["tori", "새갸●", "とり✦"])
+        // REA: after x (English) the short-prefix rule kept tori on screen, and what is shown is
+        // what goes in, so Araso's own reading here is tori; 새갸 is forgotten all the same.
+        #expect(type("とり") == ["tori✦", "새갸", "とり"])
+    }
+
+    @Test func typingTheRememberedReadingDropsTheSwitch() {
+        engine.learn("tori", as: .english, engineChoice: .japanese)
+        engine.learn("tori", as: .english, engineChoice: .japanese)
+        type("새갸")
+        type("tori")
+        #expect(type("tori") == ["tori●", "새갸", "とり✦"])
+    }
 }

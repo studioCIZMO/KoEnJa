@@ -37,7 +37,7 @@ public enum HangulComposer {
     /// Returns nil if any key is not a letter on the 2-set layout. On 3-set (`KoreanLayout`) the
     /// keys are composed as that layout types them.
     public static func compose(keys: String) -> Result? {
-        if KoreanLayout.current == .sebeolsikFinal { return SebeolsikFinal.compose(keys: keys) }
+        if KoreanLayout.current.isSebeolsik { return Sebeolsik.compose(keys: keys) }
         var jamos: [Character] = []
         for key in keys {
             guard let j = DubeolsikLayout.jamo(for: key) else { return nil }

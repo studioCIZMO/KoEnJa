@@ -43,7 +43,7 @@ public:
      *  the IME brings a copy as [SPELLING_LIST] in Resources::directory; elsewhere the system's
      *  [SPELLING_LIST_PATH] stands in. Not on Windows: there that path would be on whatever drive
      *  the host process happens to be on. */
-    static constexpr const char* SPELLING_LIST = "words.txt";
+    static constexpr const char* SPELLING_LIST = "english_spelling.txt";
     static constexpr const char* SPELLING_LIST_PATH = "/usr/share/dict/words";
 
     /** [extraWords]: words at [EXTRA_LEVEL] on top of [raw] ([commonWords]). */

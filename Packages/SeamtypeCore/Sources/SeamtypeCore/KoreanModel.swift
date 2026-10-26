@@ -92,10 +92,10 @@ public struct KoreanModel: Sendable {
     // REA: korean_vocabulary.txt (245k lines) read once, straight from its bytes, into what the
     // lookups need, the words as sorted 64-bit hashes: Sets of the words themselves, their counts
     // and the text cost the iOS keyboard (killed near 70 MB) some 20 MB. Upstream has `stems`,
-    // `vocabulary`, `rareVocabulary`, `vocabularyCounts` and `listSyllables` instead.
+    // `vocabulary`, `rareVocabulary`, `vocabularyCounts`, `listSyllables` and `rareListSyllables` instead.
     // ponytail: a word off the list hashing onto one on it is a 1 in 10^14 chance per lookup.
-    private static let lists: (vocabulary: [UInt64], rare: [UInt64], stems: Set<String>, syllables: Set<Character>) = {
-        var vocabulary: [UInt64] = [], rare: [UInt64] = [], stems = Set<String>(), syllables = Set<Character>()
+    private static let lists: (vocabulary: [UInt64], rare: [UInt64], stems: Set<String>, syllables: Set<Character>, rareSyllables: Set<Character>) = {
+        var vocabulary: [UInt64] = [], rare: [UInt64] = [], stems = Set<String>(), syllables = Set<Character>(), rareSyllables = Set<Character>()
         func addStems(_ word: String) {
             for (particle, final) in particles where word.hasSuffix(particle) {
                 let stem = word.dropLast(particle.count)
@@ -106,7 +106,7 @@ public struct KoreanModel: Sendable {
             }
         }
         for word in corpusWords { addStems(word); syllables.formUnion(word) }
-        guard let url = Resources.koreanVocabulary, let data = try? Data(contentsOf: url) else { return (vocabulary, rare, stems, syllables) }
+        guard let url = Resources.koreanVocabulary, let data = try? Data(contentsOf: url) else { return (vocabulary, rare, stems, syllables, rareSyllables) }
         data.withUnsafeBytes { bytes in
             var start = 0
             while start < bytes.count {
@@ -122,12 +122,13 @@ public struct KoreanModel: Sendable {
                     syllables.formUnion(word)
                 } else {
                     rare.append(hash(word))
+                    rareSyllables.formUnion(word)
                 }
             }
         }
         vocabulary.sort()
         rare.sort()
-        return (vocabulary, rare, stems, syllables)
+        return (vocabulary, rare, stems, syllables, rareSyllables)
     }()
 
     /// REA: a binary search of the sorted hashes.
@@ -170,6 +171,14 @@ public struct KoreanModel: Sendable {
     /// someone typed it.
     public func knowsSyllable(_ syllable: Character) -> Bool {
         tiers[syllable] != nil || Self.lists.syllables.contains(syllable) // REA: lists
+    }
+
+    /// `knowsSyllable`, or in a word the subtitles have only a few times (왑 of 나왑, 챕 of 챕터들,
+    /// 탭): for 3-set's digit and symbol keys, which go on with the word only into a syllable
+    /// someone types. A key there can only add a final or a vowel, never make 뗘, so the tail's
+    /// dialect and typos matter less than its loanwords.
+    public func knowsSyllableIncludingRare(_ syllable: Character) -> Bool {
+        knowsSyllable(syllable) || Self.lists.rareSyllables.contains(syllable) // REA: lists
     }
 
     /// - Parameter partial: the token is still being typed, so a trailing lone

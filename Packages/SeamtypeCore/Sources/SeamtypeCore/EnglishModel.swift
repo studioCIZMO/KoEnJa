@@ -24,8 +24,14 @@ public final class EnglishModel: @unchecked Sendable {
     /// separate English spelling from Korean keys better than SCOWL's 119k (measured).
     public static let spellingListPath = "/usr/share/dict/words"
 
+    /// macOS's list, else the same list shipped with Araso (Data/english_spelling.txt, web2, which
+    /// Windows doesn't have): without it English scores differently and Japanese loses words.
+    public static var spellingList: String? {
+        FileManager.default.fileExists(atPath: spellingListPath) ? spellingListPath : Resources.englishSpelling?.path
+    }
+
     /// Loading the word list takes a moment; share one instance.
-    public static let shared = EnglishModel(listURL: Resources.englishWords, spellingPath: spellingListPath)
+    public static let shared = EnglishModel(listURL: Resources.englishWords, spellingPath: spellingList)
 
     /// From a word<TAB>level file; a missing file leaves only `commonWords` (logged). Trigrams
     /// are trained on `spellingPath`'s words when it can be read, otherwise on the list.

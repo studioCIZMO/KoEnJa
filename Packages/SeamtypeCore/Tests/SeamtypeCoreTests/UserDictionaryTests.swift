@@ -32,6 +32,27 @@ import Testing
         #expect(hello.language == .korean && hello.confidence == 1 && hello.explanation == "learned")
     }
 
+    /// A remembered word switched once to another reading keeps its memory and notes the switch;
+    /// the same switch again moves the memory, and typing the word as remembered drops the note.
+    @Test func rememberedWordMovesOnTheSecondSwitch() {
+        var dictionary = UserDictionary()
+        dictionary.learn("tori", as: .english, shown: .japanese, today: day)
+        dictionary.learn("tori", as: .english, shown: .japanese, today: day)
+        let switched = dictionary.learn("tori", as: .korean, shown: .english, today: day)
+        #expect(!switched)
+        #expect(dictionary.languageEntry(for: "tori")?.language == .english)
+        #expect(dictionary.languageEntry(for: "tori")?.next == .korean)
+        let typed = dictionary.used("tori", as: .english, today: day)
+        #expect(typed)
+        #expect(dictionary.languageEntry(for: "tori")?.next == nil)
+        dictionary.learn("tori", as: .korean, shown: .english, today: day)
+        let moved = dictionary.learn("tori", as: .korean, shown: .english, today: day)
+        #expect(moved)
+        #expect(dictionary.languageEntry(for: "tori")?.language == .korean)
+        #expect(dictionary.languageEntry(for: "tori")?.strength == .sure)
+        #expect(dictionary.languageEntry(for: "tori")?.next == nil)
+    }
+
     @Test func learningRules() {
         var dictionary = UserDictionary()
         let first = dictionary.learn("dlrjs", as: .korean, shown: .english, today: day)

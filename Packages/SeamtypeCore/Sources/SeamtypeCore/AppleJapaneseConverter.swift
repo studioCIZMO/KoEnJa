@@ -1,5 +1,7 @@
 import Foundation
 
+#if canImport(Darwin)
+
 /// macOS's own Japanese conversion engine (libmecabra, the one behind the system's Japanese input),
 /// loaded at runtime. Its dictionary has what AzooKey's lacks: variant kanji (たか → 髙), English
 /// spellings of names (とぅいっち → Twitch) and completions (ゆーちゅ → YouTube).
@@ -156,3 +158,23 @@ public final class AppleJapaneseConverter: JapaneseConverter {
         unsaved = false
     }
 }
+
+#else
+
+/// macOS's engine exists only on macOS: elsewhere (Windows) `init` returns nil and AzooKey converts.
+@MainActor
+public final class AppleJapaneseConverter: JapaneseConverter {
+    public var rerankWeight: Double? = 1.0
+
+    public init?(learning: URL? = AppleJapaneseConverter.learningURL) { return nil }
+
+    nonisolated public static var learningURL: URL? {
+        SupportDirectory.url?.appendingPathComponent("apple-learning.json")
+    }
+
+    public func candidates(for kana: String) -> [ConversionCandidate] { [] }
+    public func learn(_ candidate: ConversionCandidate, for kana: String) {}
+    public func save() {}
+}
+
+#endif

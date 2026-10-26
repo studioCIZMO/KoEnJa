@@ -31,7 +31,7 @@ public struct Settings: Codable, Equatable, Sendable {
     /// The layout English and romaji are typed on: "qwerty", "colemak" or "colemakDH". Korean
     /// 2-set stays on its keys either way (`LatinLayout`).
     public var latinLayout: LatinLayout = .qwerty
-    /// The layout Korean is typed on: "dubeolsik" or "sebeolsikFinal" (`KoreanLayout`).
+    /// The layout Korean is typed on: "dubeolsik", "sebeolsikFinal" or "sebeolsik390" (`KoreanLayout`).
     public var koreanLayout: KoreanLayout = .dubeolsik
     /// The layout romaji is typed on, when not English's (`latinLayout`): absent follows it.
     public var japaneseLayout: LatinLayout?

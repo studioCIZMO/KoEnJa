@@ -4,7 +4,11 @@ import Foundation
 /// AzooKey's kanji learning. `ARASO_SUPPORT_DIR` points a development copy (the settings
 /// window, for screenshots) at another folder.
 public enum SupportDirectory {
+    /// Set by a host that knows the folder itself (the Windows input method's, `%APPDATA%\Araso`).
+    nonisolated(unsafe) public static var override: URL?
+
     public static var url: URL? {
+        if let override { return override }
         if let path = ProcessInfo.processInfo.environment["ARASO_SUPPORT_DIR"], !path.isEmpty {
             return URL(fileURLWithPath: path, isDirectory: true)
         }

@@ -34,6 +34,24 @@ import Testing
         return (field.text as NSString).substring(with: field.marked)
     }
 
+    /// 3-set's symbols after a Korean word (#35) are held too, and go back to the key as typed
+    /// when the word is switched out of Korean.
+    @Test func threeSetSymbolsAreHeldAndSwitchBack() {
+        KoreanLayout.$override.withValue(.sebeolsikFinal) {
+            type("ldhr2jtB")
+            #expect(marked == "지냈어?")
+            #expect(session.handle(.cycle, client: field))
+            #expect(marked == "ldhr2jtB")
+            #expect(session.handle(.cycle, client: field))
+            #expect(marked == "지냈어?")
+            type("?")                       // ⇧/ after it: the word goes in, then !
+            #expect(field.text == "지냈어?!")
+            #expect(marked == nil)
+            type(" ")
+            #expect(field.text == "지냈어?! ")
+        }
+    }
+
     @Test func spaceKeepsTheWordUnderlinedWithItsSpace() {
         #expect(type("dkssud ").last == true)
         #expect(field.text == "안녕 ")

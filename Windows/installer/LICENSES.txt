@@ -30,6 +30,6 @@ SOFTWARE.
 
 ■ FrequencyWords (Korean vocabulary, ko_full) — Hermit Dave — CC BY-SA 4.0 — https://github.com/hermitdave/FrequencyWords
 
-■ Webster's Second International (web2, the English spelling list words.txt) — public domain
+■ Webster's Second International (web2, the English spelling list english_spelling.txt) — public domain
 
 ■ Mozc dictionary (mozc.dic, Japanese kana-kanji conversion) — https://github.com/google/mozc

@@ -18,8 +18,8 @@ public struct Release: Equatable, Sendable {
         self.notes = notes
     }
 
-    /// Nil when the answer has no tag or no `Araso.pkg` asset.
-    public init?(gitHubJSON data: Data) {
+    /// Nil when the answer has no tag or no `asset` (`Araso.pkg`; Windows: `Araso-Setup.exe`).
+    public init?(gitHubJSON data: Data, asset: String = "Araso.pkg") {
         struct Answer: Decodable {
             struct Asset: Decodable {
                 let name: String
@@ -31,7 +31,7 @@ public struct Release: Equatable, Sendable {
             let assets: [Asset]
         }
         guard let answer = try? JSONDecoder().decode(Answer.self, from: data),
-              let package = answer.assets.first(where: { $0.name == "Araso.pkg" }) else { return nil }
+              let package = answer.assets.first(where: { $0.name == asset }) else { return nil }
         let version = answer.tag_name.hasPrefix("v") ? String(answer.tag_name.dropFirst()) : answer.tag_name
         // Numbers and dots only: the version names the downloaded file, and pkgutil prints that
         // name above the certificate it checks.

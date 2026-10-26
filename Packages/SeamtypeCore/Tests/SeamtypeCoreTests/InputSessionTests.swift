@@ -16,8 +16,16 @@ final class FakeTextField: TextClient {
     var readable = true
     /// Every text the input method inserted, in order: a held word must go in with its boundary in one.
     var insertions: [String] = []
+    /// The clause being converted, as the input method last marked it (nil: plain marked text).
+    var selectedClause: NSRange?
+
+    func setMarkedText(_ s: String, selectedClause: NSRange, replacing range: NSRange?) {
+        if let range { setMarkedText(s, replacing: range) } else { setMarkedText(s) }
+        self.selectedClause = selectedClause
+    }
 
     func setMarkedText(_ s: String) {
+        selectedClause = nil
         let ns = text as NSString
         let target = marked.location != NSNotFound ? marked : NSRange(location: cursor, length: 0)
         text = ns.replacingCharacters(in: target, with: s)
@@ -27,6 +35,7 @@ final class FakeTextField: TextClient {
     }
 
     func setMarkedText(_ s: String, replacing range: NSRange) {
+        selectedClause = nil
         let ns = text as NSString
         let target = marked.location != NSNotFound ? NSUnionRange(range, marked) : range
         text = ns.replacingCharacters(in: target, with: s)
@@ -37,6 +46,7 @@ final class FakeTextField: TextClient {
 
     func insertText(_ s: String, replacing range: NSRange?) {
         insertions.append(s)
+        selectedClause = nil
         let target = range ?? (marked.location != NSNotFound ? marked : NSRange(location: cursor, length: 0))
         text = (text as NSString).replacingCharacters(in: target, with: s)
         marked = NSRange(location: NSNotFound, length: 0)
@@ -90,6 +100,66 @@ final class FakeTextField: TextClient {
         #expect(field.text == "hello hello ")
     }
 
+    /// A switch key lists the word's readings, the one now shown selected, while it is being
+    /// typed and right after it went in; the next key puts the list away.
+    @Test func switchKeyListsTheReadings() {
+        type("dkssud")
+        #expect(session.readings == nil)
+        session.handle(.escape, client: field)
+        #expect(session.readings == InputSession.Readings(texts: ["dkssud", "안녕"], languages: [.english, .korean], selected: 0, own: 1))
+        type(" ")
+        #expect(session.readings == nil)
+        session.handle(.escape, client: field)
+        #expect(field.text == "안녕 ")
+        // dkssud went in as English once: that reading is marked as corrected once.
+        #expect(session.readings == InputSession.Readings(texts: ["dkssud", "안녕"], languages: [.english, .korean], selected: 1, own: 1, once: 0))
+        type("a")
+        #expect(session.readings == nil)
+        type(" githubdp")
+        session.handle(.escape, client: field)
+        #expect(session.readings?.texts == ["githubdp", "github에"]) // a garbled reading isn't listed
+    }
+
+    /// A word the dictionary decided is listed once it went in, newest first and without the
+    /// particle after it, and its reading is marked in the switch key's list; a word the engine
+    /// decided, or one the user switched, isn't. Forgetting it takes it off the list.
+    @Test func wordsTheDictionaryDecidedAreListed() {
+        session.engine.add(.init(keys: "ghostty", language: .english, source: .user))
+        session.engine.add(.init(keys: "chrao", language: .korean, source: .user))
+        type("dkssud ghostty ")
+        #expect(session.engine.recentlyApplied == [.init(keys: "ghostty", text: "ghostty", language: .english)])
+        type("chraofh ") // 촉매로
+        #expect(session.engine.recentlyApplied.map(\.keys) == ["chrao", "ghostty"])
+        #expect(session.engine.recentlyApplied.first?.text == "촉매")
+        type("ghosttydp ")
+        #expect(field.text.hasSuffix("ghostty에 "))
+        #expect(session.engine.recentlyApplied.map(\.keys) == ["ghostty", "chrao"])
+        type("chrao")
+        session.handle(.escape, client: field)
+        #expect(session.readings?.remembered == session.readings?.languages.firstIndex(of: .korean))
+        type(" ")
+        #expect(session.engine.recentlyApplied.map(\.keys) == ["ghostty", "chrao"]) // switched: not the dictionary's
+        session.engine.forget("ghostty")
+        #expect(session.engine.recentlyApplied.map(\.keys) == ["chrao"])
+    }
+
+    /// The switch key's list tells a reading corrected once from one learned for good.
+    @Test func readingsTellOnceFromForGood() {
+        type("rjtm ")
+        session.handle(.escape, client: field) // once
+        let flipped = session.readings!.languages[session.readings!.selected]
+        type("x rjtm")
+        session.handle(.escape, client: field)
+        #expect(session.readings?.once == session.readings?.languages.firstIndex(of: flipped))
+        #expect(session.readings?.own != session.readings?.once)
+        #expect(session.readings?.remembered == nil)
+        type(" x rjtm") // that went in as the correction again: learned for good
+        session.handle(.escape, client: field)
+        #expect(session.readings?.remembered == session.readings?.languages.firstIndex(of: flipped))
+        #expect(session.readings?.own != session.readings?.remembered) // Araso's own stays marked
+        #expect(session.readings?.once == nil)
+    }
+
     /// One Esc changes only that word (a habitual Esc shouldn't stick); the same
     /// correction a second time is remembered.
     @Test func flippedChoiceIsRememberedTheSecondTime() {
@@ -104,6 +174,44 @@ final class FakeTextField: TextClient {
         #expect(field.text == flipped + flipped)
         type("rjtm ")
         #expect(field.text == flipped + flipped + flipped)
+    }
+
+    /// The key that makes a correction stick says so (the input method shows it), once: the
+    /// first correction and the word typed afterwards don't.
+    @Test func secondCorrectionReportsTheLearnedWord() {
+        type("rjtm ")
+        session.handle(.escape, client: field)
+        let flipped = String(field.text.dropLast())
+        type("r")
+        #expect(session.learned == InputSession.Learned(text: flipped, language: .english, learning: .once)) // once: a nudge
+        type("jtm ")
+        session.handle(.escape, client: field)
+        type("a") // the flip window closes: learned for good
+        #expect(session.learned == InputSession.Learned(text: flipped, language: .english))
+        type("b")
+        #expect(session.learned == nil)
+    }
+
+    /// Switching a remembered word back to Araso's own reading forgets it in one go, and says so.
+    @Test func backToTheOwnReadingForgetsTheWord() {
+        type("rjtm ")
+        let own = String(field.text.dropLast())
+        session.handle(.escape, client: field)
+        type("rjtm ")
+        session.handle(.escape, client: field)
+        type("x rjtm ") // remembered: goes in as the correction
+        session.handle(.escape, client: field)
+        #expect(field.text.hasSuffix(own + " "))
+        type("a")
+        #expect(session.learned?.text == own)
+        #expect(session.learned?.learning == .forgot)
+        type(" rjtm ")
+        #expect(field.text.hasSuffix(own + " "))
+        // Nothing is remembered; Araso's reading is marked as its own.
+        type("rjtm")
+        session.handle(.escape, client: field)
+        #expect(session.readings.map { $0.texts[$0.own!] } == own)
+        #expect(session.readings?.remembered == nil)
     }
 
     @Test func flipOnlyAppliesToTheWordBeforeTheCaret() {

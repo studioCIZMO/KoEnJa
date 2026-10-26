@@ -6,12 +6,16 @@ import Foundation
 /// SPM resource bundles are avoided on purpose: their accessor looks for the bundle
 /// at the .app root, which is outside the signed Contents and breaks code signing.
 public enum Resources {
+    /// Set by a host that keeps the data files elsewhere (Windows: `Resources` beside the host).
+    nonisolated(unsafe) public static var directory: URL?
+
     /// Source tree root, from this file's location (Sources/SeamtypeCore/Resources.swift).
     static let packageRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
 
     static func url(_ name: String, development: URL) -> URL? {
         var candidates: [URL] = []
+        if let directory { candidates.append(directory.appendingPathComponent(name)) }
         if let resources = Bundle.main.resourceURL { candidates.append(resources.appendingPathComponent(name)) }
         if let dir = ProcessInfo.processInfo.environment["ARASO_RESOURCES"] {
             candidates.append(URL(fileURLWithPath: dir).appendingPathComponent(name))
@@ -33,6 +37,12 @@ public enum Resources {
     /// English words with their SCOWL level, 10 (most common) to 60 (build_english_words.py).
     public static var englishWords: URL? {
         url("english_words.txt", development: packageRoot.appendingPathComponent("Sources/SeamtypeCore/Data/english_words.txt"))
+    }
+
+    /// Webster's Second International (web2, public domain): the letter trigrams' spellings where
+    /// the system has no /usr/share/dict/words (Windows, Linux).
+    public static var englishSpelling: URL? {
+        url("english_spelling.txt", development: packageRoot.appendingPathComponent("Sources/SeamtypeCore/Data/english_spelling.txt"))
     }
 
     /// Korean words seen in sentences, with counts (Tatoeba; build_korean_words.py).

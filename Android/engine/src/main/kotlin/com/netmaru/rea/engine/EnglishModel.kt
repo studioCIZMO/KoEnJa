@@ -116,8 +116,9 @@ class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null, ex
         const val COMMON_LEVEL = 20
         /** Level given to [commonWords] (tech terms and slang SCOWL lacks): known, not "common". */
         const val EXTRA_LEVEL = 35
-        /** Letter trigrams come from this list when it's there (macOS ships it, Android doesn't): its
-         *  235k words separate English spelling from Korean keys better than SCOWL's 119k (measured). */
+        /** Letter trigrams come from this list when it's there (macOS ships it), else from the same
+         *  list in the data (english_spelling.txt, web2; Android has none): its 235k words separate
+         *  English spelling from Korean keys better than SCOWL's 119k (measured). */
         const val SPELLING_LIST_PATH = "/usr/share/dict/words"
 
         /** Loading the word list takes a moment; share one instance. */
@@ -135,11 +136,13 @@ class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null, ex
                 }
             }
             // REA: the extra words go in in the constructor, not into a copy of the 119k-word list.
-            val file = spellingPath?.let(::File)?.takeIf { it.canRead() }
-                ?: return EnglishModel(levels, extraWords = extraWords)
-            return file.bufferedReader().useLines { lines ->
+            val build = { lines: Sequence<String> ->
                 EnglishModel(levels, lines.filter(String::isNotEmpty).map { it.lowercase() } + extraWords.asSequence(), extraWords)
             }
+            val file = spellingPath?.let(::File)?.takeIf { it.canRead() }
+            return file?.bufferedReader()?.useLines(build)
+                ?: (if (spellingPath == SPELLING_LIST_PATH) Resources.lines("english_spelling.txt", build) else null)
+                ?: EnglishModel(levels, extraWords = extraWords)
         }
 
         /** [^, ^, letters..., $] with ^ and $ both encoded as 0. */

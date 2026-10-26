@@ -49,7 +49,7 @@ public enum Jamo {
 }
 
 /// The 2-set layout, and where the rest of the code asks about Korean keys: with 3-set chosen
-/// (`KoreanLayout`), the public statics answer for `SebeolsikFinal` instead.
+/// (`KoreanLayout`), the public statics answer for `Sebeolsik` instead.
 public enum DubeolsikLayout {
     private static let lower: [Character: Character] = [
         "q": "ㅂ", "w": "ㅈ", "e": "ㄷ", "r": "ㄱ", "t": "ㅅ", "y": "ㅛ", "u": "ㅕ", "i": "ㅑ", "o": "ㅐ", "p": "ㅔ",
@@ -63,7 +63,7 @@ public enum DubeolsikLayout {
     /// Keys whose shifted form produces a different jamo. Shift on any other
     /// letter is a signal the user is typing English.
     public static func isKoreanShiftKey(_ key: Character) -> Bool {
-        if KoreanLayout.current == .sebeolsikFinal { return SebeolsikFinal.isKoreanShiftKey(key) }
+        if KoreanLayout.current.isSebeolsik { return Sebeolsik.isKoreanShiftKey(key) }
         return shifted[seat(key)] != nil
     }
 
@@ -77,7 +77,7 @@ public enum DubeolsikLayout {
     /// between lowercase keys, so a word typed in capitals throughout (TM, RN, TL: acronyms) gets
     /// no such allowance, nor does ㅒ/ㅖ with no consonant before it (PDF, OAuth).
     public static func hasEnglishOnlyCapital(_ keys: String) -> Bool {
-        if KoreanLayout.current == .sebeolsikFinal { return SebeolsikFinal.hasEnglishOnlyCapital(keys) }
+        if KoreanLayout.current.isSebeolsik { return Sebeolsik.hasEnglishOnlyCapital(keys) }
         let chars = keys.map(seat)
         let hasLowercase = chars.contains(where: \.isLowercase)
         for (i, key) in chars.enumerated() where key.isUppercase && shifted[key] == nil {
@@ -113,7 +113,7 @@ public enum DubeolsikLayout {
     /// Uppercase letters without a shifted jamo fall back to the lowercase jamo,
     /// mirroring how the macOS 2-set keyboard behaves.
     public static func jamo(for key: Character) -> Character? {
-        if KoreanLayout.current == .sebeolsikFinal { return SebeolsikFinal.jamo(for: key)?.jamo }
+        if KoreanLayout.current.isSebeolsik { return Sebeolsik.jamo(for: key)?.jamo }
         return jamo(onSeat: seat(key))
     }
 

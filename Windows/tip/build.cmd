@@ -21,7 +21,5 @@ if %ARCH%==x86 exit /b 0
 rc /nologo /fo %OUT%\Settings.res Version.rc || exit /b 1
 cl %FLAGS% Settings.cpp %OUT%\Settings.res /Fo%OUT%\ /Fe%OUT%\KoEnJaSettings.exe user32.lib gdi32.lib advapi32.lib shell32.lib version.lib /link /MANIFEST:EMBED || exit /b 1
 xcopy /y /q /i ..\..\Packages\SeamtypeCore\Sources\SeamtypeCore\Data %OUT%\data >nul || exit /b 1
-rem The English spelling list: Webster's 2nd International (web2, macOS's /usr/share/dict/words), public domain.
-copy /y ..\engine\data\words.txt %OUT%\data\ >nul || exit /b 1
 rem Mozc's dictionary, unpacked once: the converter maps it, shared by every app the TIP loads into.
 if not exist %OUT%\data\mozc.dic powershell -NoProfile -Command "$i=[IO.File]::OpenRead('..\..\Android\japanese\src\main\resources\mozc.dic.gz'); $o=[IO.File]::Create('%OUT%\data\mozc.dic'); (New-Object IO.Compression.GZipStream($i,[IO.Compression.CompressionMode]::Decompress)).CopyTo($o); $o.Close(); $i.Close()" || exit /b 1
