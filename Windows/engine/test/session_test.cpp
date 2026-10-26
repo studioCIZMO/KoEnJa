@@ -56,6 +56,12 @@ struct FakeConverter : JapaneseConverter {
         if (kana == u"いいてんきですね") return {{u"いい天気ですね", 8}, {kana, 8}};
         if (kana == u"へんかん") return {{u"変換", 4}, {u"返還", 4}, {u"編纂", 4}};
         if (kana == u"3じ") return {{u"三時", 2}, {u"３時", 2}, {u"3時", 2}, {u"3", 1}};
+        if (kana == u"やま") return {{u"山😀", 2}, {kana, 2}};
+        if (kana == u"かず") {
+            std::vector<ConversionCandidate> numbered;
+            for (int i = 1; i <= 12; i++) numbered.push_back({u"数" + utf16(std::to_string(i)), 2});
+            return numbered;
+        }
         return {{kana, int(kana.size())}};
     }
     void learn(const ConversionCandidate& candidate, const std::u16string&) override { learned.push_back(candidate.text); }
@@ -112,6 +118,21 @@ int main(int argc, char** argv) {
         t.type(u"kyouhaiitenkidesune ");
         t.key(DELETE);
         CHECK(t.field.value == u"きです今日はいい天気です");
+    }
+    { // Delete takes the whole last character, both halves of a surrogate pair.
+        Test t(false);
+        t.type(u"yama ");
+        CHECK(t.field.value == u"山😀");
+        t.key(DELETE);
+        CHECK(t.field.value == u"山");
+    }
+    { // A digit picks from the page of candidates on show.
+        Test t(false);
+        t.type(u"kazu ");
+        for (int i = 0; i < 9; i++) t.key(Key{Key::Kind::Down});
+        CHECK(t.field.value == u"数10");
+        t.type(u"2");
+        CHECK(t.field.value == u"数11" && !t.session->conversion);
     }
     { // A number taken into the conversion goes with it.
         Test t(false);
@@ -215,6 +236,10 @@ int main(int argc, char** argv) {
         CHECK(InputSession::dropLastClause(u"変換", u"へんかん") == R(u"", 0));
         CHECK(InputSession::dropLastClause(u"きょうは", u"きょうは") == R(u"", 0));
         CHECK(InputSession::dropLastClause(u"今日は天気", u"ちがう") == R(u"", 0));
+        // A conversion the reading can't match is given up on at once, not in exponential time.
+        std::u16string text, reading(36, u'あ');
+        for (int i = 0; i < 16; i++) text += u"漢あ";
+        CHECK(InputSession::dropLastClause(text + u"漢い漢", reading) == R(u"", 0));
     }
     for (bool katakana : {false, true}) { // A word that goes in through its conversion or kana forms was typed again.
         auto file = std::filesystem::temp_directory_path() / (std::string("koenja-session-") + (katakana ? "k" : "s") + ".txt");

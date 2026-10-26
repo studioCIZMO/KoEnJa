@@ -912,9 +912,11 @@ class InputSession(
             }
 
             key is Key.Printable && key.ch.isNumber -> {
+                // The digits number the page on show.
+                val start = conversion.selected / 9 * 9
                 val n = Character.getNumericValue(key.ch)
-                if (n >= 1 && n <= minOf(9, conversion.candidates.size)) {
-                    choose(n - 1, client)
+                if (n >= 1 && start + n - 1 < conversion.candidates.size) {
+                    choose(start + n - 1, client)
                     return true
                 }
                 commit(client)
@@ -937,7 +939,9 @@ class InputSession(
                 // Delete with live conversion off: the conversion on screen goes in less its last
                 // character (変換 → 変), as in macOS's Japanese input.
                 if (key == Key.Delete && !liveConversion) {
-                    val text = conversion.display.dropLast(1)
+                    val shown = conversion.display
+                    // The last character, both halves of a surrogate pair (山😀 → 山).
+                    val text = shown.dropLast(if (shown.length >= 2 && shown.last().isLowSurrogate()) 2 else 1)
                     client.insertText(text, null)
                     noteRun(text)
                     noteBrackets(text)
@@ -1432,9 +1436,13 @@ class InputSession(
             val prefix = text.substring(0, start)
             // How much of the reading the prefix covers, its conversions as short as they can be
             // (今日 is きょう in きょうははこ, so 箱 is はこ); the last clause keeps at least one kana.
+            // (p, r) states already found not to cover, so no state is explored twice (a
+            // conversion the reading can't match was exponential: 漢あ×16 then 漢い against 36 あ).
+            val failed = HashSet<Int>()
             fun covered(p: Int, r: Int): Int? {
                 if (p >= prefix.length) return if (r < reading.length) r else null
                 if (literal(prefix[p])) return if (r < reading.length && reading[r] == prefix[p]) covered(p + 1, r + 1) else null
+                if (!failed.add(p * (reading.length + 1) + r)) return null
                 var end = p
                 while (end < prefix.length && !literal(prefix[end])) end++
                 for (r2 in r + 1..reading.length) covered(end, r2)?.let { return it }

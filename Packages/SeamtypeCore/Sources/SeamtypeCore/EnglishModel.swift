@@ -45,10 +45,10 @@ public final class EnglishModel: @unchecked Sendable {
         }
         if levels.isEmpty { NSLog("Araso: English word list missing (%@)", listURL?.path ?? "nil") }
         // REA: the extra words go in in init(levels:), not into a copy of the 119k-word list kept as
-        // its own levels (+7 MB at the iOS keyboard's launch; it is killed near 70 MB).
-        let spelling = spellingPath.flatMap { try? String(contentsOfFile: $0, encoding: .utf8) }?
-            .split(whereSeparator: \.isNewline).map { $0.lowercased() }
-        self.init(levels: levels, spelling: spelling.map { $0 + extraWords }, extraWords: extraWords)
+        // its own levels (+7 MB at the iOS keyboard's launch; it is killed near 70 MB). The spelling
+        // list is read mapped and streamed into the trigrams, not split into 236k strings.
+        let spelling = spellingPath.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0), options: .alwaysMapped) }
+        self.init(levels: levels, extraWords: extraWords, spelling: nil, spellingFile: spelling)
     }
 
     /// For tests: these words at a middle level.
@@ -56,7 +56,13 @@ public final class EnglishModel: @unchecked Sendable {
         self.init(levels: Dictionary(list.map { ($0.lowercased(), Self.extraLevel) }, uniquingKeysWith: min))
     }
 
-    public init(levels raw: [String: Int], spelling: [String]? = nil, extraWords: [String] = []) {
+    public convenience init(levels raw: [String: Int], spelling: [String]? = nil, extraWords: [String] = []) {
+        self.init(levels: raw, extraWords: extraWords, spelling: spelling, spellingFile: nil)
+    }
+
+    /// REA: trigrams from `spelling`, else from `spellingFile`'s lines (lowercased, as an ASCII
+    /// list like web2 is) and then `extraWords`, else from the levels' words.
+    init(levels raw: [String: Int], extraWords: [String], spelling: [String]?, spellingFile: Data?) {
         let n = Self.symbols
         var tri = [Float](repeating: 0, count: n * n * n)
         var ctx = [Float](repeating: 0, count: n * n)
@@ -79,12 +85,27 @@ public final class EnglishModel: @unchecked Sendable {
             levels[word] = min(levels[word] ?? Self.extraLevel, Self.extraLevel)
         }
         stemLevels = extraWords.isEmpty ? nil : listed
-        for word in spelling ?? Array(levels.keys) where !word.isEmpty && word.allSatisfy({ $0.isASCII && $0.isLetter }) {
+        func train(_ word: String) {
+            guard !word.isEmpty, word.allSatisfy({ $0.isASCII && $0.isLetter }) else { return }
             let codes = Self.encode(word)
             for i in 2..<codes.count {
                 tri[(codes[i - 2] * n + codes[i - 1]) * n + codes[i]] += 1
                 ctx[codes[i - 2] * n + codes[i - 1]] += 1
             }
+        }
+        if let spelling {
+            spelling.forEach(train)
+        } else if let spellingFile {
+            spellingFile.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+                var start = 0
+                for i in 0...bytes.count where i == bytes.count || bytes[i] == 10 || bytes[i] == 13 {
+                    if i > start { train(String(decoding: UnsafeRawBufferPointer(rebasing: bytes[start..<i]), as: UTF8.self).lowercased()) }
+                    start = i + 1
+                }
+            }
+            extraWords.forEach(train)
+        } else {
+            levels.keys.forEach(train)
         }
         trigrams = tri
         contexts = ctx

@@ -669,9 +669,14 @@ std::pair<std::u16string, int> InputSession::dropLastClause(const std::u16string
     const int p_end = int(prefix.size()), k_end = int(reading.size());
     // How much of the reading the prefix covers, its conversions as short as they can be
     // (今日 is きょう in きょうははこ, so 箱 is はこ); the last clause keeps at least one kana.
+    // (p, r) states already found not to cover, so no state is explored twice (a
+    // conversion the reading can't match was exponential: 漢あ×16 then 漢い against 36 あ).
+    std::vector<bool> failed(size_t(p_end + 1) * size_t(k_end + 1));
     auto covered = [&](auto& self, int p, int r) -> std::optional<int> {
         if (p >= p_end) return r < k_end ? std::optional<int>(r) : std::nullopt;
         if (literal(prefix[p])) return r < k_end && reading[r] == prefix[p] ? self(self, p + 1, r + 1) : std::nullopt;
+        if (failed[size_t(p) * size_t(k_end + 1) + r]) return std::nullopt;
+        failed[size_t(p) * size_t(k_end + 1) + r] = true;
         int end = p;
         while (end < p_end && !literal(prefix[end])) end++;
         for (int r2 = r + 1; r2 <= k_end; r2++) if (auto found = self(self, end, r2)) return found;
@@ -845,9 +850,11 @@ bool InputSession::handleConverting(Key key, TextClient& client) {
         return true;
     }
     if (key.kind == Kind::Printable && isNumber(key.ch)) {
+        // The digits number the page on show.
+        int start = current.selected / 9 * 9;
         int n = numericValue(key.ch);
-        if (n >= 1 && n <= std::min(9, count)) {
-            choose(n - 1, client);
+        if (n >= 1 && start + n - 1 < count) {
+            choose(start + n - 1, client);
             return true;
         }
         commit(&client);
@@ -868,7 +875,9 @@ bool InputSession::handleConverting(Key key, TextClient& client) {
         // Delete with live conversion off: the conversion on screen goes in less its last
         // character (変換 → 変), as in macOS's Japanese input.
         if (deletes && !liveConversion) {
-            auto text = dropLast(current.display(), 1);
+            auto text = current.display();
+            // The last character, both halves of a surrogate pair (山😀 → 山).
+            text = dropLast(text, text.size() >= 2 && text.back() >= 0xDC00 && text.back() < 0xE000 ? 2 : 1);
             client.insertText(text, std::nullopt);
             noteRun(text);
             noteBrackets(text);

@@ -361,6 +361,9 @@ import Testing
         #expect(InputSession.dropLastClause("変換", reading: "へんかん") == ("", 0))
         #expect(InputSession.dropLastClause("きょうは", reading: "きょうは") == ("", 0))
         #expect(InputSession.dropLastClause("今日は天気", reading: "ちがう") == ("", 0))
+        // REA: a conversion the reading can't match is given up on at once, not in exponential time.
+        #expect(InputSession.dropLastClause(String(repeating: "漢あ", count: 16) + "漢い漢",
+                                            reading: String(repeating: "あ", count: 36)) == ("", 0))
     }
 
     @Test func returnWithoutConvertingCommitsKanaOnly() {

@@ -30,6 +30,8 @@ class JapaneseSessionTest {
             "へんかん" -> listOf(ConversionCandidate("変換", 4), ConversionCandidate("返還", 4), ConversionCandidate("編纂", 4))
             "3じ" -> listOf(ConversionCandidate("三時", 2), ConversionCandidate("３時", 2), ConversionCandidate("3時", 2),
                             ConversionCandidate("3", 1))
+            "やま" -> listOf(ConversionCandidate("山😀", 2), ConversionCandidate(kana, 2))
+            "かず" -> (1..12).map { ConversionCandidate("数$it", 2) }
             else -> listOf(ConversionCandidate(kana, kana.length))
         }
         override fun learn(candidate: ConversionCandidate, kana: String) { learned += candidate.text }
@@ -67,6 +69,24 @@ class JapaneseSessionTest {
         type("kyouhaiitenkidesune ")
         session.handle(InputSession.Key.Delete, field)
         assertEquals("きです今日はいい天気です", field.text)
+    }
+
+    @Test
+    fun deleteInConversionDropsAWholeLastCharacter() {
+        type("yama ")
+        assertEquals("山😀", field.text)
+        session.handle(InputSession.Key.Delete, field)
+        assertEquals("山", field.text) // not 山 and half of 😀
+    }
+
+    @Test
+    fun aDigitPicksFromThePageOnShow() {
+        type("kazu ")
+        repeat(9) { session.handle(InputSession.Key.Down, field) }
+        assertEquals("数10", field.text)
+        type("2")
+        assertEquals("数11", field.text)
+        assertNull(session.conversion)
     }
 
     @Test
@@ -157,6 +177,8 @@ class JapaneseSessionTest {
         assertEquals("" to 0, InputSession.dropLastClause("変換", "へんかん"))
         assertEquals("" to 0, InputSession.dropLastClause("きょうは", "きょうは"))
         assertEquals("" to 0, InputSession.dropLastClause("今日は天気", "ちがう"))
+        // A conversion the reading can't match is given up on at once, not in exponential time.
+        assertEquals("" to 0, InputSession.dropLastClause("漢あ".repeat(16) + "漢い漢", "あ".repeat(36)))
     }
 
     /** With live conversion a switch key takes a converted phrase back to its kana first, but a

@@ -1038,11 +1038,15 @@ public final class InputSession {
         let kana = Array(reading)
         // How much of the reading the prefix covers, its conversions as short as they can be
         // (今日 is きょう in きょうははこ, so 箱 is はこ); the last clause keeps at least one kana.
+        // REA: (p, r) states already found not to cover, so no state is explored twice (a
+        // conversion the reading can't match was exponential: 漢あ×16 then 漢い against 36 あ).
+        var failed = Set<Int>()
         func covered(_ p: Int, _ r: Int) -> Int? {
             guard p < prefix.count else { return r < kana.count ? r : nil }
             if literal(prefix[p]) {
                 return r < kana.count && kana[r] == prefix[p] ? covered(p + 1, r + 1) : nil
             }
+            guard failed.insert(p * (kana.count + 1) + r).inserted else { return nil }
             var end = p
             while end < prefix.count, !literal(prefix[end]) { end += 1 }
             for r2 in stride(from: r + 1, through: kana.count, by: 1) {
