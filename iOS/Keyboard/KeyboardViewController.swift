@@ -160,6 +160,7 @@ final class KeyboardViewController: UIInputViewController {
             Self.session = Self.makeSession(converter: converter, preferences: current, heuristic: heuristic)
         }
         if keyStack == nil { buildKeys() }
+        if Self.lexicon == nil { requestSupplementaryLexicon { Self.lexicon = $0.entries } }
         switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
         sound = KeyFeedback.sound
         haptics = KeyFeedback.haptics
@@ -379,16 +380,7 @@ final class KeyboardViewController: UIInputViewController {
         case "⌫": key = .delete
         case "한あA": key = .cycle // always a switch key, unlike Esc (AppPolicy.standardSwitchKeys)
         case "space":
-            flushCandidates()
-            // Kana with romaji left over (てh) goes in as English on Space: its typo fix too.
-            let leftover = session.lastTrace?.decision.language == .japanese && client.marked.contains(where: \.isASCII)
-            // A word straight after . / @ : (README.md, a URL, an address) isn't one to correct.
-            let attached = textDocumentProxy.documentContextBeforeInput?.dropLast(client.marked.count).last
-                .map { $0.isPunctuation || $0.isSymbol } ?? false
-            if !attached, let fix = suggestions.autocorrect ?? (leftover ? Suggestions.english(word: session.keys, model: heuristic.english).autocorrect : nil) {
-                TraceLog.write("AUTOCORRECT \(client.marked) → \(fix)")
-                replaceWord(with: fix)
-            }
+            autocorrect()
             key = .printable(" ")
         case "return":
             // Japanese being typed: return takes the first candidate (highlighted), like the
@@ -401,8 +393,11 @@ final class KeyboardViewController: UIInputViewController {
             }
             key = .enter
         case _ where numbers && Self.symbols[title.first!] != nil:
-            key = .printable(Self.symbols[title.first!]!)
+            let symbol = Self.symbols[title.first!]!
+            if Self.wordEnds.contains(String(symbol)) { autocorrect() }
+            key = .printable(symbol)
         default:
+            if Self.wordEnds.contains(title) { autocorrect() } // as Space does: "dont." is "don't."
             let letter = Character(title).isLetter ? corrected(Character(title)) : Character(title)
             let c = Character(shifted ? letter.uppercased() : String(letter))
             key = c.isLetter ? .letter(c) : .printable(c)
@@ -454,6 +449,38 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     // MARK: - Typing correction
+
+    /// Keys after a word that correct it, as the system keyboard does.
+    private static let wordEnds: Set<String> = [".", ",", "?", "!"]
+
+    /// The user's lexicon (Settings › General › Keyboard › Text Replacement, and contacts' names),
+    /// asked for once a launch.
+    private static var lexicon: [UILexiconEntry]?
+
+    /// The word being typed, fixed before Space or punctuation: a text replacement shortcut first
+    /// (omw → On my way!), then the typo fix, never for a name in the lexicon.
+    private func autocorrect() {
+        flushCandidates()
+        let word = client.marked
+        guard !word.isEmpty else { return }
+        // A word straight after . / @ : (README.md, a URL, an address) isn't one to correct.
+        let attached = textDocumentProxy.documentContextBeforeInput?.dropLast(word.count).last
+            .map { $0.isPunctuation || $0.isSymbol } ?? false
+        guard !attached else { return }
+        let entry = Self.lexicon?.first { $0.userInput.caseInsensitiveCompare(word) == .orderedSame }
+        if let entry, entry.documentText != entry.userInput {
+            TraceLog.write("REPLACE \(word) → \(entry.documentText)")
+            replaceWord(with: entry.documentText)
+            return
+        }
+        guard entry == nil else { return }
+        // Kana with romaji left over (てh) goes in as English: its typo fix too.
+        let leftover = session.lastTrace?.decision.language == .japanese && word.contains(where: \.isASCII)
+        if let fix = suggestions.autocorrect ?? (leftover ? Suggestions.english(word: session.keys, model: heuristic.english).autocorrect : nil) {
+            TraceLog.write("AUTOCORRECT \(word) → \(fix)")
+            replaceWord(with: fix)
+        }
+    }
 
     /// A touch near the edge of a letter key, mid-word: the neighbor wins when it makes the word
     /// much more likely (fgem → fhem, 로드). Mozc and azooKey also correct by touch position.

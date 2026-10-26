@@ -143,6 +143,13 @@ final class KeyboardTests: XCTestCase {
         let english = KeyboardViewController.makeHeuristic(preferences: Self.all).english
         XCTAssertEqual(Suggestions.english(word: "teh", model: english).autocorrect, "the")
         XCTAssertNil(Suggestions.english(word: "hello", model: english).autocorrect)
+        // As the system keyboard: a key missing or pressed twice, an apostrophe left out, a lone i.
+        XCTAssertEqual(Suggestions.english(word: "helo", model: english).autocorrect, "hello")
+        XCTAssertEqual(Suggestions.english(word: "helllo", model: english).autocorrect, "hello")
+        XCTAssertEqual(Suggestions.english(word: "dont", model: english).autocorrect, "don't")
+        XCTAssertEqual(Suggestions.english(word: "Im", model: english).autocorrect, "I'm")
+        XCTAssertEqual(Suggestions.english(word: "i", model: english).autocorrect, "I")
+        XCTAssertNil(Suggestions.english(word: "lets", model: english).autocorrect)
         XCTAssertEqual(Set(Suggestions.neighbors["g"]!), Set("fhtyv"))
         XCTAssertTrue(Suggestions.oneSlip(String(repeating: "a", count: 65)).isEmpty)
         for word in ["teh", "wrold", "hellp"] {

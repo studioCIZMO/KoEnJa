@@ -2,8 +2,9 @@ import SeamtypeCore
 import UIKit
 
 /// Korean and English suggestions for the bar, like the system keyboard's: corrections for a
-/// typo, else completions. A typo with a fix found by one slip (a neighbor key, two keys swapped)
-/// is corrected on Space; that fix comes first.
+/// typo, else completions. A typo with a fix found by one slip (a neighbor key, two keys swapped,
+/// in English also a key too many or missing) is corrected on Space and punctuation, as are
+/// English's dropped apostrophes (dont, im) and a lone i; that fix comes first.
 /// Korean: iOS's spell checker has no Korean (it only completes), so a typo is a word missing
 /// from SeamtypeCore's word lists, and fixes come from re-typing its keys with one slip.
 /// English: UITextChecker's guesses and completions.
@@ -34,8 +35,9 @@ struct Suggestions: Equatable {
         return map
     }()
 
-    /// The keys with one slip: each key swapped for a neighbor, or two keys in the wrong order.
-    static func oneSlip(_ keys: String) -> [String] {
+    /// The keys with one slip: each key swapped for a neighbor, two keys in the wrong order, or a
+    /// key too many (pressed twice, or brushed on the way); `missing`: also each letter left out.
+    static func oneSlip(_ keys: String, missing: Bool = false) -> [String] {
         // Avoid quadratic work for long tokens (URLs, identifiers, or a missing space).
         guard keys.count <= 64 else { return [] }
         let chars = Array(keys)
@@ -51,6 +53,20 @@ struct Suggestions: Equatable {
                 var c = chars
                 c.swapAt(i, i + 1)
                 out.append(String(c))
+            }
+            if chars.count > 1 {
+                var c = chars
+                c.remove(at: i)
+                out.append(String(c))
+            }
+        }
+        if missing {
+            for i in 0...chars.count {
+                for letter in "abcdefghijklmnopqrstuvwxyz" {
+                    var c = chars
+                    c.insert(letter, at: i)
+                    out.append(String(c))
+                }
             }
         }
         return out
@@ -80,7 +96,24 @@ struct Suggestions: Equatable {
         word.reduce(0) { $0 + model.syllableLogProbability($1) }
     }
 
+    /// The system keyboard's fixes that aren't spelling: an apostrophe left out, a lone i.
+    /// Words that are also words without it (well, its, wont, ill, lets, wed, id) are left alone.
+    static let apostrophes: [String: String] = [
+        "i": "I", "im": "I'm", "ive": "I've",
+        "dont": "don't", "doesnt": "doesn't", "didnt": "didn't", "isnt": "isn't", "arent": "aren't",
+        "wasnt": "wasn't", "werent": "weren't", "cant": "can't", "couldnt": "couldn't",
+        "shouldnt": "shouldn't", "wouldnt": "wouldn't", "havent": "haven't", "hasnt": "hasn't",
+        "hadnt": "hadn't", "youre": "you're", "youve": "you've", "youll": "you'll", "theyre": "they're",
+        "theyve": "they've", "thats": "that's", "whats": "what's", "theres": "there's",
+        "shes": "she's", "hes": "he's", "itll": "it'll", "weve": "we've",
+    ]
+
     static func english(word: String, model: EnglishModel) -> Suggestions {
+        if let fix = apostrophes[word.lowercased()], word != fix {
+            // Capitalized as typed (Dont → Don't); I stays I.
+            let cased = word.first?.isUppercase == true ? fix.prefix(1).uppercased() + fix.dropFirst() : fix
+            return Suggestions(words: [cased], autocorrect: cased)
+        }
         let range = NSRange(location: 0, length: (word as NSString).length)
         let typo = word.count >= 2 && !model.isKnownWord(word.lowercased())
             && checker.rangeOfMisspelledWord(in: word, range: range, startingAt: 0, wrap: false, language: "en_US").location != NSNotFound
@@ -88,10 +121,28 @@ struct Suggestions: Equatable {
         let guesses = (checker.guesses(forWordRange: range, in: word, language: "en_US") ?? [])
             .filter { !$0.contains(" ") && !$0.contains("-") }
         // Only a guess one slip away is trusted for autocorrect; others are just offered.
-        let slips = Set(oneSlip(word.lowercased()))
-        let fix = guesses.first { slips.contains($0.lowercased()) }
+        let slips = Set(oneSlip(word.lowercased(), missing: true))
+        // Among those the most common word (SCOWL's level; teh is the, not tech), then one that
+        // keeps every key typed (helo is hello, not help), then the spell checker's order.
+        let typed = word.lowercased()
+        let fix = guesses.enumerated().filter { slips.contains($0.element.lowercased()) }.min { a, b in
+            func rank(_ g: String) -> (Int, Int) {
+                (model.level(g.lowercased()) ?? 99, isSubsequence(typed, of: g.lowercased()) ? 0 : 1)
+            }
+            let (ra, rb) = (rank(a.element), rank(b.element))
+            return ra != rb ? ra < rb : a.offset < b.offset
+        }?.element
         let words = fix.map { fix in [fix] + guesses.filter { $0 != fix } } ?? guesses
         return Suggestions(words: Array(words.prefix(2)), autocorrect: fix)
+    }
+
+    nonisolated private static func isSubsequence(_ short: String, of long: String) -> Bool {
+        var rest = Substring(long)
+        for c in short {
+            guard let i = rest.firstIndex(of: c) else { return false }
+            rest = rest[rest.index(after: i)...]
+        }
+        return true
     }
 
     private static func complete(_ word: String, language: String) -> [String] {
