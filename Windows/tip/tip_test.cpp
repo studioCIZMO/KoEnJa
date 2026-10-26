@@ -266,7 +266,7 @@ static void setText(const wchar_t* name, const wchar_t* value) {
 /** The user's settings as they were, put back (or removed) at the end. */
 struct Saved {
     struct Value { const wchar_t* name; DWORD type = 0; BYTE data[128]; DWORD size = sizeof data; bool had; };
-    Value values[4] = {{L"SwitchKey"}, {L"KeyLog"}, {L"KeyboardType"}, {L"LanguageOrder"}};
+    Value values[5] = {{L"SwitchKey"}, {L"KeyLog"}, {L"KeyboardType"}, {L"LanguageOrder"}, {L"KoreanLayout"}};
     Saved() {
         for (auto& v : values) v.had = !RegGetValueW(HKEY_CURRENT_USER, SETTINGS, v.name, RRF_RT_ANY, &v.type, v.data, &v.size);
     }
@@ -331,6 +331,7 @@ int main() {
     // KoEnJa off and on), whatever the user picked.
     setText(L"KeyboardType", L"Korean");
     setText(L"LanguageOrder", L"ko,en");
+    setText(L"KoreanLayout", nullptr);
     DWORD off = 0;
     setSetting(L"KeyLog", REG_DWORD, &off, sizeof off);
     printf("GetKeyboardType(0) = %d\n", GetKeyboardType(0));
@@ -642,6 +643,15 @@ int main() {
     ActivateKeyboardLayout(before, 0);
     setText(L"KeyboardType", L"Korean");
     setText(L"SwitchKey", L"RightAlt");
+
+    // KoreanLayout, read again when the focus comes back: on 3-set a digit types a jamo in a word (2 is
+    // ㅆ) and starts one (0 is ㅋ), and right after a Korean word ⇧B is ?; then 2-set again.
+    setText(L"KoreanLayout", L"sebeolsikFinal");
+    const Step sebeolsik[] = {{"\f\r" "kf2uf ", L"갔다 ", false}, {"0tpd ", L"갔다 커피 ", false}, {"ldhr2jtB ", L"갔다 커피 지냈어? ", false}};
+    run(sebeolsik);
+    setText(L"KoreanLayout", nullptr);
+    const Step dubeolsik[] = {{"\f\r" "dkssud ", L"안녕 ", false}};
+    run(dubeolsik);
 
     // LanguageOrder, read again when the focus comes back: no Korean, then Korean first again.
     setText(L"LanguageOrder", L"ja,en");

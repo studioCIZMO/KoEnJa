@@ -27,6 +27,8 @@ namespace Jamo {
     char16_t syllable(char16_t cho, char16_t jung, std::optional<char16_t> jong);
 }
 
+/** The 2-set layout, and where the rest of the code asks about Korean keys: with 3-set chosen
+ *  (`KoreanLayout`), these answer for `Sebeolsik` instead. */
 namespace DubeolsikLayout {
     /** Keys whose shifted form produces a different jamo. Shift on any other
      *  letter is a signal the user is typing English. */
@@ -38,7 +40,7 @@ namespace DubeolsikLayout {
      *  their scores; any other capital (Hello, API, dHello) is only ever English. A Shift lingers
      *  between lowercase keys, so a word typed in capitals throughout (TM, RN, TL: acronyms) gets
      *  no such allowance, nor does ㅒ/ㅖ with no consonant before it (PDF, OAuth).
-     *  Not ported: Swift's LatinLayout seats (Colemak) and 3-set; keys are QWERTY's. */
+     *  Not ported: Swift's LatinLayout seats (Colemak); keys are QWERTY's. */
     bool hasEnglishOnlyCapital(const std::u16string& keys);
 
     /** The jamo a key produces, or nullopt for non-letters.

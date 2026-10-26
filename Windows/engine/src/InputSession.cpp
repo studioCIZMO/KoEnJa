@@ -10,11 +10,14 @@
 #include "Jamo.h"
 #include "MixedWord.h"
 #include "RomajiComposer.h"
+#include "Sebeolsik.h"
 #include "Text.h"
 
 namespace rea {
 
 using Kind = InputSession::Key::Kind;
+
+static bool isHangul(char16_t c) { return (c >= u'가' && c <= u'힣') || (c >= u'ㄱ' && c <= u'ㅣ'); }
 
 std::u16string InputSession::Conversion::display() const { return current().text + drop(kana, current().kanaCount); }
 
@@ -22,6 +25,7 @@ InputSession::Committed InputSession::Committed::withoutBoundary() const {
     Committed copy = *this;
     copy.text = dropLast(text, boundary.size());
     copy.boundary = u"";
+    copy.typedBoundary.reset();
     return copy;
 }
 
@@ -49,6 +53,8 @@ void InputSession::activate() {
 }
 
 bool InputSession::handle(Key key, TextClient& client) {
+    bool inKoreanSymbols = afterKoreanSymbol;
+    afterKoreanSymbol = false;
     if (key.kind == Kind::ShiftSpace) {
         // With nothing being typed, the other width: full-width unless Space already types that.
         if (!(keys.empty() && !conversion && japaneseEnabled && policy.fullWidth)) {
@@ -61,6 +67,24 @@ bool InputSession::handle(Key key, TextClient& client) {
         return true;
     }
     if (conversion) return handleConverting(key, client);
+    // On 3-set a digit or symbol key with a jamo goes on with the word where the jamo fits
+    // (갔 is kf2, 밥 starts on ;); elsewhere it is the symbol. Not in a URL or path, though the
+    // word itself doesn't make one: 밝 is ;f@, not an address.
+    if (key.kind == Kind::Printable && (keys.empty() || !inURLRun) &&
+        Sebeolsik::continuesWord(keys, key.ch, afterDigit, [](char16_t s) { return koreanModel().knowsSyllableIncludingRare(s); }) &&
+        !hasURLMarker(run(client))) {
+        return handle(Key::letter(key.ch), client);
+    }
+    // On 3-set a key with a digit or symbol there (⇧B ?, ⇧/ !, ⇧L 3, [ () types it right after
+    // a Korean word and after the symbols that follow one; anywhere else it is QWERTY's (Bob),
+    // also after Hangul with stray jamo (kgb, 그ㅜ), which isn't a word.
+    if (isSebeolsik() && (key.kind == Kind::Letter || key.kind == Kind::Printable) && !inURLRun) {
+        auto symbol = Sebeolsik::symbol(key.ch);
+        if (symbol && (keys.empty() ? inKoreanSymbols : currentLanguage() == Language::KOREAN && readsAsKoreanWord())) {
+            typeKoreanSymbol(*symbol, key.ch, client);
+            return true;
+        }
+    }
 
     if (!(key.kind == Kind::Printable && keys.empty())) afterDigit = false;
     if (!(key.kind == Kind::Letter || key.kind == Kind::Printable || key.kind == Kind::Escape || key.kind == Kind::Cycle)) passedRun.reset();
@@ -93,7 +117,10 @@ bool InputSession::handle(Key key, TextClient& client) {
     switch (key.kind) {
         case Kind::Letter: {
             // A symbol on its own is confirmed by the next word, which is judged by itself.
-            if (!keys.empty() && all(keys, [](char16_t c) { return RomajiComposer::symbols().count(c) > 0; })) commit(&client);
+            if (!keys.empty() && all(keys, [](char16_t c) { return RomajiComposer::symbols().count(c) > 0; }) &&
+                !(isSebeolsik() && all(keys, [](char16_t c) { return Sebeolsik::jamo(c).has_value(); }))) {
+                commit(&client); // (3-set's ; is ㅂ, a word on its way)
+            }
             if (keys.empty()) { // a new word
                 lastRecorded.reset();
                 liveSuppressed = false;
@@ -102,7 +129,9 @@ bool InputSession::handle(Key key, TextClient& client) {
                 afterNumberInJapanese = japaneseEnabled && previousLanguage == Language::JAPANESE
                     && passedRun && !passedRun->first.empty() && isNumber(passedRun->first.back())
                     && cursor.location != TextRange::NOT_FOUND && passedRunRange(cursor.location, client).has_value();
-                inURLRun = hasURLMarker(run(client));
+                auto before = run(client);
+                inURLRun = hasURLMarker(before);
+                startsAfterHangul = before.empty() || isHangul(before.back());
             }
             addedNMarker = false;
             pinned.reset();
@@ -191,6 +220,7 @@ bool InputSession::handle(Key key, TextClient& client) {
                 }
                 notePassed(ch, client);
                 noteRun(std::u16string(1, ch));
+                afterKoreanSymbol = inKoreanSymbols && ch != u' ';
                 return false;
             }
             // A symbol that makes the run a URL or path (ho@, www.) ends the word, half-width.
@@ -222,6 +252,7 @@ bool InputSession::handle(Key key, TextClient& client) {
             lastCommit = Committed{word.keys, word.decided, word.language, word.language, word.text + ch, std::u16string(1, ch),
                                    location, previous, !inURLRun};
             noteRun(word.text + ch);
+            afterKoreanSymbol = isSebeolsik() && sentenceLanguage(word.language) == Language::KOREAN && ch != u' ' && !inURLRun;
             return false;
         }
 
@@ -280,6 +311,36 @@ void InputSession::commit(TextClient* client) {
     auto word = finishWord();
     if (client) client->insertText(word.text, std::nullopt);
     noteRun(word.text);
+}
+
+/** The keys make whole syllables, or jamo on their own (ㅎㅎ, and ㅋㅋ on 0). */
+bool InputSession::readsAsKoreanWord() {
+    auto composed = HangulComposer::compose(keys);
+    return composed && (composed->strayJamo().empty() || composed->isJamoAbbreviation());
+}
+
+/** 3-set's [symbol] for the key [typed], after a Korean word: the word goes in with it, and a
+ *  switch key right after takes both back to the keys as typed (지냈어? → ldhr2jtB). After the
+ *  symbols that follow the word, it goes in alone. */
+void InputSession::typeKoreanSymbol(char16_t symbol, char16_t typed, TextClient& client) {
+    afterKoreanSymbol = true;
+    afterDigit = isNumber(symbol); // ⇧L⇧H is 30, and 0 after it a digit too
+    passedRun.reset();
+    if (keys.empty()) {
+        client.insertText(std::u16string(1, symbol), std::nullopt);
+        noteRun(std::u16string(1, symbol));
+        return;
+    }
+    auto marked = client.markedRange();
+    int location = marked.location != TextRange::NOT_FOUND ? marked.location : client.selectedRange().location;
+    auto previous = previousLanguage;
+    auto word = finishWord();
+    auto text = word.text + symbol;
+    // Not left for the app to type as with QWERTY's symbols: its key types something else.
+    client.insertText(text, std::nullopt);
+    lastCommit = Committed{word.keys, word.decided, word.language, word.language, text, std::u16string(1, symbol),
+                           location, previous, true, std::u16string(1, typed)};
+    noteRun(text);
 }
 
 /** Drops the word being typed: nothing goes in, as when Delete takes its last key. */
@@ -942,6 +1003,14 @@ Decision InputSession::decide(bool partial) {
         lastTrace = Trace{keys, previousLanguage, decision, partial};
         return decision;
     }
+    // 3-set's 0 is ㅋ: after Korean, 0000 is ㅋㅋㅋㅋ (a number to the engine, which a switch key gives).
+    if (isSebeolsik() && previousLanguage == Language::KOREAN && startsAfterHangul && Sebeolsik::isLaughter(keys)) {
+        keptEnglishByStrict = false;
+        auto composed = HangulComposer::compose(keys);
+        Decision decision{Language::KOREAN, SplittingEngine::CONFIDENCE, composed ? composed->text() : keys, u"ㅋ on 3-set's 0 after Korean"};
+        lastTrace = Trace{keys, previousLanguage, decision, partial};
+        return decision;
+    }
     auto d = engine->decide(keys, DecisionContext{previousLanguage, partial});
     // A word learned as Japanese while Japanese was on: with it off, the engine without what
     // was learned decides it (sushi stays sushi, not すし). Turned on again, it is learned again.
@@ -1275,7 +1344,7 @@ std::optional<InputSession::Committed> InputSession::cycle(const Committed& comm
     Language language = nextLanguage(commit.language, commit.keys, japaneseEnabled, engineSplits(commit.keys));
     auto reading = language == Language::JAPANESE ? JapaneseSegmenter::reading(commit.keys, segmenter.get())
                                                   : engine->render(commit.keys, language);
-    auto text = reading + commit.boundary;
+    auto text = reading + commit.boundaryIn(language);
     client.insertText(text, range);
     if (endsWith(runText, commit.text)) runText = dropLast(runText, commit.text.size()) + text;
     setPreviousLanguage(sentenceLanguage(language));

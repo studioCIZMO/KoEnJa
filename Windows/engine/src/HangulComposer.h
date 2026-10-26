@@ -32,14 +32,17 @@ namespace HangulComposer {
          *  started the next syllable. Normal while typing, suspicious at a word end. */
         bool endsWithPendingConsonant() const;
         /** ㅋㅋ, ㅠㅠ, ㅜㅜ: two or more of the jamo typed on their own in chat. Korean as it is, and
-         *  already complete: they don't go on to make syllables. (KoreanModel.swift's extension.) */
+         *  already complete: they don't go on to make syllables. (KoreanModel.swift's extension.)
+         *  On 3-set only the same jamo again (ㅋㅋ, ㅎㅎ): its consonants sit on the right hand's
+         *  letters, so a mix of them is English as often as not (jun is ㅇㄷㅅ, uhh ㄷㄴㄴ). */
         bool isChat() const;
         /** Two or more loose consonants, or ㅜ/ㅠ: what chat abbreviates to (ㅁㅊ, ㅈㅅ, ㄹㅇ, ㅜㅜ).
          *  A reading worth switching to, though only the common ones ([isChat]) score as Korean. */
         bool isJamoAbbreviation() const;
     };
 
-    /** Nullopt if any key is not a letter on the 2-set layout. */
+    /** Nullopt if any key is not a letter on the 2-set layout. On 3-set (`KoreanLayout`) the keys
+     *  are composed as that layout types them. */
     std::optional<Result> compose(const std::u16string& keys);
 
     Result composeJamo(const std::u16string& jamos);

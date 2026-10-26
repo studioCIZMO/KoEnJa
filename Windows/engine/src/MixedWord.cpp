@@ -5,6 +5,7 @@
 #include "JapaneseSegmenter.h"
 #include "ParticleSplitter.h"
 #include "RomajiComposer.h"
+#include "Sebeolsik.h"
 #include "Text.h"
 
 namespace rea {
@@ -95,6 +96,7 @@ std::optional<MixedWord> MixedWord::split(const std::u16string& keys) {
 }
 
 bool DubeolsikLayout::startsSyllable(char16_t key) {
+    if (isSebeolsik()) return Sebeolsik::startsSyllable(key);
     auto j = jamo(key);
     return j && Jamo::isConsonant(*j);
 }

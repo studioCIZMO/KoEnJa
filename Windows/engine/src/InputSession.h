@@ -90,7 +90,7 @@ class JapaneseSegmenter;
  * In a URL or path (`hasURLMarker`) words go in as typed and symbols stay half-width.
  *
  * Not ported (macOS only): vim mode, pausing (the pause key), `holdSpace` (terminals) and ⌘
- * (`commandPressed`), per-app policies and dictionary entries, 3-set Korean and Colemak.
+ * (`commandPressed`), per-app policies and dictionary entries, and Colemak.
  */
 class InputSession {
 public:
@@ -258,9 +258,14 @@ private:
         std::optional<Language> previous;
         /** A segment of a URL or path: a switch there isn't a correction to learn. */
         bool learns = true;
+        /** The key as typed when [boundary] is 3-set's symbol for it (B for ?): what the boundary
+         *  goes back to when the word is switched out of Korean (지냈어? → ldhr2jtB). */
+        std::optional<std::u16string> typedBoundary;
 
         /** The same word after Delete took back its boundary character. */
         Committed withoutBoundary() const;
+        /** The boundary as it goes in after the word in [in]. */
+        std::u16string boundaryIn(Language in) const { return in == Language::KOREAN ? boundary : typedBoundary.value_or(boundary); }
     };
 
     struct Word {
@@ -291,6 +296,12 @@ private:
     std::optional<Language> previewLanguage;
     /** The last key passed to the app was a digit (so "." there is a decimal point). */
     bool afterDigit = false;
+    /** On 3-set, the keys since the last Korean word are symbols typed straight after it (지냈어?,
+     *  그래...): 3-set's symbols go on there (⇧/ is !), as they do right after the word itself. */
+    bool afterKoreanSymbol = false;
+    /** The word being typed starts after a space or straight after Hangul: on 3-set its 0s may
+     *  be ㅋㅋ there, not in 1,000 or 10:00. */
+    bool startsAfterHangul = true;
     /** Digits and symbols the app just typed for us, one after another, and where they start:
      *  a switch key right after them makes them Japanese (123 → １２３, [ → 「), and a Japanese
      *  phrase typed right after digits converts with them (3ji → 3時). */
@@ -337,6 +348,8 @@ private:
     void setPreviousLanguage(std::optional<Language> value);
 
     void cancelComposition(TextClient& client);
+    bool readsAsKoreanWord();
+    void typeKoreanSymbol(char16_t symbol, char16_t typed, TextClient& client);
     std::u16string run(TextClient& client);
     void noteRun(const std::u16string& text);
     void noteDeleted();

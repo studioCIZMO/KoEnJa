@@ -1,5 +1,7 @@
 #include "Jamo.h"
 
+#include "Sebeolsik.h"
+
 namespace rea {
 
 static const std::u16string CHOSEONG = u"ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
@@ -61,7 +63,10 @@ static const std::unordered_map<char16_t, char16_t>& shifted() {
     return map;
 }
 
-bool DubeolsikLayout::isKoreanShiftKey(char16_t key) { return shifted().count(key) > 0; }
+bool DubeolsikLayout::isKoreanShiftKey(char16_t key) {
+    if (isSebeolsik()) return Sebeolsik::isKoreanShiftKey(key);
+    return shifted().count(key) > 0;
+}
 
 /** Shift still down for [key], right after [shiftKey], a Korean shift key that needed it. After
  *  a double consonant comes a vowel (djEJs, 어떤), or, when the double consonant is a final one
@@ -86,6 +91,7 @@ static bool lingers(char16_t shiftKey, std::optional<char16_t> twoBack, char16_t
 }
 
 bool DubeolsikLayout::hasEnglishOnlyCapital(const std::u16string& keys) {
+    if (isSebeolsik()) return Sebeolsik::hasEnglishOnlyCapital(keys);
     bool hasLowercase = any(keys, isLowerCase);
     for (size_t i = 0; i < keys.size(); i++) {
         if (!isUpperCase(keys[i]) || shifted().count(keys[i])) continue;
@@ -96,6 +102,10 @@ bool DubeolsikLayout::hasEnglishOnlyCapital(const std::u16string& keys) {
 }
 
 std::optional<char16_t> DubeolsikLayout::jamo(char16_t key) {
+    if (isSebeolsik()) {
+        auto j = Sebeolsik::jamo(key);
+        return j ? std::optional(j->jamo) : std::nullopt;
+    }
     if (auto it = shifted().find(key); it != shifted().end()) return it->second;
     if (!isAscii(key)) return std::nullopt;
     auto it = lower().find(isUpperCase(key) ? char16_t(key + 0x20) : key);

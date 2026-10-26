@@ -19,6 +19,7 @@
 #include "../engine/src/Engines.h"
 #include "../engine/src/Resources.h"
 #include "../engine/src/RomajiComposer.h"
+#include "../engine/src/Sebeolsik.h"
 #include "../japanese/MozcConverter.h"
 
 using Microsoft::WRL::ComPtr;
@@ -248,6 +249,16 @@ static std::vector<rea::Language> readOrder() {
     if (order.empty()) return {Language::KOREAN, Language::ENGLISH, Language::JAPANESE};
     if (std::find(order.begin(), order.end(), Language::ENGLISH) == order.end()) order.push_back(Language::ENGLISH);
     return order;
+}
+
+/** HKCU\Software\KoEnJa\KoreanLayout: "sebeolsikFinal" (세벌식 최종), "sebeolsik390", else 2-set (두벌식). */
+static rea::KoreanLayout readKoreanLayout() {
+    wchar_t name[32];
+    DWORD size = sizeof name;
+    if (RegGetValueW(HKEY_CURRENT_USER, SETTINGS_KEY, L"KoreanLayout", RRF_RT_REG_SZ, nullptr, name, &size)) return rea::KoreanLayout::DUBEOLSIK;
+    return !_wcsicmp(name, L"sebeolsikFinal") ? rea::KoreanLayout::SEBEOLSIK_FINAL
+         : !_wcsicmp(name, L"sebeolsik390")   ? rea::KoreanLayout::SEBEOLSIK_390
+                                              : rea::KoreanLayout::DUBEOLSIK;
 }
 
 /** Whether Japanese goes before Korean in [order] (日本語優先), else Korean does (한국어 우선). */
@@ -726,6 +737,8 @@ public:
         keyboard = readKeyboard();
         switchKey = readSwitch(keyboard);
         keyLog = readKeyLog();
+        // Not while a word is being typed: its keys would read as another layout's.
+        if (!(session && (composition || typing()))) rea::currentKoreanLayout = readKoreanLayout();
         auto languages = readOrder();
         if (languages == order) return;
         // A new order, a new session: not while a word is being typed into it (the next focus then).
@@ -1062,7 +1075,9 @@ private:
             bool upper = shift != ((GetKeyState(VK_CAPITAL) & 1) != 0);
             return type(InputSession::Key::letter(char16_t(upper ? vk : vk + ('a' - 'A'))));
         }
-        if (!typing()) return std::nullopt;
+        // On 3-set the session sees the other keys too, as on the Mac: a digit or symbol starts a word
+        // (ㅋ on 0, ㅂ on ;) or types 3-set's symbol after a Korean word (⇧/ is !), until a key that isn't one.
+        if (!typing() && (chord || !rea::isSebeolsik())) return std::nullopt;
         if (chord) return type({Kind::Other});
         auto& converting = session->conversion;
         // A Japanese phrase: converting, or typed with its candidates listed.

@@ -2,6 +2,7 @@
 
 #include "Jamo.h"
 #include "KoreanModel.h"
+#include "Sebeolsik.h"
 
 namespace rea {
 
@@ -34,7 +35,7 @@ bool Result::endsWithPendingConsonant() const {
 bool Result::isChat() const {
     return units.size() >= 2 && std::all_of(units.begin(), units.end(), [](auto& u) {
         return !u.isSyllable && contains(KoreanModel::CHAT_JAMO, u.character);
-    });
+    }) && (!isSebeolsik() || std::all_of(units.begin(), units.end(), [&](auto& u) { return u.character == units[0].character; }));
 }
 
 bool Result::isJamoAbbreviation() const {
@@ -44,6 +45,7 @@ bool Result::isJamoAbbreviation() const {
 }
 
 std::optional<Result> HangulComposer::compose(const std::u16string& keys) {
+    if (isSebeolsik()) return Sebeolsik::compose(keys);
     std::u16string jamos;
     jamos.reserve(keys.size());
     for (char16_t key : keys) {

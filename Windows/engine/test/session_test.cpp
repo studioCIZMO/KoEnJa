@@ -1,7 +1,7 @@
-// Japanese session checks with a fake converter: Delete on a conversion and in live conversion,
+// Session checks: Japanese with a fake converter (Delete on a conversion and in live conversion,
 // Space after a letter waiting for its vowel, the switch key on a live phrase shown as kana, and
-// words that go in through a conversion counting as typed. The C++ twin of a few of Swift's
-// JapaneseSessionTests.
+// words that go in through a conversion counting as typed): the C++ twin of a few of Swift's
+// JapaneseSessionTests. And Korean on 3-set, SebeolsikTests.swift's.
 //
 // Usage: session_test <data dir>
 
@@ -12,6 +12,7 @@
 
 #include "../src/Engines.h"
 #include "../src/Resources.h"
+#include "../src/Sebeolsik.h"
 #include "../src/Text.h"
 
 using namespace rea;
@@ -294,6 +295,121 @@ int main(int argc, char** argv) {
     { // A number is a number.
         Test t(false);
         CHECK(t.session->engine->decide(u"123", DecisionContext{}).explanation == u"a number");
+    }
+
+    { // SebeolsikTests.swift: Korean on 3-set final and 390, digits and symbols arriving as the app's printable keys.
+        auto compose = [](const std::u16string& keys) {
+            currentKoreanLayout = KoreanLayout::SEBEOLSIK_FINAL;
+            auto c = HangulComposer::compose(keys);
+            currentKoreanLayout = KoreanLayout::DUBEOLSIK;
+            return c ? std::optional(c->text()) : std::nullopt;
+        };
+        CHECK(compose(u"jfsheamfncj4") == u"안녕하세요");
+        CHECK(compose(u"kf2uf") == u"갔다");      // ㅆ final on 2
+        CHECK(compose(u"kkd") == u"끼");          // ㄱㄱ is ㄲ
+        CHECK(compose(u"j/f") == u"와");          // ㅗ on / for compound vowels
+        CHECK(compose(u"i9tmr") == u"뭐해");
+        CHECK(compose(u"m8") == u"희");
+        CHECK(compose(u"jtXjt") == u"없어");      // ㅄ on ⇧X
+        CHECK(compose(u"jd@uf") == u"읽다");      // ㄺ on ⇧2
+        CHECK(compose(u"k/rsofSjf") == u"괜찮아");
+        CHECK(compose(u"kfxx") == u"갂");         // ㄱㄱ final is ㄲ
+        CHECK(compose(u"kfxf") == u"각ㅏ");       // no 도깨비불
+        CHECK(compose(u"jfshea!") == u"안녕ㄲ");
+        CHECK(!compose(u"2026"));                 // a number stays a number
+        CHECK(compose(u"00") == u"ㅋㅋ");
+        CHECK(!compose(u"0"));
+        CHECK(!compose(u"Hello"));                // ⇧H is 0 in Korean: no jamo
+        CHECK(!compose(u"kf?"));
+        CHECK(HangulComposer::compose(u"dkssud")->text() == u"안녕"); // 2-set is unchanged
+        CHECK(!HangulComposer::compose(u"2026"));
+
+        // ⎋ is a switch key.
+        auto type = [](const std::u16string& text, KoreanLayout layout = KoreanLayout::SEBEOLSIK_FINAL) {
+            currentKoreanLayout = layout;
+            Field field;
+            auto session = Engines::makeSession({Language::KOREAN, Language::ENGLISH}, nullptr);
+            session->activate();
+            for (char16_t ch : text) {
+                Key key = ch == u'⎋' ? CYCLE : isLetter(ch) ? Key::letter(ch) : Key::printable(ch);
+                if (!session->handle(key, field) && ch != u'⎋') field.insertText(std::u16string(1, ch), std::nullopt);
+            }
+            currentKoreanLayout = KoreanLayout::DUBEOLSIK;
+            return field.value;
+        };
+        // digitsAndSymbolsTypeJamoInsideAWord
+        CHECK(type(u"jfshea hello ") == u"안녕 hello ");
+        CHECK(type(u"kf2uf ") == u"갔다 ");
+        CHECK(type(u";f3 ") == u"밥 ");
+        CHECK(type(u"0tpd ") == u"커피 ");
+        CHECK(type(u"mr2uf. ") == u"했다. ");
+        CHECK(type(u"mfqngjvf3 ") == u"핫스왑 ");
+        CHECK(type(u"or3't ") == u"챕터 ");
+        CHECK(type(u"0e3hduf ") == u"켭니다 ");
+        CHECK(type(u"ldqkb#jgs ") == u"짓궂은 ");
+        CHECK(type(u"jfspf! ") == u"안팎 ");
+        // symbolsAfterKoreanAreThreeSets
+        CHECK(type(u"lfw ldhr2jtB ") == u"잘 지냈어? ");
+        CHECK(type(u"jvyrsifsjduf? ") == u"오랜만이다! ");
+        CHECK(type(u"jvyrsifsjduf?B ") == u"오랜만이다!? ");
+        CHECK(type(u"jvyrsifsjduf.B ") == u"오랜만이다.? ");
+        CHECK(type(u"ldLH ") == u"지30 ");
+        CHECK(type(u"mfqngjvf3[") == u"핫스왑(");
+        CHECK(type(u"mfqngjvf3N ") == u"핫스왑- ");
+        CHECK(type(u"jfsheamfncj4 Bob ") == u"안녕하세요 Bob ");
+        CHECK(type(u"hello? ") == u"hello? ");
+        CHECK(type(u"hello[B] ") == u"hello[B] ");
+        CHECK(type(u"jvyrsifsjduf? B ") == u"오랜만이다! B ");
+        CHECK(type(u"kgbB ") == u"kgbB ");
+        CHECK(type(u"mmB ") == u"ㅎㅎ? ");
+        // aSwitchKeyTakesTheSymbolBackToTheKey
+        CHECK(type(u"ldhr2jtB⎋") == u"ldhr2jtB");
+        CHECK(type(u"ldhr2jtB⎋⎋") == u"지냈어?");
+        // zerosLaughAfterKorean
+        CHECK(type(u"lfw 0000 ") == u"잘 ㅋㅋㅋㅋ ");
+        CHECK(type(u"lfw0000 ") == u"잘ㅋㅋㅋㅋ ");
+        CHECK(type(u"lfw 0000? ") == u"잘 ㅋㅋㅋㅋ! ");
+        CHECK(type(u"0000 ") == u"0000 ");
+        CHECK(type(u"0000⎋ ") == u"ㅋㅋㅋㅋ ");
+        CHECK(type(u"lfw 0000 ⎋") == u"잘 0000 ");
+        CHECK(type(u"lfw 0 ") == u"잘 0 ");
+        CHECK(type(u"lfw 1,000 ") == u"잘 1,000 ");
+        CHECK(type(u"lfw 10:00 ") == u"잘 10:00 ");
+        CHECK(type(u"lfw 100 ") == u"잘 100 ");
+        // sebeolsik390
+        auto type390 = [&](const std::u16string& text) { return type(text, KoreanLayout::SEBEOLSIK_390); };
+        CHECK(type390(u"jfs!jf ") == u"앉아 ");
+        CHECK(type390(u"ufDjgs ") == u"닭은 ");
+        CHECK(type390(u"kfXjd ") == u"값이 ");
+        CHECK(type390(u"htxqjd ") == u"넋이 ");
+        CHECK(type390(u"mfqngjvf3 ") == u"핫스왑 ");
+        CHECK(type390(u"jfsheamfncj4B ") == u"안녕하세요! ");
+        CHECK(type390(u"lfw ldhr2jt? ") == u"잘 지냈어? ");
+        CHECK(type390(u"lcM ") == u"제1 ");
+        CHECK(type390(u"lfw 0000 ") == u"잘 ㅋㅋㅋㅋ ");
+        CHECK(type390(u"hello[B] ") == u"hello[B] ");
+        CHECK(type390(u"ldhr2jtB⎋") == u"ldhr2jtB");
+        // symbolsThatDontFitEndTheWord
+        CHECK(type(u"jfshea! ") == u"안녕! ");
+        CHECK(type(u"jfsheamfncj4! ") == u"안녕하세요! ");
+        CHECK(type(u";f! ") == u"밖 ");
+        CHECK(type(u"hello! ") == u"hello! ");
+        CHECK(type(u"100 ") == u"100 ");
+        CHECK(type(u"2026 ") == u"2026 ");
+        CHECK(type(u"2026 0tpd ") == u"2026 커피 ");
+        CHECK(type(u"it's ") == u"it's ");
+        // deleteTakesBackTheLastJamo
+        currentKoreanLayout = KoreanLayout::SEBEOLSIK_FINAL;
+        Field field;
+        auto session = Engines::makeSession({Language::KOREAN, Language::ENGLISH}, nullptr);
+        for (char16_t ch : std::u16string(u"kf2uf"))
+            if (!session->handle(isLetter(ch) ? Key::letter(ch) : Key::printable(ch), field)) field.insertText(std::u16string(1, ch), std::nullopt);
+        session->handle(DELETE, field);
+        CHECK(field.value == u"갔ㄷ");
+        session->handle(DELETE, field);
+        session->handle(DELETE, field);
+        CHECK(field.value == u"가");
+        currentKoreanLayout = KoreanLayout::DUBEOLSIK;
     }
 
     printf("session: %d/%d\n", checks - failures, checks);

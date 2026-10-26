@@ -12,6 +12,7 @@
 #include "Jamo.h"
 #include "KoreanSyllables.h"
 #include "Resources.h"
+#include "Sebeolsik.h"
 
 namespace rea {
 
@@ -54,7 +55,7 @@ static const std::pair<std::u16string, std::optional<bool>> particles[] = {
 struct Lists {
     std::vector<uint64_t> vocabulary, rare;
     WordList stems{{}};
-    std::vector<bool> syllables = std::vector<bool>(0x10000);
+    std::vector<bool> syllables = std::vector<bool>(0x10000), rareSyllables = std::vector<bool>(0x10000);
 };
 
 static const Lists& lists() {
@@ -70,8 +71,8 @@ static const Lists& lists() {
                 if (!needsFinal || *needsFinal == hasFinal) stems.push_back(stem);
             }
         };
-        auto addSyllables = [&](const std::u16string& word) { for (char16_t c : word) out.syllables[c] = true; };
-        for (auto& word : corpusWords().all()) { addStems(word); addSyllables(word); }
+        auto addSyllables = [](std::vector<bool>& to, const std::u16string& word) { for (char16_t c : word) to[c] = true; };
+        for (auto& word : corpusWords().all()) { addStems(word); addSyllables(out.syllables, word); }
         std::ifstream file(Resources::directory / "korean_vocabulary.txt", std::ios::binary);
         if (Resources::directory.empty() || !file) { out.stems = WordList(std::move(stems)); return out; }
         std::string line;
@@ -84,9 +85,10 @@ static const Lists& lists() {
             addStems(word);
             if (*n >= KoreanModel::COMMON_COUNT) {
                 out.vocabulary.push_back(hash(std::string_view(line).substr(0, tab)));
-                addSyllables(word);
+                addSyllables(out.syllables, word);
             } else {
                 out.rare.push_back(hash(std::string_view(line).substr(0, tab)));
+                addSyllables(out.rareSyllables, word);
             }
         }
         std::sort(out.vocabulary.begin(), out.vocabulary.end());
@@ -151,6 +153,10 @@ bool KoreanModel::knowsSyllable(char16_t syllable) const {
     return (isSyllable(syllable) && !std::isnan(tiers[syllable - u'가'])) || lists().syllables[syllable];
 }
 
+bool KoreanModel::knowsSyllableIncludingRare(char16_t syllable) const {
+    return knowsSyllable(syllable) || lists().rareSyllables[syllable]; // REA: lists
+}
+
 double KoreanModel::syllableLogProbability(char16_t syllable) const {
     if (!isSyllable(syllable)) return UNKNOWN_SYLLABLE_LOG_P;
     double p = tiers[syllable - u'가'];
@@ -163,8 +169,9 @@ std::optional<KoreanModel::Score> KoreanModel::score(const std::u16string& keys,
     if (keys.empty()) return std::nullopt;
     double total = logProbability(*composition, partial);
     // The consonant typed last may have joined the syllable before as its final (개 + ㅎ
-    // shows 갷) while it is the next syllable's first (소개하는): score that reading too.
-    if (partial && !composition->isChat()) {
+    // shows 갷) while it is the next syllable's first (소개하는): score that reading too. Only
+    // on 2-set: 3-set has its own keys for finals.
+    if (partial && !isSebeolsik() && !composition->isChat()) {
         auto last = DubeolsikLayout::jamo(keys.back());
         if (last && Jamo::isConsonant(*last) && !composition->units.empty() && composition->units.back().isSyllable) {
             auto before = HangulComposer::compose(dropLast(keys, 1));

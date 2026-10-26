@@ -65,6 +65,12 @@ public:
      *  someone typed it. */
     bool knowsSyllable(char16_t syllable) const;
 
+    /** [knowsSyllable], or in a word the subtitles have only a few times (왑 of 나왑, 챕 of 챕터들,
+     *  탭): for 3-set's digit and symbol keys, which go on with the word only into a syllable
+     *  someone types. A key there can only add a final or a vowel, never make 뗘, so the tail's
+     *  dialect and typos matter less than its loanwords. */
+    bool knowsSyllableIncludingRare(char16_t syllable) const;
+
     /** [partial]: the token is still being typed, so a trailing lone consonant is expected rather than penalized. */
     std::optional<Score> score(const std::u16string& keys, bool partial = false) const;
 

@@ -1,6 +1,7 @@
 // KoEnJaSettings.exe: the keyboard (HKCU\Software\KoEnJa\KeyboardType), the usual languages
-// (LanguageOrder) and the switch key (SwitchKey), the names Tip.cpp reads. The TIP reads them again
-// when an app gets the focus back, so nothing needs restarting. Until the first Apply (no
+// (LanguageOrder), the Hangul layout (KoreanLayout, Araso's Layouts > Hangul menu) and the switch key
+// (SwitchKey), the names Tip.cpp reads. The TIP reads them again when an app gets the focus back,
+// so nothing needs restarting. Until the first Apply (no
 // Configured value) it opens as the first-run page: a welcome line over the same choices.
 // "Report a problem" opens the GitHub issue form filled with the version, Windows and these settings (never typed text).
 
@@ -22,21 +23,24 @@ static const wchar_t* const KEYBOARDS[] = {L"Korean", L"JIS"};
 static const wchar_t* const ORDERS[] = {L"ko,en", L"ja,en", L"ko,en,ja", L"ja,en,ko"};
 static const wchar_t* const ORDER_TITLES[] = {L"한국어 + English", L"日本語 + English", L"한국어 + 日本語 + English (한국어 우선 ↔ 日本語優先)",
                                               L"日本語 + 한국어 + English (日本語優先 ↔ 한국어 우선)"};
+/** The Hangul layouts, in the order of Araso's menu: 2-set, 3-set final, 3-set 390. */
+static const wchar_t* const LAYOUTS[] = {L"dubeolsik", L"sebeolsikFinal", L"sebeolsik390"};
 static const wchar_t* const NAMES[] = {L"RightAlt", L"LeftCtrl", L"Hangul", L"Henkan", L"Muhenkan", L"CtrlShift", L"ShiftSpace", L"CtrlSpace"};
 /** Each keyboard's switch key until the user picks one: right Alt (한/영), 無変換. */
 static const int DEFAULT_SWITCH[] = {0, 4};
-static constexpr int KEYBOARD_COUNT = 2, ORDER_COUNT = int(std::size(ORDERS)), COUNT = int(std::size(NAMES));
-enum { ID_KEYBOARD = 100, ID_ORDER = 110, ID_FIRST = 120, ID_APPLY = 200, ID_CLOSE = 201, ID_REPORT = 202 };
+static constexpr int KEYBOARD_COUNT = 2, ORDER_COUNT = int(std::size(ORDERS)), LAYOUT_COUNT = int(std::size(LAYOUTS)), COUNT = int(std::size(NAMES));
+enum { ID_KEYBOARD = 100, ID_ORDER = 110, ID_FIRST = 120, ID_LAYOUT = 130, ID_APPLY = 200, ID_CLOSE = 201, ID_REPORT = 202 };
 
 /** The window's text in the user's UI language: Korean, Japanese, else English. */
 struct Text {
-    const wchar_t *title, *welcome, *keyboardHeading, *keyboards[KEYBOARD_COUNT], *orderHeading, *heading, *options[COUNT], *ctrlShiftNote, *hint,
-        *apply, *close, *applied, *report;
+    const wchar_t *title, *welcome, *keyboardHeading, *keyboards[KEYBOARD_COUNT], *orderHeading, *layoutHeading, *layouts[LAYOUT_COUNT], *layoutNote,
+        *heading, *options[COUNT], *ctrlShiftNote, *hint, *apply, *close, *applied, *report;
 };
 static const Text KO = {
     L"KoEnJa 설정", L"KoEnJa를 설치해 주셔서 감사합니다. 쓰시는 키보드와 언어를 골라 주세요.", L"키보드 종류",
     {L"한국어 / 미국식 키보드 (한/영 키)", L"일본어 키보드 (半角/全角, 変換, 無変換 키)"},
     L"자주 쓰는 언어 (앞쪽일수록 애매한 단어가 그 언어로 됩니다)",
+    L"한글 자판", {L"두벌식", L"세벌식 최종", L"세벌식 390"}, L"세벌식은 숫자·기호 키로도 자모를 칩니다. 숫자만 친 것은 숫자로 둡니다.",
     L"언어 전환 키: 우선 언어 바꾸기 (한국어 우선 ↔ 日本語優先), 입력 중에는 단어 언어 바꾸기",
     {L"오른쪽 Alt 단독 탭 (= 한/영, 한국어 키보드 기본)", L"왼쪽 Ctrl 단독 탭", L"한/영 키", L"変換 키", L"無変換 키 (일본어 키보드 기본)", L"Ctrl+Shift 탭",
      L"Shift+Space", L"Ctrl+Space"},
@@ -49,6 +53,8 @@ static const Text JA = {
     L"KoEnJa 設定", L"KoEnJa をインストールしていただきありがとうございます。お使いのキーボードと言語を選んでください。", L"キーボードの種類",
     {L"韓国語 / 英語 (US) キーボード (한/영 キー)", L"日本語キーボード (半角/全角、変換、無変換キー)"},
     L"よく使う言語 (先にあるほど、あいまいな単語がその言語になります)",
+    L"ハングルの配列", {L"2ボル式 (두벌식)", L"3ボル式 最終 (세벌식 최종)", L"3ボル式 390 (세벌식 390)"},
+    L"3ボル式では数字・記号のキーでも字母を入力します。数字だけのときは数字のままです。",
     L"切り替えキー: 優先言語の切り替え (한국어 우선 ↔ 日本語優先)、入力中は単語の言語を切り替え",
     {L"右 Alt を単独で押す (= 한/영、韓国語キーボードの既定)", L"左 Ctrl を単独で押す", L"한/영 キー", L"変換キー", L"無変換キー (日本語キーボードの既定)",
      L"Ctrl+Shift を押して離す", L"Shift+Space", L"Ctrl+Space"},
@@ -61,6 +67,7 @@ static const Text EN = {
     L"KoEnJa Settings", L"Thanks for installing KoEnJa. Pick your keyboard and the languages you type.", L"Keyboard",
     {L"Korean / US keyboard (한/영 key)", L"Japanese keyboard (半角/全角, 変換, 無変換 keys)"},
     L"Your languages (the first wins an ambiguous word)",
+    L"Hangul layout", {L"2-set", L"3-set final", L"3-set 390"}, L"3-set types jamo on the digit and symbol keys too; a number on its own stays a number.",
     L"Switch key: which language goes first (한국어 우선 ↔ 日本語優先); while typing, the word's language",
     {L"Right Alt, tapped alone (= 한/영; default on Korean keyboards)", L"Left Ctrl, tapped alone", L"한/영 key", L"変換 key",
      L"無変換 key (default on Japanese keyboards)", L"Ctrl+Shift, tapped", L"Shift+Space", L"Ctrl+Space"},
@@ -73,8 +80,8 @@ static const Text EN = {
 static const Text* text;
 static HFONT font;
 static bool firstRun;
-/** The controls top to bottom, with their height and indent in 96-DPI units (the buttons last, on one row). */
-struct Placed { HWND control; int height, indent, gap; };
+/** The controls top to bottom, with their height, indent and width (0: the window's) in 96-DPI units (the buttons last, on one row). */
+struct Placed { HWND control; int height, indent, gap, width = 0; };
 static std::vector<Placed> controls;
 static HWND buttons[3];
 
@@ -98,6 +105,14 @@ static int currentOrder() {
     if (!read(L"LanguageOrder", order, sizeof order)) wcscpy_s(order, L"ko,en,ja"); // unset: the TIP's Korean, English, Japanese
     const wchar_t *ko = wcsstr(order, L"ko"), *ja = wcsstr(order, L"ja");
     return ko && ja ? (ja < ko ? 3 : 2) : ja ? 1 : 0;
+}
+
+static int currentLayout() {
+    wchar_t name[32];
+    if (read(L"KoreanLayout", name, sizeof name))
+        for (int i = 0; i < LAYOUT_COUNT; i++)
+            if (!_wcsicmp(name, LAYOUTS[i])) return i;
+    return 0;
 }
 
 static int current(int keyboard) {
@@ -137,7 +152,8 @@ static void report() {
     std::wstring environment = L"Windows " + value(HKEY_LOCAL_MACHINE, nt, L"DisplayVersion") + L" (build " + value(HKEY_LOCAL_MACHINE, nt, L"CurrentBuild") +
                                L", " + (system.wProcessorArchitecture == PROCESSOR_ARCHITECTURE_AMD64 ? L"x64" : L"other") + L")\nUI language: " +
                                std::to_wstring(GetUserDefaultUILanguage()) + L"\nKeyboardType: " + value(HKEY_CURRENT_USER, SETTINGS_KEY, L"KeyboardType") +
-                               L"\nLanguageOrder: " + value(HKEY_CURRENT_USER, SETTINGS_KEY, L"LanguageOrder") + L"\nSwitchKey: " +
+                               L"\nLanguageOrder: " + value(HKEY_CURRENT_USER, SETTINGS_KEY, L"LanguageOrder") +
+                               L"\nKoreanLayout: " + value(HKEY_CURRENT_USER, SETTINGS_KEY, L"KoreanLayout") + L"\nSwitchKey: " +
                                value(HKEY_CURRENT_USER, SETTINGS_KEY, L"SwitchKey");
     auto encode = [](const std::wstring& s) {
         std::string utf8(WideCharToMultiByte(CP_UTF8, 0, s.c_str(), int(s.size()), nullptr, 0, nullptr, nullptr), 0);
@@ -161,9 +177,11 @@ static bool save(HWND window) {
         return !RegSetValueExW(key, name, 0, REG_SZ, reinterpret_cast<const BYTE*>(value), DWORD((wcslen(value) + 1) * sizeof(wchar_t)));
     };
     int order = checked(window, ID_ORDER, ORDER_COUNT);
+    int hangul = int(SendDlgItemMessageW(window, ID_LAYOUT, CB_GETCURSEL, 0, 0));
     DWORD one = 1;
     bool ok = set(L"KeyboardType", KEYBOARDS[std::max(0, checked(window, ID_KEYBOARD, KEYBOARD_COUNT))]) &&
               set(L"SwitchKey", NAMES[std::max(0, checked(window, ID_FIRST, COUNT))]) && (order < 0 || set(L"LanguageOrder", ORDERS[order])) &&
+              set(L"KoreanLayout", LAYOUTS[hangul >= 0 && hangul < LAYOUT_COUNT ? hangul : 0]) &&
               !RegSetValueExW(key, L"Configured", 0, REG_DWORD, reinterpret_cast<const BYTE*>(&one), sizeof one);
     RegCloseKey(key);
     return ok;
@@ -180,7 +198,7 @@ static void layout(HWND window, UINT dpi) {
     for (auto& c : controls) {
         y += px(c.gap);
         SendMessageW(c.control, WM_SETFONT, WPARAM(font), TRUE);
-        SetWindowPos(c.control, nullptr, px(12 + c.indent), y, width - px(c.indent), px(c.height), SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(c.control, nullptr, px(12 + c.indent), y, c.width ? px(c.width) : width - px(c.indent), px(c.height), SWP_NOZORDER | SWP_NOACTIVATE);
         y += px(c.height);
     }
     y += px(8);
@@ -211,6 +229,12 @@ static LRESULT CALLBACK proc(HWND window, UINT message, WPARAM w, LPARAM l) {
             radios(text->keyboards, KEYBOARD_COUNT, ID_KEYBOARD);
             label(text->orderHeading, 20);
             radios(ORDER_TITLES, ORDER_COUNT, ID_ORDER);
+            label(text->layoutHeading, 20);
+            HWND layouts = make(L"COMBOBOX", L"", CBS_DROPDOWNLIST | WS_TABSTOP | WS_VSCROLL | WS_GROUP, ID_LAYOUT);
+            for (auto name : text->layouts) SendMessageW(layouts, CB_ADDSTRING, 0, LPARAM(name));
+            SendMessageW(layouts, CB_SETCURSEL, currentLayout(), 0);
+            controls.push_back({layouts, 28, 8, 2, 240});
+            label(text->layoutNote, 36, 8, 4);
             label(text->heading, 36);
             radios(text->options, COUNT, ID_FIRST);
             label(text->ctrlShiftNote, 56, 24, 4);
