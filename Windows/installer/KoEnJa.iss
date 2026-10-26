@@ -12,6 +12,8 @@ AppName=KoEnJa
 AppVersion={#AppVersion}
 AppPublisher=CIZMO, K.K.
 DefaultDirName={autopf}\KoEnJa\{#AppVersion}
+; Not the folder of the version installed before (Inno Setup's default): 0.2.0 went into 0.1.0's.
+UsePreviousAppDir=no
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin

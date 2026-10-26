@@ -564,9 +564,8 @@ int main() {
         {"\r" "watashi\x02\x02", L"候補2", true, L"わたし 候補1 [候補2] 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11"},
         {"\x1b", L"わたし", true, L"[わたし] 候補1 候補2 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11"},
         {"\x1b", L"", false},
-        // Backspace while converting: back to the kana; Return commits it as shown.
-        {"\r" "watashi \t\b", L"わたし", true, L"[わたし] 候補1 候補2 候補3 候補4 候補5 候補6 候補7 候補8 候補9 候補10 候補11"},
-        {"\n", L"わたし", false},
+        // Backspace while converting: the candidate shown goes in less its last character (Araso 0.3.1, as macOS).
+        {"\r" "watashi \t\b", L"候補", false},
         // F6–F10 and 無変換.
         {"\r" "watashi\x16", L"ワタシ", true},
         {"\x17\n", L"わたし", false},
