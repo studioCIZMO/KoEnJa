@@ -4,7 +4,7 @@ positions (KeyLayout's math), reads the try field back, and prints TYPING ok/MIS
 
   type.py -s emulator-5560 [checks|corpus|all]
 
-The app must be installed and the keyboard selected (adb shell ime set com.netmaru.rea/.ReaKeyboardService).
+The app must be installed and the keyboard selected (adb shell ime set com.cizmo.koenja/com.netmaru.rea.ReaKeyboardService).
 """
 import html, os, re, shutil, subprocess, sys, time
 from pathlib import Path
@@ -73,7 +73,7 @@ def field():
     return ("" if text == hint else text), ((x1 + x2) // 2, (y1 + y2) // 2)
 
 def memory(label):
-    pss = re.search(r"TOTAL PSS:\s+(\d+)", adb("shell", "dumpsys", "meminfo", "com.netmaru.rea"))
+    pss = re.search(r"TOTAL PSS:\s+(\d+)", adb("shell", "dumpsys", "meminfo", "com.cizmo.koenja"))
     print(f"MEMORY {label}: {int(pss.group(1)) // 1024 if pss else '?'} MB PSS")
 
 misses = []
@@ -94,7 +94,7 @@ def swift_pairs(path):
     return [(unescape(a), unescape(b)) for a, b in re.findall(rf"\(\s*{lit},\s*{lit}\s*\)", path.read_text())]
 
 # The settings app with Korean > Japanese > English, the keyboard up in the try field.
-adb("shell", "am", "start", "-n", "com.netmaru.rea/.SettingsActivity")
+adb("shell", "am", "start", "-n", "com.cizmo.koenja/com.netmaru.rea.SettingsActivity")
 time.sleep(2)
 adb("shell", "uiautomator", "dump", "/sdcard/rea.xml")
 xml = adb("shell", "cat", "/sdcard/rea.xml")
