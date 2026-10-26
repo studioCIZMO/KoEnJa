@@ -93,13 +93,15 @@ Windows에서 같은 방식으로 쓸 수 있게 만든 별도 제품입니다.
 
 ### iOS
 
-App Store 출시 준비 중입니다. 출시되면 이곳과 [웹사이트](https://cizmo.net/KoEnJa/ko)에 알리겠습니다.
+App Store 심사 중입니다. 출시되면 이곳과 [웹사이트](https://cizmo.net/KoEnJa/ko)에 알리겠습니다.
 설치한 뒤에는 앱에서 쓰는 언어의 순서를 고르고, 설정 → 일반 → 키보드에서 KoEnJa 키보드를 추가합니다.
 **전체 접근 허용**은 앱에서 고른 언어 순서와 설정을 키보드가 읽고 햅틱을 쓰는 데 필요합니다([개인정보](#개인정보)).
 
 ### Android
 
-테스트 중이며 아직 배포하지 않습니다. 소스는 `Android/`에 있습니다.
+Google Play 출시를 준비하고 있습니다. 그전에 [릴리스](https://github.com/studioCIZMO/KoEnJa/releases/latest)에서 `KoEnJa-Android-0.2.1.apk`(Android 8.0 이상)를 받아 설치할 수 있습니다.
+설치한 뒤 앱에서 「키보드 설정 열기」로 한영일을 켜고, 「입력 방법 고르기」로 고르세요.
+Play 버전은 Google이 서명하므로, 나중에 Play 버전으로 옮기려면 APK판을 지우고 Play에서 설치해 주세요. 소스는 `Android/`에 있습니다.
 
 ## 키
 
@@ -202,7 +204,7 @@ MSVC 골든 테스트는 `main`에 push할 때마다 [CI](.github/workflows/wind
 ## 알려진 한계
 
 - Windows 0.1.0은 코드 서명이 없습니다([코드 서명 정책](#코드-서명-정책)). x64 전용이고 ARM64 Windows는 지원하지 않습니다.
-- iOS는 App Store 출시 전이고, Android는 테스트 중입니다.
+- iOS는 App Store 심사 중이고, Android는 Google Play 출시 전이라 APK로만 받을 수 있습니다. Android 앱 화면은 아직 한국어로만 나옵니다.
 - 두 언어에서 모두 말이 되는 키(`go`/해, `so`/내)는 틀릴 수 있습니다. 전환 키로 고치세요.
 - 영어 단어에 일본어 조사를 붙이면 일본어로 읽히는 경우가 있습니다(`sitede` → `してで`, `tokenwo` → `とけんを`).
 - 한자 변환의 맨 앞 후보는 구절 5개 중 4개, 문장 3개 중 2개꼴로 원문과 같습니다(iOS 경로). 나머지는 후보 목록에서 고르세요.
