@@ -1,6 +1,7 @@
 package com.netmaru.rea
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
@@ -74,6 +75,19 @@ class SettingsActivity : Activity() {
 
         header("키 피드백")
         toggles(Prefs.feedback)
+
+        header("오픈소스 라이선스")
+        note("KoEnJa의 언어 엔진은 Araso(MIT 라이선스, github.com/nyttastudio/araso)를 바탕으로 합니다.")
+        list.addView(Button(this).apply {
+            text = "라이선스 전문 보기"
+            setOnClickListener {
+                val text = listOf("THIRD_PARTY_NOTICES.txt", "mozc.dic.LICENSE.txt")
+                    .joinToString("\n\n") { assets.open(it).bufferedReader().use { r -> r.readText() } }
+                AlertDialog.Builder(context).setTitle("오픈소스 라이선스")
+                    .setView(ScrollView(context).apply { addView(TextView(context).apply { this.text = text; setPadding(pad, pad, pad, pad); setTextIsSelectable(true) }) })
+                    .setPositiveButton(android.R.string.ok, null).show()
+            }
+        })
 
         setContentView(ScrollView(this).apply { fitsSystemWindows = true; addView(list) })
     }
