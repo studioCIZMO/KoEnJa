@@ -60,11 +60,13 @@ import Testing
 
         // Hangul whose keys are an English word stays out (내 is so); an app's own entry hides
         // a shared one in that app only; a deleted file drops its words even after a reload.
-        try Data(#"[{"term":"내"},{"term":"시즈모"}]"#.utf8).write(to: terms)
+        try Data(#"[{"term":"내"},{"term":"시즈모"},{"term":"소"},{"term":"쏘"}]"#.utf8).write(to: terms)
         try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(120)], ofItemAtPath: terms.path)
         engine.add(UserDictionary.Entry(keys: "tlwmah", language: .english, source: .user, apps: ["com.apple.Terminal"]))
         engine.refreshShared()
         #expect(engine.decide("so", context: DecisionContext()).language == .english)
+        #expect(engine.decide("th", context: DecisionContext()).explanation == "added")
+        #expect(engine.decide("Th", context: DecisionContext()).output == "쏘")
         #expect(engine.decide("tlwmah", context: DecisionContext(app: "com.apple.Terminal")).language == .english)
         #expect(engine.decide("tlwmah", context: DecisionContext()).output == "시즈모")
         try FileManager.default.removeItem(at: terms)

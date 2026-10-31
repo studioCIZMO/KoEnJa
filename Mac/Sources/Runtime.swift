@@ -153,6 +153,7 @@ final class Runtime {
         LatinLayout.active = new.latinLayout
         KoreanLayout.active = new.koreanLayout
         LatinLayout.activeRomaji = new.japaneseLayout
+        engine.refreshShared() // KoEnJa: MyTypeless's words are keys in these layouts
         generation += 1
     }
 

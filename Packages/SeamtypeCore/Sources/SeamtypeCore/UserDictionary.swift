@@ -275,6 +275,8 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     /// they win as added words do, under the user's own entries for the same keys.
     private var shared: [UserDictionary.Entry] = []
     private let sharedURL: URL?
+    /// One refresh or reload of the shared layer at a time, so an older read can't publish over a newer one.
+    private let sharedLock = NSLock()
     /// The file's modification date and the layouts it was read with: keys depend on both.
     private var sharedRead: String?
     /// The language entries by keys, so each key typed looks its keys (and the fronts a particle
@@ -319,6 +321,8 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     /// REA: reads `sharedURL` again when it changed since it was read (cheap: one stat).
     public func refreshShared() {
         guard let sharedURL else { return }
+        sharedLock.lock()
+        defer { sharedLock.unlock() }
         // Not URL.resourceValues: those are cached on the URL and wouldn't see a change.
         let modified = (try? FileManager.default.attributesOfItem(atPath: sharedURL.path))?[.modificationDate] as? Date
         let read = "\(modified?.timeIntervalSince1970 ?? -1) \(KoreanLayout.current.rawValue) \(LatinLayout.current.rawValue)"
@@ -333,12 +337,14 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
         }
     }
 
-    /// A term as entries: Hangul by its 2-set keys (깃허브 → rltgjqm) unless those are an English
-    /// word (내 is so), Latin letters and digits as written and in lower case unless those keys
+    /// A term as entries: Hangul by its 2-set keys (깃허브 → rltgjqm) unless those are everyday
+    /// English (내 is so), Latin letters and digits as written and in lower case unless those keys
     /// read as a Korean word (rk is 가). Others (kanji, kana, spaces) aren't one word typed here.
     func sharedEntries(_ term: String) -> [UserDictionary.Entry] {
         if let keys = DubeolsikLayout.keys(for: term) {
-            return english.isKnownWord(keys.lowercased()) ? [] : [UserDictionary.Entry(keys: keys, language: .korean, source: .user)]
+            // Everyday English only (so, not th), and not keys with a Korean capital (Th is 쏘).
+            return keys == keys.lowercased() && english.isCommonWord(keys) ? []
+                : [UserDictionary.Entry(keys: keys, language: .korean, source: .user)]
         }
         guard term.count >= 2, term.count <= UserDictionary.longestLearned,
               term.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }), term.first!.isLetter
@@ -429,7 +435,7 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     /// Re-reads dictionary.json (after the settings window changed it).
     public func reload() {
         let fresh = Self.read(storeURL, today: today())
-        lock.withLock { shared = []; sharedRead = nil; store = fresh }
+        sharedLock.withLock { lock.withLock { shared = []; sharedRead = nil; store = fresh } }
         refreshShared()
     }
 
