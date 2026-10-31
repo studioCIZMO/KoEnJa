@@ -15,6 +15,8 @@ import Testing
             return [.init(text: "いい天気ですね", kanaCount: 8), .init(text: kana, kanaCount: 8)]
         case "へんかん":
             return [.init(text: "変換", kanaCount: 4), .init(text: "返還", kanaCount: 4), .init(text: "編纂", kanaCount: 4)]
+        case "まで": // the engine puts the reading first
+            return [.init(text: kana, kanaCount: 2), .init(text: "迄", kanaCount: 2)]
         case "しょう": // the engine puts the reading first
             return [.init(text: kana, kanaCount: 3), .init(text: "翔", kanaCount: 3), .init(text: "小", kanaCount: 3)]
         case "３がつ":
@@ -57,6 +59,15 @@ import Testing
     @Test func previewShowsKanaWhileTyping() {
         type("kyouhaiitenk")
         #expect(field.text == "きょうはいいてんk")
+    }
+
+    /// A Japanese phrase after an English word is shown as kana before Space too, also when its
+    /// last letter is an n still pending while typing (すみませn, かんぜn: the fourth kana only
+    /// with that n): the phrase is judged on its finished reading, as the commit is.
+    @Test(arguments: [("sumimasen", "すみませn"), ("shinkansen", "しんかんせn"), ("inumanisentaku", "いぬまにせんたく"), ("kanzen", "かんぜn"), ("shinbun", "しんぶn"), ("ninjin", "にんじn")])
+    func japanesePhraseAfterEnglishIsShownAsKana(keys: String, kana: String) {
+        type("hello " + keys)
+        #expect(field.text == "hello " + kana, Comment(rawValue: field.text))
     }
 
     /// A capital is never romaji, as in macOS's Japanese input method: ⇧P shows P while typed

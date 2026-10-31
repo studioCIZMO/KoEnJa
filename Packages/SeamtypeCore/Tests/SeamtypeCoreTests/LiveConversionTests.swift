@@ -38,6 +38,20 @@ import Testing
         #expect(session.keys.isEmpty && session.conversion == nil)
     }
 
+    /// Kanji Return confirmed come back when a switch key cycles back to Japanese, not their kana.
+    @Test func switchKeyBackToJapaneseAfterReturnKeepsTheKanji() {
+        type("kyouhaiitenkidesune⏎")
+        let kanji = field.text
+        var seen: [String] = []
+        for _ in 0..<4 {
+            _ = session.handle(.cycle, client: field)
+            seen.append(field.text)
+            if field.text == kanji { break }
+        }
+        #expect(seen.first != kanji)
+        #expect(seen.last == kanji, "\(seen)")
+    }
+
     @Test func lettersWaitingForAVowelStayVisible() {
         type("kyouhaiitenkides")
         #expect(field.text.hasPrefix("今日は"), "\(field.text)")
@@ -56,6 +70,16 @@ import Testing
         #expect(field.text == "zi ")
         type("hi ")
         #expect(field.text.hasSuffix("hi "))
+    }
+
+    /// Letters with no kana yet (ths: three waiting for vowels) were Japanese on screen, though
+    /// they show as typed, and Space converted them; the word goes in as the engine reads it.
+    @Test func spaceDoesntConvertLettersWithNoKana() {
+        type("the ths")
+        type(" ")
+        #expect(session.conversion == nil)
+        type("wkfgo ")
+        #expect(field.text == "the ths 잘해 ") // REA: Space commits what was shown (ths), Araso reads it 손
     }
 
     @Test func spaceShowsTheNextCandidate() {

@@ -14,9 +14,30 @@ public protocol TextClient: AnyObject {
     /// the candidates are for, drawn thick as Japanese IMEs do; the rest of the reading is thin.
     /// `range` as in `setMarkedText(_:replacing:)`.
     func setMarkedText(_ text: String, selectedClause: NSRange, replacing range: NSRange?)
+    /// Marked text can be anywhere in the field, not only at the caret: what fixing a word earlier
+    /// in the line needs (fcitx5's preedit, and a word Windows keeps out of a classic app's field,
+    /// are always at the caret).
+    var marksAnywhere: Bool { get }
+    /// Marked text with a range to replace goes where the caret is, whatever range is named (macOS's
+    /// text views, the settings window's at least): marking a word away from the caret has to move
+    /// the caret to it first.
+    var marksFromCaret: Bool { get }
+    /// An insert with a range, sent with the key right after the key whose insert changed the text,
+    /// goes where it says. Not in macOS text views (Notes, 2026-10-30): marking the word a switch key
+    /// just changed has to wait for the app to move the caret (`fixAfterArrow`).
+    var insertsRightAfterAnInsert: Bool { get }
+    /// An empty insert, to delete a range, never reaches the field (macOS: `startSymbol`, Notes): a fix
+    /// at the field's start has the caret put there with a zero-width space (`Fixing.placeholder`).
+    /// Elsewhere the field's first word is switched in place (`switchInPlace`), as before.
+    var dropsEmptyInserts: Bool { get }
 }
 
 public extension TextClient {
+    var marksAnywhere: Bool { true }
+    var marksFromCaret: Bool { false }
+    var insertsRightAfterAnInsert: Bool { true }
+    var dropsEmptyInserts: Bool { false }
+
     /// A client that draws no clauses shows the plain marked text.
     func setMarkedText(_ text: String, selectedClause: NSRange, replacing range: NSRange?) {
         if let range { setMarkedText(text, replacing: range) } else { setMarkedText(text) }
@@ -54,7 +75,8 @@ public extension TextClient {
 ///   Return         commit the word as shown, and nothing else (the next Return is the app's);
 ///                  with `returnConfirmsOnly` off the app gets it too, except after Japanese
 ///   anything else  commit and let the app handle the key
-///   ⌘ going down   a held word goes in with its boundary before the shortcut (`commandPressed`)
+///   ⌘ going down   the word goes in (a held one with its boundary) before the shortcut
+///                  (`commandPressed`; Ctrl on Windows and Linux only a held one, `heldWordOnly`)
 /// While converting to kanji (candidate window open):
 ///   Space / ↓      next candidate          ↑      previous candidate
 ///   1–9            commit that candidate   Return commit the selected candidate
@@ -68,6 +90,13 @@ public extension TextClient {
 ///   switch keys    cycle that committed word the same way (`AppPolicy.switchKeys`: Esc, or
 ///                  `.cycle` for the others).
 ///   Delete         the app deletes the space or punctuation; the word can still be changed.
+/// A word earlier in the line, the caret on it (`Fixing`):
+///   `.cycle`       mark it again where it is, read the next way; again: the next reading
+///   ←/→ (⇧ too)    the part being fixed a key shorter or longer (the next word past a word's end);
+///                  ⇧← on the word being typed cuts it the same way
+///   Return         settle a cut front part, else put the fix in; Esc (where it isn't a switch key)
+///                  and Delete put it all back; anything
+///                  else puts it in and goes on. The caret goes back to the end of the line.
 /// A `.cycle` with nothing to change is dropped, never passed to the app.
 ///                  The same correction made twice is learned for good.
 @MainActor
@@ -88,6 +117,9 @@ public final class InputSession {
         /// ←/→: while converting, shorten or lengthen the first clause; otherwise like `other`.
         case left
         case right
+        /// ⇧←/⇧→: the same, and ⇧← on the word being typed cuts it, as in fixing a past word.
+        case shiftLeft
+        case shiftRight
         /// ⌃K / F7 and ⌃J / F6: the Japanese reading as katakana / hiragana.
         case katakana
         case hiragana
@@ -147,6 +179,8 @@ public final class InputSession {
         /// The reading the keys were corrected to once: the engine leans to it, and choosing it
         /// again learns it for good.
         public var once: Int? = nil
+        /// The digits pick a reading (1 for the first), as in the candidate window: while fixing.
+        public var numbered = false
     }
 
     /// A correction the dictionary just took: the first one (the engine leans that way from now
@@ -158,7 +192,7 @@ public final class InputSession {
         public var learning: DictionaryEngine.Learning = .forGood
     }
 
-    private struct Committed {
+    struct Committed {
         let keys: String
         /// What Araso chose before any Esc.
         let decided: Language
@@ -175,23 +209,72 @@ public final class InputSession {
         /// The key as typed when `boundary` is 3-set's symbol for it (B for ?): what the boundary
         /// goes back to when the word is switched out of Korean (지냈어? → ldhr2jtB).
         var typedBoundary: String?
+        /// A word earlier in the line switched where it is (`switchInPlace`): its place in `recent`
+        /// and its length before, so the window closing updates it there instead of adding it.
+        var inLine: (index: Int, length: Int)?
+        /// What went in before a switch key changed it (nil: as it is): what Esc on its fix puts back.
+        var firstText: String?
 
-        /// The same word after Delete took back its boundary character.
+        /// The word as it went in, before any switch key: the fix's Esc puts it back (`Fixing.revert`).
+        var beforeSwitching: Committed {
+            Committed(keys: keys, decided: decided, committedAs: committedAs, language: committedAs,
+                      text: firstText ?? text, boundary: boundary, location: location, previous: previous,
+                      learns: learns, typedBoundary: typedBoundary)
+        }
+
+        /// The same word after Delete took back its boundary's last character (all of it but a
+        /// symbol and what followed, `followed(by:)`).
         var withoutBoundary: Committed {
-            Committed(keys: keys, decided: decided, committedAs: committedAs, language: language,
-                      text: String(text.dropLast(boundary.count)), boundary: "", location: location,
-                      previous: previous, learns: learns)
+            var word = Committed(keys: keys, decided: decided, committedAs: committedAs, language: language,
+                                 text: String(text.dropLast()), boundary: String(boundary.dropLast()), location: location,
+                                 previous: previous, learns: learns,
+                                 typedBoundary: boundary.count > 1 ? typedBoundary.map { String($0.dropLast()) } : nil)
+            word.firstText = firstText.map { String($0.dropLast()) }
+            return word
+        }
+
+        /// The same word with another symbol or a space typed after its boundary.
+        func followed(by ch: Character) -> Committed {
+            var word = Committed(keys: keys, decided: decided, committedAs: committedAs, language: language,
+                                 text: text + String(ch), boundary: boundary + String(ch), location: location,
+                                 previous: previous, learns: learns, typedBoundary: typedBoundary.map { $0 + String(ch) })
+            word.firstText = firstText.map { $0 + String(ch) }
+            return word
         }
 
         /// The boundary as it goes in after the word in `language`.
         func boundary(in language: Language) -> String {
             language == .korean ? boundary : typedBoundary ?? boundary
         }
+
+        /// The same word where text before it grew or shrank by `delta` UTF-16 units.
+        func moved(by delta: Int) -> Committed {
+            Committed(keys: keys, decided: decided, committedAs: committedAs, language: language, text: text,
+                      boundary: boundary, location: location + delta, previous: previous, learns: learns,
+                      typedBoundary: typedBoundary)
+        }
     }
 
     public let engine: DictionaryEngine
-    public let converter: JapaneseConverter?
-    public var japaneseEnabled: Bool
+    private let japaneseConverter: JapaneseConverter?
+    /// Saves the converter this session was made with, unless it is `current` (the one the runtime
+    /// keeps, which saves itself) or one a kanji reset threw away (saving it would bring back what
+    /// the reset deleted): a session replaced or detached after a settings change dropped its
+    /// converter commits what it was converting first, and the kanji picked there would be lost.
+    public func saveConverter(unless current: JapaneseConverter?, discarded: DiscardedConverters? = nil) {
+        guard let japaneseConverter, japaneseConverter !== current,
+              discarded?.contains(japaneseConverter) != true else { return }
+        japaneseConverter.save()
+    }
+
+    /// The kana→kanji converter, only where Japanese is on: an app that turns it off gets no
+    /// conversion and no live conversion, as with Japanese off everywhere.
+    public var converter: JapaneseConverter? { japaneseEnabled ? japaneseConverter : nil }
+    /// Japanese as the Languages tab sets it: what an app without its own `japanese` gets.
+    public let japaneseDefault: Bool
+    /// Japanese in the app typed into (`AppPolicy.japanese`, else the Languages tab), picked again
+    /// on `activate`. Off, the engine is asked without Japanese, as with it off everywhere.
+    public var japaneseEnabled: Bool { policy.japanese(default: japaneseDefault) }
     public private(set) var keys = ""
     public private(set) var app: String?
     public private(set) var policy = AppPolicy.standard
@@ -220,6 +303,16 @@ public final class InputSession {
         didSet { if previousLanguage == nil { openBrackets.removeAll() } } // a new context
     }
     private var lastCommit: Committed?
+    /// The word just committed, switched, then ← where the mark waits for the app's caret move
+    /// (`deferFixing`): `caretMoved` makes it the fix.
+    private var fixAfterArrow: Committed?
+    /// The words gone in with a space or symbol since the last Return, oldest first, once their
+    /// flip window closed: a switch key with the caret on one fixes it (`startFixing`). Kept across
+    /// clicks and arrow keys; each is checked against the field before it is used.
+    private var recent: [Committed] = []
+    static let recentLimit = 20
+    /// Past words being fixed (`Fixing`), shown as marked text where they are.
+    public private(set) var fixing: Fixing?
     /// The boundary (Space or a symbol) the word was ended with in an app set to hold it
     /// (`AppPolicy.holdSpace`): the word stays composed, shown with that character, until the next
     /// word starts or another key finishes it. A switch key still cycles it and Delete takes back
@@ -241,6 +334,9 @@ public final class InputSession {
     /// The user paused Araso in this text field (the pause key): keys go through as typed
     /// until the next tap or another text field.
     public private(set) var paused = false
+    /// Caps Lock was on when the word being typed (or the one just committed) started: the field
+    /// is seen through `CapsLockClient` (`cased`), English going in in capitals.
+    public private(set) var capsWord = false
     /// Language of the current preview, so in-phrase symbols know where they belong.
     private var previewLanguage: Language?
     /// The last key passed to the app was a digit (so "." there is a decimal point).
@@ -296,12 +392,12 @@ public final class InputSession {
         self.engine = engine
         self.policies = policies
         policy = policies.defaultPolicy
-        self.converter = converter
-        self.japaneseEnabled = japaneseEnabled
+        japaneseConverter = converter
+        japaneseDefault = japaneseEnabled
         self.liveConversion = liveConversion
         self.returnConfirmsOnly = returnConfirmsOnly
-        if japaneseEnabled, let model = JapaneseModel.shared {
-            segmenter = JapaneseSegmenter(english: EnglishModel.shared, japanese: model)
+        if japaneseEnabled || policies.turnsJapaneseOn, let model = JapaneseModel.shared {
+            japaneseSegmenter = JapaneseSegmenter(english: EnglishModel.shared, japanese: model)
         }
     }
 
@@ -314,6 +410,9 @@ public final class InputSession {
         policy = policies.policy(for: bundleIdentifier)
         previousLanguage = nil
         passedRun = nil
+        if fixing != nil { conversion = nil } // a fixed word's conversion goes with the fix
+        fixing = nil
+        recent.removeAll()
         paused = false
         resetRun()
     }
@@ -339,8 +438,53 @@ public final class InputSession {
     /// Whether keys currently go straight to vim (normal, visual or command-line mode).
     public var inVimNormalMode: Bool { vimMode == .normal }
 
-    /// Returns true when the key was consumed.
+    /// `handle` for a key typed with Caps Lock on or off. The letter comes in the case Shift alone
+    /// gives it (the controller's job), so a word reads the same either way (GKAUS is 하면); what
+    /// the word puts in the field goes through `cased`. Caps Lock changing inside a word commits
+    /// what came before, and a new word starts.
+    public func handle(_ key: Key, client: TextClient, capsLock: Bool) -> Bool {
+        if capsLock != capsWord, startsOrExtendsWord(key, client) {
+            // What came before goes in as it was shown, a candidate being chosen too, under the old
+            // state; then the new word takes the new one.
+            if !keys.isEmpty || conversion != nil { commit(client: cased(client)) }
+            if keys.isEmpty, conversion == nil { capsWord = capsLock }
+        }
+        return handle(key, client: cased(client))
+    }
+
+    /// A letter, or a 3-set digit or symbol key whose jamo goes on with the word (`handle` makes
+    /// it a letter).
+    private func startsOrExtendsWord(_ key: Key, _ client: TextClient) -> Bool {
+        switch key {
+        case .letter: return true
+        case .printable(let ch): return printableContinuesWord(ch, client)
+        default: return false
+        }
+    }
+
+    /// On 3-set a digit or symbol key with a jamo goes on with the word where the jamo fits
+    /// (갔 is kf2, 밥 starts on ;); elsewhere it is the symbol. Not in a URL or path, though the
+    /// word itself doesn't make one: 밝 is ;f@, not an address.
+    private func printableContinuesWord(_ ch: Character, _ client: TextClient) -> Bool {
+        heldBoundary == nil && (keys.isEmpty || !inURLRun)
+            && KoreanLayout.current.continuesWord(keys, with: ch, afterDigit: afterDigit, knows: Self.koreanModel.knowsSyllableIncludingRare)
+            && !Self.hasURLMarker(run(client))
+    }
+
+    /// The field as the word being typed sees it: through `CapsLockClient` when Caps Lock was on.
+    public func cased(_ client: TextClient) -> TextClient {
+        capsWord ? CapsLockClient(client) : client
+    }
+
+    /// Handles a key while typing, converting, or fixing a word. Returns true when it was consumed;
+    /// false leaves the key to the app, even if a word was committed first.
     public func handle(_ key: Key, client: TextClient) -> Bool {
+        // A switch key just changed the word being typed: as in kanji conversion, ←/→ then change how
+        // much of it is fixed (`startFixingTyped`). Before that, ← puts the word in and goes to the app.
+        let switched = readings != nil && !keys.isEmpty && conversion == nil
+        let listed = readings // what a digit right after a switch picks from
+        let arrow = key == .left || key == .right || key == .shiftLeft || key == .shiftRight
+        if let commit = fixAfterArrow { fixAfterArrow = nil; learnUnmarked(commit) }
         readings = nil
         learned = nil
         let inKoreanSymbols = afterKoreanSymbol
@@ -354,6 +498,7 @@ public final class InputSession {
             resetRun()
             return false
         }
+        if fixing != nil { return handleFixing(key, client: client) } // ⇧Space confirms it first, as any key
         if key == .shiftSpace {
             // With nothing being typed, the other width: full-width unless Space already types that.
             guard keys.isEmpty, conversion == nil, japaneseEnabled, policy.fullWidth else {
@@ -365,13 +510,9 @@ public final class InputSession {
             noteRun("　")
             return true
         }
+        if key == .shiftLeft || (switched && arrow), startFixingTyped(client) { return handleFixing(key, client: client) }
         if conversion != nil { return handleConverting(key, client: client) }
-        // On 3-set a digit or symbol key with a jamo goes on with the word where the jamo fits
-        // (갔 is kf2, 밥 starts on ;); elsewhere it is the symbol. Not in a URL or path, though the
-        // word itself doesn't make one: 밝 is ;f@, not an address.
-        if case .printable(let ch) = key, heldBoundary == nil, keys.isEmpty || !inURLRun,
-           KoreanLayout.current.continuesWord(keys, with: ch, afterDigit: afterDigit, knows: Self.koreanModel.knowsSyllableIncludingRare),
-           !Self.hasURLMarker(run(client)) {
+        if case .printable(let ch) = key, printableContinuesWord(ch, client) {
             return handle(.letter(ch), client: client)
         }
         // On 3-set a key with a digit or symbol there (⇧B ?, ⇧/ !, ⇧L 3, [ () types it right after
@@ -395,10 +536,27 @@ public final class InputSession {
         // Esc switches languages where it is a switch key (and no reporting vim owns it); the
         // other switch keys arrive as `.cycle` only where they are chosen.
         let switchesLanguage = key == .cycle || (key == .escape && policy.switchKeys.contains(.escape) && vimMode == nil)
+        // A digit right after a switch key changed the word just committed (or one switched in place):
+        // that reading of the list, numbered under it, as in the candidate window.
+        if case .printable(let ch) = key, keys.isEmpty, let pending, let listed, listed.numbered,
+           let n = ch.wholeNumberValue, n >= 1, n <= listed.languages.count {
+            var current = pending
+            while current.language != listed.languages[n - 1], let changed = cycle(current, client: client),
+                  changed.language != pending.language {
+                current = changed
+            }
+            if current.language == listed.languages[n - 1] {
+                lastCommit = current
+                readings = readings(of: current.keys, as: current.language, decided: current.decided, rendered: committedReading)
+                readings?.numbered = true
+                return true
+            }
+        }
         if switchesLanguage, keys.isEmpty, let pending {
             if let changed = cycle(pending, client: client) {
                 lastCommit = changed
                 readings = readings(of: changed.keys, as: changed.language, decided: changed.decided, rendered: committedReading)
+                readings?.numbered = true
                 return true
             }
         }
@@ -409,12 +567,36 @@ public final class InputSession {
             noteDeleted()
             return false
         }
+        // ←/→ right after a switch key changed the word just committed: as for the word being typed,
+        // it becomes the fix as it now reads, and the arrow goes on to it (`startFixingCommitted`).
+        if arrow, keys.isEmpty, listed != nil, let pending {
+            if startFixingCommitted(pending, client) { return handleFixing(key, client: client) }
+            if key == .left, deferFixing(pending, client) { return false } // the app moves the caret first
+        }
+        // More symbols or a space right after a word a symbol ended (`world. `, `world?! `): the window
+        // stays open over them, so a switch key still changes the word, as after `world `. Up to the
+        // first space. Not where the key is the input method's own (Japanese symbols and full-width
+        // space after Japanese, a closing bracket, a URL), which goes on as after any word.
+        if case .printable(let ch) = key, ch == " " || Self.isBoundarySymbol(ch), keys.isEmpty, let pending,
+           pending.inLine == nil, let end = pending.boundary.last, !end.isWhitespace,
+           !Self.hasURLMarker(run(client) + String(ch)), !closesFullWidth(ch),
+           previousLanguage != .japanese || (ch == " " && !(fullWidthSpace && japaneseEnabled && policy.fullWidth)) {
+            lastCommit = pending.followed(by: ch)
+            passedRun = nil
+            afterDigit = false
+            afterKoreanSymbol = inKoreanSymbols && ch != " "
+            noteRun(String(ch))
+            return false // the app types it
+        }
         if let pending { finalize(pending) }
         if switchesLanguage, keys.isEmpty, let run = passedRunBeforeCaret(client) {
             passedRun = nil
             startSymbol(run.text, client, replacing: run.range)
             return true
         }
+        // Only a switch key proper: an Esc after the flip window is more often the app's (a popup, vim).
+        if key == .cycle, keys.isEmpty, startFixing(client) { return true }
+        if key == .cycle, keys.isEmpty, switchInPlace(client) { return true }
 
         switch key {
         case .letter(let ch):
@@ -449,7 +631,16 @@ public final class InputSession {
                 updatePreview(client)
                 return true
             }
-            guard !keys.isEmpty else { noteDeleted(); return false }
+            guard !keys.isEmpty else {
+                // The app deletes the selection, or the character before the caret: the words from
+                // there on aren't where they were.
+                let selection = client.selectedRange()
+                if selection.location != NSNotFound {
+                    forgetRecent(from: selection.length > 0 ? selection.location : max(0, selection.location - 1))
+                }
+                noteDeleted()
+                return false
+            }
             let shown = forced ?? pinned ?? previewLanguage
             if forced == nil { pinned = shown }
             switch shown {
@@ -594,11 +785,27 @@ public final class InputSession {
 
         case .enter:
             defer { noteRun("\n") }
+            recent.removeAll() // a new line: the words before it can't be fixed any more
             guard !keys.isEmpty else { return false }
             // Like a Japanese IME, Return on an underlined word only confirms it; the next Return
             // is the app's. Passed on (the setting off), terminals and web chats may still drop a
             // Return that ended a composition. A Japanese phrase is only confirmed either way.
             let japanese = currentLanguage() == .japanese
+            let marked = client.markedRange()
+            let location = marked.location != NSNotFound ? marked.location : client.selectedRange().location
+            if returnConfirmsOnly || japanese, heldBoundary == nil, location != NSNotFound {
+                // Only confirmed, the caret stays after it: the word just committed, with no boundary,
+                // so a switch key still changes it as after Space.
+                let previous = previousLanguage
+                passedRun = nil
+                let word = finishWord()
+                client.insertText(word.text, replacing: nil)
+                noteRun(word.text)
+                lastCommit = Committed(keys: word.keys, decided: word.decided, committedAs: word.language,
+                                       language: word.language, text: word.text, boundary: "",
+                                       location: location, previous: previous, learns: !inURLRun)
+                return true
+            }
             commit(client: client)
             return returnConfirmsOnly || japanese
 
@@ -613,7 +820,7 @@ public final class InputSession {
             showKanaForms(key == .katakana, client: client)
             return true
 
-        case .up, .down, .left, .right, .other:
+        case .up, .down, .left, .right, .shiftLeft, .shiftRight, .other:
             commit(client: client)
             previousLanguage = nil
             resetRun()
@@ -624,21 +831,35 @@ public final class InputSession {
         }
     }
 
-    /// The ⌘ key went down. A held word goes in with its boundary now, before the shortcut: an
-    /// app that acts on the shortcut itself never shows the input method the key (Ghostty's
-    /// ⌘V is its own keybinding) and would paste over the underlined text. A word without a
-    /// boundary keeps composing: a ⌘ pressed and let go must not split the next letters off
-    /// into a new word. As after any shortcut, what comes next isn't known (the paste never
-    /// reaches the input method either), so the run is read again from the field.
-    public func commandPressed(client: TextClient) {
-        guard heldBoundary != nil else { return }
+    /// The ⌘ key went down (Ctrl on Windows and Linux). The word being typed goes in now, a held
+    /// word with its boundary, before the shortcut: an app that acts on the shortcut itself never
+    /// shows the input method the key (Ghostty's ⌘V and ⌘⌫ are its own keybindings), so it pasted
+    /// over the underlined word, and its ⌘⌫ (a line delete there) skipped that word for the text
+    /// before it (the underlined word wasn't text to it yet). The price is a ⌘ pressed and let go
+    /// mid-word: the letters after it start a new word. With nothing being typed a ⌘ changes
+    /// nothing, as before: the flip window stays open for the switch key. With `heldWordOnly` a
+    /// word without a boundary keeps composing: on Windows and Linux the shortcut reaches the text
+    /// service (or the fcitx5 addon) as a key and `.other` puts the word in first, so there is
+    /// nothing to fix and a Ctrl let go on its own (AltGr sends a virtual left Ctrl) would only
+    /// split the word. As after any shortcut, what comes next isn't known (the paste never reaches
+    /// the input method either), so the run is read again from the field. Returns whether a word
+    /// went in: the caller redraws the strip only then, or a ⌘ that changed nothing would start the
+    /// learned capsule over. With `heldWordOnly` false, a fix in progress is confirmed too.
+    @discardableResult
+    public func commandPressed(client: TextClient, heldWordOnly: Bool) -> Bool {
+        if heldWordOnly, heldBoundary == nil { return false }
+        guard !keys.isEmpty || conversion != nil || fixing != nil else { return false }
+        readings = nil // as on any key: the strip is synced right after this
+        learned = nil
         commit(client: client)
         previousLanguage = nil
         resetRun()
+        return true
     }
 
     /// Commits whatever is in progress as-is (focus change, shortcut, deactivation).
     public func commit(client: TextClient?) {
+        if fixing != nil { return confirmFixing(client: client) }
         closeFlipWindow()
         if let conversion, conversion.language != .japanese { return commitPhrase(client: client) }
         if let conversion {
@@ -739,8 +960,15 @@ public final class InputSession {
     }
 
     public func choose(_ index: Int, client: TextClient) {
-        guard let conversion, conversion.candidates.indices.contains(index) else { return }
-        self.conversion?.selected = index
+        guard var conversion, conversion.candidates.indices.contains(index) else { return }
+        conversion.selected = index
+        if var fixing {
+            // A word fixed in the line: picked there, the line around it kept.
+            guard markLanded(fixing, Self.uncased(client)) else { return confirmFixing(client: client) }
+            _ = pickInFix(conversion, &fixing, Self.uncased(client))
+            return
+        }
+        self.conversion = conversion
         commitCandidate(client: client)
     }
 
@@ -801,6 +1029,894 @@ public final class InputSession {
         runText = ""
         runKnown = false
     }
+
+    // MARK: - Fixing past words
+
+    /// Words typed earlier in the line, fixed where they are: a switch key with the caret on one
+    /// (anywhere in it, or right after its space) marks that word again, read the next way and drawn
+    /// thick (the clause), and the words after it stay as they are. The switch key goes on cycling
+    /// the clause; ←/→ make it a key shorter or longer, taking in the next word past the end of one
+    /// (marked with it), and leaving the rest of a word to be read on its own when shorter
+    /// (Araso|를); Return on such a part settles it and goes on with the rest; Esc puts it back.
+    /// Return or any other key confirms: the marked text goes in, then the rest of the line over
+    /// itself, so the caret is at the end of the line again. A word ← gives back stays marked, as it
+    /// is: the caret can't be put before text after it (`growMark`).
+    public struct Fixing {
+        struct Piece {
+            let keys: String
+            /// What Araso chose before any switch.
+            let decided: Language
+            /// The language the piece went in as, shown while it isn't in the clause.
+            let language: Language
+            let text: String
+            let boundary: String
+            let typedBoundary: String?
+            let learns: Bool
+            /// The word that was being typed (`startFixingTyped`): learned as a word finished with Space
+            /// is, by whether a reading was chosen (`Fixing.chosen`), not by how it went in.
+            var typed = false
+
+            func boundary(in language: Language) -> String {
+                language == .korean ? boundary : typedBoundary ?? boundary
+            }
+        }
+
+        /// Where the marked text starts in the field.
+        var start: Int
+        /// The line from `start` as it was, to `end`.
+        let original: String
+        /// Where the line ended before the fix: the caret goes back there (moved by what changed).
+        var end: Int
+        /// What the marked text took the place of, put back by Esc.
+        var markOriginal: String
+        /// What the marked text shows now.
+        var shown: String
+        /// Index in `recent` of the first piece's word; the pieces follow it there.
+        let firstEntry: Int
+        /// The words of the line from the one fixed on, one after another.
+        var pieces: [Piece]
+        /// What follows the last piece to the end of the line, as it is: its space or symbol, and
+        /// whatever Araso didn't type there.
+        let trailing: String
+        /// Text a Return settled from the front of the first piece (Araso, then 를 is fixed).
+        var settled = ""
+        /// How many pieces the clause takes in, from the first.
+        var count = 1
+        /// How many pieces the marked text takes in: the clause's, and any ← gave back since.
+        var marked = 1
+        /// The clause is the first piece's first `cut` keys; the rest is read on its own after it.
+        var cut: Int?
+        var language: Language
+        /// The reading of a cut piece's rest.
+        var restLanguage: Language?
+        /// A word was cut: the pieces aren't whole words any more, so nothing is learned.
+        var split = false
+        /// A reading was chosen: with the switch key or a digit, or before the fix began on the word
+        /// being typed.
+        var chosen = false
+        /// The clause as kanji conversion shows it (Space on a whole word read as Japanese): the
+        /// clauses picked so far, then the session's `conversion`, which is for the rest of the reading.
+        /// Nil while the clause is its keys' reading.
+        var kanji: String?
+        /// The clauses of that conversion already picked with Return or a digit.
+        var picked = ""
+        /// The last piece's space or symbol is marked with it: the word just committed, whose marked
+        /// text had to take the place of everything up to the caret (`startFixingCommitted`).
+        var lastBoundaryMarked = false
+        /// A zero-width space put before the word at the field's start, to have the caret there
+        /// (`takeAway`), and taken away when the fix ends (`removePlaceholder`); `start` and `end` count it.
+        var placeholder = false
+        /// The word just committed, as it went in before the switch key changed it: Esc puts it back,
+        /// in the flip window again (`startFixingCommitted`, `caretMoved`).
+        var revert: Committed?
+        /// The word being typed, its keys: Esc goes back to typing it, read as before any switch
+        /// (`startFixingTyped`).
+        var typedKeys: String?
+    }
+
+    /// Starts fixing an unchanged recent word touched by the caret, marking it in its next reading.
+    /// Contiguous unchanged words can be included with →. Returns false when the required text,
+    /// alternate reading, or client support is unavailable. `asIs`: the word a switch key just changed,
+    /// marked as it reads, learned when the fix is confirmed (`fixAfterArrow`), and `cut` by a key as
+    /// ← does.
+    private func startFixing(_ cased: TextClient, asIs: Bool = false, cut: Bool = false) -> Bool {
+        let client = Self.uncased(cased)
+        guard conversion == nil, client.marksAnywhere, let (index, at) = touchedEntry(client) else { return false }
+        let entry = recent[index]
+        func piece(_ entry: Committed) -> Fixing.Piece {
+            Fixing.Piece(keys: entry.keys, decided: entry.decided, language: entry.language,
+                         text: String(entry.text.dropLast(entry.boundary.count)), boundary: entry.boundary,
+                         typedBoundary: entry.typedBoundary, learns: entry.learns)
+        }
+        func intact(_ entry: Committed) -> Bool {
+            client.text(in: NSRange(location: entry.location, length: utf16(entry.text))) == entry.text
+        }
+        let next = asIs ? entry.language
+            : entry.language.next(for: entry.keys, japanese: japaneseEnabled, splits: engineSplits(entry.keys))
+        guard asIs || next != entry.language else { return false }
+        // The words after it, while each follows the one before and is as it went in. Only when the
+        // word's own space or symbol is as it went in too (`touchedEntry` checks the word alone, all a
+        // text service sends up to the caret): a piece's boundary is written back as it was, while
+        // the last piece's is `trailing`, the field's own.
+        var pieces = [piece(entry)]
+        var wordEnd = entry.location + utf16(pieces[0].text)
+        var following = entry.location + utf16(entry.text)
+        for later in intact(entry) ? Array(recent.dropFirst(index + 1)) : [] {
+            guard later.location == following, intact(later) else { break }
+            pieces.append(piece(later))
+            wordEnd = later.location + utf16(pieces[pieces.count - 1].text)
+            following = later.location + utf16(later.text)
+        }
+        // The line's end: past the last of them and anything typed after it, up to a line break.
+        // Not where that end isn't known: the caret goes back there once the fix is in. The word is
+        // switched where it is instead (`switchInPlace`).
+        guard let after = readTrailing(client, from: wordEnd) else { return false }
+        let end = max(at, wordEnd + utf16(after))
+        guard let original = client.text(in: NSRange(location: entry.location, length: end - entry.location)),
+              let trailing = client.text(in: NSRange(location: wordEnd, length: end - wordEnd)) else { return false }
+        var fixing = Fixing(start: entry.location, original: original, end: end, markOriginal: "", shown: "",
+                            firstEntry: index, pieces: pieces, trailing: trailing, language: next)
+        if asIs {
+            fixing.pieces[0].typed = true
+            fixing.chosen = true
+            if cut, entry.keys.count > 1 {
+                fixing.cut = entry.keys.count - 1
+                let cycle = clauseCycle(fixing)
+                if !cycle.contains(fixing.language), let first = cycle.first { fixing.language = first }
+            }
+        }
+        fixing.markOriginal = pieces[0].text + (boundaryMarked(fixing, 0) ? pieces[0].boundary(in: pieces[0].language) : "")
+        let markEnd = entry.location + utf16(fixing.markOriginal)
+        closeFlipWindow()
+        if client.marksFromCaret, at != entry.location {
+            guard canTakeAway(entry.location, client) else { return false } // switched in place instead
+            // Marked text goes at the caret here, whatever range is named, while an insert that starts
+            // or ends at the caret goes where it says. So: the rest of the word over itself (the caret
+            // at its end), then the word gone with the character before it put back (the caret at the
+            // word's start), then the word marked there, the caret at its end.
+            if at < markEnd, let rest = client.text(in: NSRange(location: at, length: markEnd - at)) {
+                client.insertText(rest, replacing: NSRange(location: at, length: markEnd - at))
+            }
+            takeAway(&fixing, to: markEnd, client)
+            showFixing(&fixing, client)
+        } else {
+            showFixing(&fixing, client, replacing: NSRange(location: entry.location, length: utf16(fixing.markOriginal)))
+        }
+        self.fixing = fixing
+        return true
+    }
+
+    /// The fix's text from its start to `end`, the caret, taken away with the caret left at its start,
+    /// where marked text then goes in a macOS text view: the character before it put back over it (an
+    /// insert ending at the caret goes where it says). At the field's start, with no character before,
+    /// a zero-width space instead (`Fixing.placeholder`), since an empty insert is dropped on the way
+    /// to the app (Notes: the word stayed, and the marked text went in after it).
+    private func takeAway(_ fixing: inout Fixing, to end: Int, _ client: TextClient) {
+        if let before = characterBefore(fixing.start, client) {
+            client.insertText(before.text, replacing: NSRange(location: before.range.location, length: end - before.range.location))
+        } else {
+            client.insertText(Self.placeholder, replacing: NSRange(location: fixing.start, length: end - fixing.start))
+            fixing.placeholder = true
+            fixing.start += 1
+            fixing.end += 1
+        }
+    }
+
+    private static let placeholder = "\u{200B}"
+
+    /// Whether `takeAway` can leave the caret at `location`.
+    private func canTakeAway(_ location: Int, _ client: TextClient) -> Bool {
+        client.dropsEmptyInserts || characterBefore(location, client) != nil
+    }
+
+    /// The fix's zero-width space taken away once the fix is in or put back: the text from it to the
+    /// caret put back without it, an insert ending at the caret going where it says. Left where the
+    /// caret isn't after it or the text there isn't as expected.
+    private func removePlaceholder(_ fixing: Fixing, _ client: TextClient) {
+        guard fixing.placeholder else { return }
+        let at = fixing.start - 1, caret = client.selectedRange()
+        guard caret.location != NSNotFound, caret.length == 0, caret.location > at + 1,
+              let text = client.text(in: NSRange(location: at, length: caret.location - at)),
+              text.hasPrefix(Self.placeholder) else { return }
+        client.insertText(String(text.dropFirst()), replacing: NSRange(location: at, length: caret.location - at))
+    }
+
+    /// The character just before `location` and where it is, if the field has one there.
+    private func characterBefore(_ location: Int, _ client: TextClient) -> (text: String, range: NSRange)? {
+        let from = max(0, location - 4)
+        guard location > 0, let text = client.text(in: NSRange(location: from, length: location - from)),
+              let last = text.last else { return nil }
+        let length = utf16(String(last))
+        return (String(last), NSRange(location: location - length, length: length))
+    }
+
+    /// A word of the line the caret is in or at the end of, switched where it is, as the word just
+    /// committed is: the rest of the word put back over itself first, so the caret is at its end
+    /// (an insert from the caret goes where it says, in macOS text views too), then the word in its
+    /// next reading over the range up to the caret. No marked text, so no ←/→; the switch key goes
+    /// on cycling it, and the next key closes it, learned as a switch right after a commit is.
+    private func switchInPlace(_ cased: TextClient) -> Bool {
+        let client = Self.uncased(cased)
+        let caret = client.selectedRange()
+        guard conversion == nil, client.marksAnywhere, !recent.isEmpty, caret.location != NSNotFound,
+              caret.length == 0 else { return false }
+        let at = caret.location
+        func word(_ entry: Committed) -> String { String(entry.text.dropLast(entry.boundary.count)) }
+        guard let index = recent.lastIndex(where: { $0.location <= at && at <= $0.location + utf16(word($0)) })
+        else { return false }
+        let entry = recent[index], text = word(entry), end = entry.location + utf16(text)
+        guard client.text(in: NSRange(location: entry.location, length: utf16(text))) == text else { return false }
+        if at < end {
+            let rest = (text as NSString).substring(from: at - entry.location)
+            client.insertText(rest, replacing: NSRange(location: at, length: end - at))
+        }
+        var pending = Committed(keys: entry.keys, decided: entry.decided, committedAs: entry.language,
+                                language: entry.language, text: text, boundary: "", location: entry.location,
+                                previous: entry.previous, learns: entry.learns)
+        pending.inLine = (index, utf16(text))
+        guard let changed = cycle(pending, client: client) else { return false }
+        lastCommit = changed
+        readings = readings(of: changed.keys, as: changed.language, decided: changed.decided, rendered: committedReading)
+        readings?.numbered = true
+        return true
+    }
+
+    /// The text after the UTF-16 offset `location` up to the end of its line (a line break, or where
+    /// the field stops giving text), read `trailingLookAhead` units at a time. Nil where nothing there
+    /// can be read, or the line goes on past `trailingLimit`: its end isn't known, and a piece of it
+    /// mustn't be taken for it (the caret goes back to the line's end after a fix, so none starts).
+    private func readTrailing(_ client: TextClient, from location: Int) -> String? {
+        var line = "", at = location
+        while utf16(line) < Self.trailingLimit {
+            var piece: String?
+            for length in stride(from: Self.trailingLookAhead, through: 0, by: -1) {
+                if let text = client.text(in: NSRange(location: at, length: length)) { piece = text; break }
+            }
+            guard let piece else { return at == location ? nil : line }
+            let upToBreak = String(piece.prefix { !$0.isNewline })
+            line += upToBreak
+            if upToBreak.count < piece.count || utf16(piece) < Self.trailingLookAhead { return line }
+            at += utf16(piece)
+        }
+        return nil
+    }
+
+    /// How much of the line after the last word is read at a time, and in all (UTF-16 units).
+    private static let trailingLookAhead = 64
+    private static let trailingLimit = 4096
+
+    /// The word being typed, for ⇧← or an arrow after a switch: it becomes the fix, marked as
+    /// it is, and stops being typed (Return or a key puts it in, as a fix). Not a held word, Japanese
+    /// (its kana and conversion are the candidate window's), or one typed with Caps Lock (the fix
+    /// writes to the field as it is).
+    private func startFixingTyped(_ client: TextClient) -> Bool {
+        guard keys.count > 1, conversion == nil, heldBoundary == nil, !capsWord, client.marksAnywhere else { return false }
+        let shown = forced ?? pinned ?? previewLanguage ?? decide(partial: true).language
+        let marked = client.markedRange()
+        guard shown != .japanese, marked.location != NSNotFound, marked.length > 0,
+              let original = client.text(in: marked) else { return false }
+        let piece = Fixing.Piece(keys: keys, decided: committedLanguage(), language: shown, text: original,
+                                 boundary: "", typedBoundary: nil, learns: !inURLRun, typed: true)
+        fixing = Fixing(start: marked.location, original: original, end: NSMaxRange(marked), markOriginal: original,
+                        shown: original, firstEntry: recent.count, pieces: [piece], trailing: "", language: shown)
+        fixing?.chosen = forced != nil && forcedByUser
+        fixing?.typedKeys = keys
+        keys = ""
+        forced = nil
+        forcedByUser = false
+        pinned = nil
+        syllableStart = nil
+        addedNMarker = false
+        liveSuppressed = false
+        liveKept = nil
+        previewLanguage = nil
+        enginePreview = nil
+        return true
+    }
+
+    /// The word just committed, for an arrow right after a switch key changed it: it becomes the fix
+    /// as it now reads, as the word being typed does (`startFixingTyped`), and is learned when the fix
+    /// is confirmed, as that word is. Its space or symbol is marked with it (`lastBoundaryMarked`): the
+    /// caret is after them, and what is taken away has to end at the caret, where an insert in a macOS
+    /// text view goes where it says (`marksFromCaret`). There the word and its boundary go, the
+    /// character before them put back (the caret at the word's start), and the marked text goes in at
+    /// the caret; at the field's start, with no character before, the arrow goes to the app as before.
+    /// The line after it isn't read: the caret was typing there, and goes back there once the fix is in
+    /// (Notes gives nothing for the empty range at the text's end, which `readTrailing` takes for an end
+    /// not known). Not a word switched in place, or one typed with Caps Lock.
+    private func startFixingCommitted(_ commit: Committed, _ cased: TextClient, afterCaretMove: Bool = false) -> Bool {
+        let client = Self.uncased(cased)
+        let caret = client.selectedRange()
+        let range = NSRange(location: commit.location, length: utf16(commit.text))
+        guard conversion == nil, commit.inLine == nil, !capsWord, client.marksAnywhere,
+              client.insertsRightAfterAnInsert || afterCaretMove,
+              caret.location == NSMaxRange(range), caret.length == 0, client.text(in: range) == commit.text
+        else { return false }
+        if client.marksFromCaret, !canTakeAway(commit.location, client) { return false }
+        let piece = Fixing.Piece(keys: commit.keys, decided: commit.decided, language: commit.language,
+                                 text: String(commit.text.dropLast(commit.boundary.count)), boundary: commit.boundary,
+                                 typedBoundary: commit.typedBoundary, learns: commit.learns, typed: true)
+        forgetRecent(from: commit.location)
+        // The boundary is marked only where a switch changes it (3-set's symbol) or where what is taken
+        // away has to end at the caret (`marksFromCaret`).
+        let marksBoundary = client.marksFromCaret || commit.typedBoundary != nil
+        let marked = marksBoundary ? commit.text : piece.text
+        var fixing = Fixing(start: range.location, original: commit.text, end: NSMaxRange(range),
+                            markOriginal: marked, shown: marked, firstEntry: recent.count, pieces: [piece],
+                            trailing: String(commit.text.dropFirst(marked.count)), language: commit.language)
+        fixing.lastBoundaryMarked = marksBoundary
+        fixing.chosen = true
+        fixing.revert = commit.beforeSwitching
+        if !marksBoundary {
+            showFixing(&fixing, client, replacing: NSRange(location: range.location, length: utf16(marked)))
+        } else if client.marksFromCaret {
+            takeAway(&fixing, to: caret.location, client)
+            showFixing(&fixing, client)
+        } else {
+            showFixing(&fixing, client, replacing: range)
+        }
+        self.fixing = fixing
+        return true
+    }
+
+    /// ←/→ right after a switch key changed the word just committed, which make it the fix: a text
+    /// service that asks whether it wants a key before sending it (Windows' `test`) keeps them then.
+    public func takesArrow(_ key: Key) -> Bool {
+        (key == .left || key == .right) && keys.isEmpty && conversion == nil && fixing == nil
+            && lastCommit != nil && readings != nil
+    }
+
+    /// ← right after a switch key changed the word just committed, where the mark can't follow the
+    /// switch key's insert at once (`insertsRightAfterAnInsert`): the word goes into `recent` as it now
+    /// reads, not learned yet, and the app takes the ←, which puts the caret at the word's end; there
+    /// `caretMoved` marks it as a switch key on it would (`startFixing`), the arrow's cut made.
+    private func deferFixing(_ commit: Committed, _ cased: TextClient) -> Bool {
+        let client = Self.uncased(cased)
+        let caret = client.selectedRange()
+        let range = NSRange(location: commit.location, length: utf16(commit.text))
+        guard conversion == nil, commit.inLine == nil, !capsWord, client.marksAnywhere, !client.insertsRightAfterAnInsert,
+              caret.location == NSMaxRange(range), caret.length == 0, client.text(in: range) == commit.text
+        else { return false }
+        finalize(Committed(keys: commit.keys, decided: commit.decided, committedAs: commit.language,
+                           language: commit.language, text: commit.text, boundary: commit.boundary,
+                           location: commit.location, previous: commit.previous, learns: commit.learns,
+                           typedBoundary: commit.typedBoundary))
+        fixAfterArrow = commit
+        return true
+    }
+
+    /// A word `deferFixing` left for `caretMoved` that wasn't marked after all (another key came
+    /// first, or the caret wasn't at its end): learned as the window closing would have.
+    private func learnUnmarked(_ commit: Committed) {
+        if commit.learns, commit.language != commit.committedAs {
+            record(commit.keys, as: commit.language, engineChoice: commit.decided)
+        }
+    }
+
+    /// An unchanged recent word containing the caret, including its start and end: its index in
+    /// `recent` and the caret's UTF-16 offset. Clients without `marksFromCaret` also allow the caret
+    /// immediately after the boundary. Nil for a selection, unreadable word, or no matching entry;
+    /// a client that reads only up to the caret needs it at or after the word's end.
+    private func touchedEntry(_ client: TextClient) -> (index: Int, caret: Int)? {
+        let caret = client.selectedRange()
+        guard !recent.isEmpty, caret.location != NSNotFound, caret.length == 0 else { return nil }
+        let at = caret.location
+        func wordEnd(_ entry: Committed) -> Int { entry.location + utf16(entry.text) - utf16(entry.boundary) }
+        let inWord = recent.lastIndex(where: { $0.location <= at && at <= wordEnd($0) })
+        let found = client.marksFromCaret ? inWord : inWord ?? recent.lastIndex(where: { $0.location + utf16($0.text) == at })
+        guard let index = found else { return nil }
+        // The word itself: a text service sends nothing after the caret, and a space is a space.
+        let entry = recent[index], word = String(entry.text.dropLast(entry.boundary.count))
+        guard client.text(in: NSRange(location: entry.location, length: utf16(word))) == word else { return nil }
+        return (index, at)
+    }
+
+    /// The caret was moved by a key the app took (an arrow): when it now rests on a word of the line
+    /// Araso wasn't sure of, its readings are listed under it as a switch key would list them, so
+    /// what the switch key will make of it shows before it is pressed. Returns the word's range in
+    /// the field when they are, for the list to be put under it: nothing is marked to place it by.
+    public func caretMoved(client cased: TextClient) -> NSRange? {
+        if let commit = fixAfterArrow {
+            fixAfterArrow = nil
+            if paused { learnUnmarked(commit); return nil } // the pause key came between: no fix
+            let at = recent.last.map { $0.location + utf16($0.text) - utf16($0.boundary) }
+            let caret = Self.uncased(cased).selectedRange()
+            // The app's ← put the caret at the word's end, or before its last character when it has
+            // no boundary (confirmed with Return).
+            let last = commit.boundary.isEmpty ? commit.text.last.map { utf16(String($0)) } ?? 0 : 0
+            if keys.isEmpty, fixing == nil, recent.last?.location == commit.location,
+               caret == NSRange(location: (at ?? NSNotFound) - last, length: 0),
+               startFixing(cased, asIs: true, cut: true) {
+                fixing?.revert = commit.beforeSwitching
+                return nil
+            }
+            // Its boundary longer than one character (`world, `): the app's ← left the caret inside it.
+            // The rest of it over itself puts the caret back at the end, and the word and its boundary
+            // are marked from there, as the arrow does where that works at once (`startFixingCommitted`).
+            let end = commit.location + utf16(commit.text)
+            if keys.isEmpty, fixing == nil, recent.last?.location == commit.location, let at,
+               caret.length == 0, caret.location > at, caret.location < end,
+               !Self.uncased(cased).marksFromCaret || canTakeAway(commit.location, Self.uncased(cased)),
+               Self.uncased(cased).text(in: NSRange(location: commit.location, length: end - commit.location)) == commit.text {
+                let rest = NSRange(location: caret.location, length: end - caret.location)
+                Self.uncased(cased).insertText((commit.text as NSString).substring(from: rest.location - commit.location),
+                                               replacing: rest)
+                if startFixingCommitted(commit, cased, afterCaretMove: true) {
+                    _ = handleFixing(.left, client: cased)
+                    return nil
+                }
+            }
+            learnUnmarked(commit)
+        }
+        let client = Self.uncased(cased)
+        guard keys.isEmpty, conversion == nil, fixing == nil, client.marksAnywhere,
+              let (index, _) = touchedEntry(client) else { return nil }
+        let entry = recent[index]
+        let context = DecisionContext(previousLanguage: entry.previous, app: app, japanese: japaneseEnabled)
+        guard engine.decide(entry.keys, context: context).confidence < Self.fixHintConfidence else { return nil }
+        readings = readings(of: entry.keys, as: entry.language, decided: entry.decided) { keys, language in
+            self.committedReading(keys, as: language)
+        }
+        guard readings != nil else { return nil }
+        return NSRange(location: entry.location, length: utf16(entry.text) - utf16(entry.boundary))
+    }
+
+    /// Below this the caret on a word lists its readings (`caretMoved`). On eval.tsv, 18 of the
+    /// engine's 23 wrong words are below it, and 2.9% of the words it gets right.
+    static let fixHintConfidence = 0.9
+
+    /// Handles clause resizing, reading selection, confirmation, or cancellation of a fix. Other
+    /// input confirms the fix and is handled again at the restored caret. A misplaced mark drops
+    /// the fix and retries the key, except Delete is consumed. Returns whether the key was consumed.
+    private func handleFixing(_ key: Key, client cased: TextClient) -> Bool {
+        guard var fixing else { return false }
+        let client = Self.uncased(cased)
+        guard markLanded(fixing, client) else {
+            // The app didn't mark the line where it is: nothing of the fix is in the field, and writing
+            // over the marked text would hit other text. Dropped; the key is handled as if it never began.
+            self.fixing = nil
+            conversion = nil
+            dropMisplacedMark(fixing, client)
+            if key == .delete { return true } // Delete was to put the word back: it is as it was
+            return handle(key, client: cased)
+        }
+        if conversion != nil { return handleConvertingFix(key, &fixing, client: client, cased: cased) }
+        if key == .printable(" "), fixing.language == .japanese, fixing.count == 1, fixing.cut == nil,
+           startConvertingFix(&fixing, client) {
+            return true
+        }
+        if key == .cycle || (key == .escape && policy.switchKeys.contains(.escape) && vimMode == nil) {
+            let cycle = clauseCycle(fixing)
+            if let index = cycle.firstIndex(of: fixing.language) {
+                fixing.language = cycle[(index + 1) % cycle.count]
+            } else if let first = cycle.first {
+                fixing.language = first
+            }
+            fixing.chosen = true
+            showFixing(&fixing, client)
+            self.fixing = fixing
+            return true
+        }
+        switch key {
+        case .left, .shiftLeft:
+            let keys = fixing.pieces[0].keys
+            if let cut = fixing.cut {
+                guard cut > 1 else { return true }
+                fixing.cut = cut - 1
+            } else if fixing.count > 1 {
+                fixing.count -= 1
+            } else if keys.count > 1 {
+                fixing.cut = keys.count - 1
+            } else {
+                return true
+            }
+            // A shorter clause may not have the reading the word had (a split, or Korean on stray keys).
+            let cycle = clauseCycle(fixing)
+            if !cycle.contains(fixing.language), let first = cycle.first { fixing.language = first }
+
+        case .right, .shiftRight:
+            if let cut = fixing.cut {
+                fixing.cut = cut + 1 < fixing.pieces[0].keys.count ? cut + 1 : nil
+            } else if fixing.count < fixing.pieces.count,
+                      fixing.pieces[fixing.count].language.cycle(for: fixing.pieces[fixing.count].keys,
+                                                                 japanese: japaneseEnabled, splits: false)
+                          .contains(fixing.language) {
+                fixing.count += 1
+                if fixing.count > fixing.marked {
+                    if growMark(&fixing, client) { self.fixing = fixing } else { fixing.count -= 1 }
+                    return true
+                }
+            } else {
+                return true
+            }
+
+        case .printable(let ch) where ch.isNumber:
+            // A digit picks that reading of the clause, as in the candidate window; past the list it
+            // confirms, and the app types it.
+            let cycle = clauseCycle(fixing)
+            guard let n = ch.wholeNumberValue, n >= 1, n <= cycle.count else {
+                confirmFixing(client: client)
+                return handle(key, client: cased)
+            }
+            fixing.language = cycle[n - 1]
+            fixing.chosen = true
+
+        case .enter where fixing.cut != nil:
+            // The clause is settled; the rest of the word becomes the clause.
+            let cut = fixing.cut!, piece = fixing.pieces[0]
+            let head = String(piece.keys.prefix(cut)), rest = String(piece.keys.dropFirst(cut))
+            let language = fixing.restLanguage ?? decideRest(rest, after: fixing.language)
+            fixing.settled += committedReading(head, as: fixing.language)
+            fixing.pieces[0] = Fixing.Piece(keys: rest, decided: language, language: language,
+                                            text: committedReading(rest, as: language), boundary: piece.boundary,
+                                            typedBoundary: piece.typedBoundary, learns: false)
+            fixing.cut = nil
+            fixing.count = 1
+            fixing.restLanguage = nil
+            fixing.language = language
+            fixing.split = true
+
+        case .enter:
+            confirmFixing(client: client)
+            return true
+
+        case .escape, .delete:
+            // Delete too: the app's Delete would take the last character of the marked text. Back to
+            // before anything was touched: the word being typed is typed again, read as Araso reads it;
+            // the word just committed goes back to how it went in, in the flip window again; a word
+            // further back to what it was.
+            self.fixing = nil
+            if let typed = fixing.typedKeys {
+                keys = typed
+                updatePreview(client)
+                return true
+            }
+            var undo = fixing.markOriginal
+            if let before = fixing.revert {
+                undo = fixing.lastBoundaryMarked ? before.text
+                    : String(before.text.dropLast(before.boundary(in: before.language).count))
+            }
+            client.insertText(undo, replacing: nil)
+            caretToLineEnd(fixing, client, delta: utf16(undo) - utf16(fixing.markOriginal))
+            removePlaceholder(fixing, client)
+            resetRun()
+            if let before = fixing.revert {
+                forgetRecent(from: before.location)
+                lastCommit = before
+                previousLanguage = before.language.sentenceLanguage
+            }
+            return true
+
+        default:
+            // Confirmed, and the key is typed at the end of the line as usual.
+            confirmFixing(client: client)
+            return handle(key, client: cased)
+        }
+        showFixing(&fixing, client)
+        self.fixing = fixing
+        return true
+    }
+
+    /// Space on a whole word fixed as Japanese: its reading converted to kanji as a word being typed
+    /// is, the candidates in the session's `conversion` and shown in the clause's place (`kanji`).
+    /// False, Space confirming the fix as before, where there is nothing to convert with.
+    private func startConvertingFix(_ fixing: inout Fixing, _ client: TextClient) -> Bool {
+        guard converter != nil, let piece = fixing.pieces.first else { return false }
+        let kana = committedReading(piece.keys, as: .japanese)
+        guard !kana.isEmpty else { return false }
+        var candidates = conversionCandidates(for: kana)
+        let listed = Set(candidates.map(\.text))
+        candidates += (converter?.moreCandidates(for: kana) ?? []).filter { !listed.contains($0.text) }
+        guard !candidates.isEmpty else { return false }
+        // The kana is on screen already: Space shows a conversion, as for a word being typed.
+        let selected = candidates.count > 1 && candidates[0].text == kana ? 1 : 0
+        conversion = Conversion(kana: kana, keys: piece.keys, candidates: candidates, selected: selected)
+        fixing.picked = ""
+        showConvertingFix(&fixing, client)
+        self.fixing = fixing
+        return true
+    }
+
+    /// The fix's marked text with the conversion in the clause, its clause being converted thick.
+    private func showConvertingFix(_ fixing: inout Fixing, _ client: TextClient) {
+        guard let conversion else { return }
+        fixing.kanji = fixing.picked + conversion.display
+        let (text, clause) = fixingText(&fixing)
+        fixing.shown = text
+        client.setMarkedText(text, selectedClause: clause, replacing: nil)
+        readings = nil // the candidate window is the list now
+    }
+
+    /// Keys while a fixed word is converted to kanji, as `handleConverting` takes them: Space and
+    /// ↑/↓ go through the candidates, ←/→ resize the clause, Return or a digit picks one (the rest
+    /// of the reading converted next, the fix confirmed after the last), Esc, Delete or the switch
+    /// key go back to the kana, still fixing; anything else confirms the fix as shown and is
+    /// handled again.
+    private func handleConvertingFix(_ key: Key, _ fixing: inout Fixing, client: TextClient, cased: TextClient) -> Bool {
+        guard var conversion else { return false }
+        switch key {
+        case .printable(" "), .down, .shiftSpace:
+            conversion.selected = (conversion.selected + 1) % conversion.candidates.count
+        case .up:
+            conversion.selected = (conversion.selected + conversion.candidates.count - 1) % conversion.candidates.count
+        case .left, .right, .shiftLeft, .shiftRight:
+            let shorter = key == .left || key == .shiftLeft
+            guard let resized = resizeFirstClause(conversion, by: shorter ? -1 : 1) else { return true }
+            conversion = resized
+        case .printable(let ch) where ch.isNumber:
+            let start = conversion.selected / Conversion.pageSize * Conversion.pageSize
+            guard let n = ch.wholeNumberValue, n >= 1, start + n - 1 < conversion.candidates.count else {
+                confirmFixing(client: client)
+                return handle(key, client: cased)
+            }
+            conversion.selected = start + n - 1
+            return pickInFix(conversion, &fixing, client)
+        case .enter:
+            return pickInFix(conversion, &fixing, client)
+        case .escape, .cycle, .delete:
+            self.conversion = nil
+            fixing.kanji = nil
+            fixing.picked = ""
+            showFixing(&fixing, client)
+            self.fixing = fixing
+            return true
+        default:
+            confirmFixing(client: client)
+            return handle(key, client: cased)
+        }
+        self.conversion = conversion
+        showConvertingFix(&fixing, client)
+        self.fixing = fixing
+        return true
+    }
+
+    /// The selected candidate picked: learned, and the rest of the reading converted next; after
+    /// the last clause the fix is confirmed, as Return confirms it with nothing converted.
+    private func pickInFix(_ conversion: Conversion, _ fixing: inout Fixing, _ client: TextClient) -> Bool {
+        let candidate = conversion.current
+        converter?.learn(candidate, for: conversion.kana)
+        fixing.picked += candidate.text
+        let rest = String(conversion.kana.dropFirst(candidate.kanaCount))
+        let candidates = rest.isEmpty ? [] : conversionCandidates(for: rest)
+        guard !candidates.isEmpty else {
+            self.conversion = nil
+            fixing.kanji = fixing.picked + rest
+            self.fixing = fixing
+            confirmFixing(client: client)
+            return true
+        }
+        self.conversion = Conversion(kana: rest, keys: Self.keys(conversion.keys, after: candidate.kanaCount),
+                                     candidates: candidates, selected: 0)
+        showConvertingFix(&fixing, client)
+        self.fixing = fixing
+        return true
+    }
+
+    /// The readings the clause can take: its keys' own, or the ones every word in it has.
+    private func clauseCycle(_ fixing: Fixing) -> [Language] {
+        if let cut = fixing.cut {
+            let head = String(fixing.pieces[0].keys.prefix(cut))
+            return fixing.language.cycle(for: head, japanese: japaneseEnabled, splits: engineSplits(head))
+        }
+        let words = fixing.pieces.prefix(fixing.count)
+        if words.count == 1, let word = words.first {
+            return fixing.language.cycle(for: word.keys, japanese: japaneseEnabled, splits: engineSplits(word.keys))
+        }
+        let cycles = words.map { $0.language.cycle(for: $0.keys, japanese: japaneseEnabled, splits: false) }
+        return [Language.english, .korean, .japanese].filter { language in cycles.allSatisfy { $0.contains(language) } }
+    }
+
+    /// The rest of a cut word read on its own, after the clause.
+    private func decideRest(_ keys: String, after language: Language) -> Language {
+        engine.decide(keys, context: DecisionContext(previousLanguage: language.sentenceLanguage, app: app,
+                                                     japanese: japaneseEnabled)).language
+    }
+
+    /// The marked text as it reads now (the words it takes in, from the first), and where the clause
+    /// is in it.
+    private func fixingText(_ fixing: inout Fixing) -> (text: String, clause: NSRange) {
+        var text = fixing.settled
+        var clause = NSRange(location: utf16(text), length: 0)
+        for (i, piece) in fixing.pieces.prefix(fixing.marked).enumerated() {
+            let language: Language
+            if i == 0, let cut = fixing.cut {
+                let head = String(piece.keys.prefix(cut)), rest = String(piece.keys.dropFirst(cut))
+                let restLanguage = fixing.restLanguage ?? decideRest(rest, after: fixing.language)
+                fixing.restLanguage = restLanguage
+                let headText = committedReading(head, as: fixing.language)
+                clause.length = utf16(headText)
+                text += headText + committedReading(rest, as: restLanguage)
+                language = restLanguage
+            } else if i < fixing.count {
+                language = fixing.language
+                text += (i == 0 ? fixing.kanji : nil) ?? committedReading(piece.keys, as: language)
+                clause.length = utf16(text) - clause.location
+                if i == 0, fixing.kanji != nil, let conversion {
+                    // The clause being converted is drawn thick, as in kanji conversion.
+                    clause = NSRange(location: clause.location + utf16(fixing.picked), length: utf16(conversion.current.text))
+                }
+            } else {
+                language = piece.language
+                text += piece.text
+            }
+            // The last word's space or symbol stays out of the marked text, as the field has it.
+            if i < fixing.marked - 1 || boundaryMarked(fixing, i) { text += piece.boundary(in: language) }
+        }
+        return (text, clause)
+    }
+
+    /// The marked text ending with piece `i` takes in its space or symbol too where a switch changes
+    /// it (3-set's symbol for a key, `typedBoundary`); not the line's last, which is `trailing`'s,
+    /// unless it is the word just committed's (`lastBoundaryMarked`).
+    private func boundaryMarked(_ fixing: Fixing, _ i: Int) -> Bool {
+        i < fixing.pieces.count - 1 ? fixing.pieces[i].typedBoundary != nil : fixing.lastBoundaryMarked
+    }
+
+    /// The marked text takes in the next word, for → past the clause's end: taken away first (the
+    /// caret at its start, where the text after it begins), then marked again with the word, over the
+    /// word: marked text with a range goes at the caret, that much replaced from there, in macOS text
+    /// views too (`marksFromCaret`). Only forward: the caret can't be put before text that stays
+    /// after it, so a word ← gives back stays marked. Returns false if the added text no longer
+    /// matches the field.
+    private func growMark(_ fixing: inout Fixing, _ client: TextClient) -> Bool {
+        let i = fixing.marked, previous = fixing.pieces[i - 1], next = fixing.pieces[i]
+        var segment = boundaryMarked(fixing, i - 1) ? "" : previous.boundary(in: previous.language)
+        segment += next.text + (boundaryMarked(fixing, i) ? next.boundary(in: next.language) : "")
+        let markEnd = fixing.start + utf16(fixing.shown)
+        guard client.text(in: NSRange(location: markEnd, length: utf16(segment))) == segment else { return false }
+        fixing.marked += 1
+        fixing.markOriginal += segment
+        client.setMarkedText("")
+        showFixing(&fixing, client, replacing: NSRange(location: fixing.start, length: utf16(segment)))
+        return true
+    }
+
+    /// Tries to return the caret to the saved line end by inserting the remaining text over itself.
+    /// `delta` is the marked text's change in UTF-16 length. Leaves the caret alone if it is unknown,
+    /// a selection is active, it has reached that end, or the remaining text cannot be read.
+    private func caretToLineEnd(_ fixing: Fixing, _ client: TextClient, delta: Int) {
+        let caret = client.selectedRange()
+        let end = fixing.end + delta
+        guard caret.location != NSNotFound, caret.length == 0, caret.location < end,
+              let rest = client.text(in: NSRange(location: caret.location, length: end - caret.location)) else { return }
+        client.insertText(rest, replacing: NSRange(location: caret.location, length: end - caret.location))
+    }
+
+    /// Shows the fix's marked words (in place of `range` when supplied), with the active clause
+    /// selected and its available readings numbered under it, including cut and multiword clauses.
+    private func showFixing(_ fixing: inout Fixing, _ client: TextClient, replacing range: NSRange? = nil) {
+        fixing.restLanguage = nil // the clause changed: a cut word's rest is read again after it
+        let (text, clause) = fixingText(&fixing)
+        fixing.shown = text
+        client.setMarkedText(text, selectedClause: clause, replacing: range)
+        readings = clauseReadings(fixing)
+        readings?.numbered = true
+    }
+
+    /// The readings the switch key goes through for the clause, listed under it as for a word being
+    /// typed: a whole word's own (with what the dictionary says of it), a cut's front part's, or the
+    /// words of a longer clause read together.
+    private func clauseReadings(_ fixing: Fixing) -> Readings? {
+        guard let first = fixing.pieces.first else { return nil }
+        let render: (String, Language) -> String = { keys, language in self.committedReading(keys, as: language) }
+        if let cut = fixing.cut {
+            let head = String(first.keys.prefix(cut))
+            let own = engine.decide(head, context: DecisionContext(app: app, japanese: japaneseEnabled)).language
+            return readings(of: head, as: fixing.language, decided: own, rendered: render)
+        }
+        if fixing.count == 1 { return readings(of: first.keys, as: fixing.language, decided: first.decided, rendered: render) }
+        let cycle = clauseCycle(fixing)
+        guard cycle.count > 1, let selected = cycle.firstIndex(of: fixing.language) else { return nil }
+        let words = fixing.pieces.prefix(fixing.count)
+        let texts = cycle.map { language in
+            words.enumerated().map { i, piece in
+                render(piece.keys, language) + (i < words.count - 1 ? piece.boundary(in: language) : "")
+            }.joined()
+        }
+        return Readings(texts: texts, languages: cycle, selected: selected)
+    }
+
+    /// Commits the fix as shown and tries to return the caret to the saved line end. Whole-word
+    /// corrections are learned when allowed; a cut or split word teaches nothing. Clears the fix
+    /// without committing or learning if the client is nil or the marked range is misplaced.
+    private func confirmFixing(client cased: TextClient?) {
+        guard var fixing else { return }
+        self.fixing = nil
+        let (text, _) = fixingText(&fixing)
+        // Kanji conversion goes in as shown, as on a focus change while converting.
+        let converting = conversion
+        conversion = nil
+        guard let cased else { return }
+        let client = Self.uncased(cased)
+        guard markLanded(fixing, client) else { return dropMisplacedMark(fixing, client) }
+        if let converting { converter?.learn(converting.current, for: converting.kana) }
+        client.insertText(text, replacing: nil)
+        let delta = utf16(text) - utf16(fixing.markOriginal)
+        caretToLineEnd(fixing, client, delta: delta)
+        removePlaceholder(fixing, client)
+        let later = Array(recent.dropFirst(fixing.firstEntry + fixing.pieces.count))
+        var updated = Array(recent.prefix(fixing.firstEntry))
+        var lastBoundary = ""
+        if !fixing.split, fixing.cut == nil {
+            var location = fixing.start - (fixing.placeholder ? 1 : 0)
+            for (i, piece) in fixing.pieces.enumerated() {
+                let language = i < fixing.count ? fixing.language : piece.language
+                if i < fixing.count, piece.learns, piece.typed {
+                    // As `wordEnds` does for a word finished with Space: a chosen reading is a
+                    // correction even when it is Araso's own (that forgets one made before).
+                    if fixing.chosen { record(piece.keys, as: language, engineChoice: piece.decided) }
+                    else { engine.used(piece.keys, as: language) }
+                } else if i < fixing.count, piece.learns, language != piece.language {
+                    record(piece.keys, as: language, engineChoice: piece.decided)
+                }
+                let word = i < fixing.count ? (i == 0 ? fixing.kanji : nil) ?? committedReading(piece.keys, as: language)
+                                            : piece.text
+                // A boundary left out of the marked text stays as it was in the field (3-set's `?` of a
+                // word fixed to English).
+                let boundary = i < fixing.count && boundaryMarked(fixing, i) ? piece.boundary(in: language)
+                                                                              : piece.boundary(in: piece.language)
+                if i < fixing.count { lastBoundary = boundary }
+                let entry = Committed(keys: piece.keys, decided: piece.decided, committedAs: language, language: language,
+                                      text: word + boundary, boundary: piece.boundary,
+                                      location: location, previous: nil, learns: piece.learns,
+                                      typedBoundary: piece.typedBoundary)
+                updated.append(entry)
+                location += utf16(entry.text)
+            }
+        }
+        recent = updated + later.map { $0.moved(by: delta) }
+        if later.isEmpty, fixing.count == fixing.pieces.count, !fixing.split, fixing.cut == nil,
+           fixing.trailing.allSatisfy(\.isWhitespace) {
+            previousLanguage = fixing.language.sentenceLanguage
+        }
+        resetRun()
+        // The line ends with the fixed words, the caret back after the last one's space: a switch key
+        // now changes that word as it does the word just committed. Not a cut word, which `recent`
+        // doesn't keep; `cycle` checks the caret and the field when the key comes.
+        if later.isEmpty, fixing.count == fixing.pieces.count, !fixing.split, fixing.cut == nil, let last = recent.last,
+           fixing.lastBoundaryMarked || fixing.trailing == lastBoundary {
+            lastCommit = last
+        }
+    }
+
+    /// The text's length in the field's UTF-16 range units.
+    private func utf16(_ text: String) -> Int { (text as NSString).length }
+
+    /// The words of the line that reach `location` or past it changed place or went: forgotten.
+    private func forgetRecent(from location: Int) {
+        recent.removeAll { $0.location + utf16($0.text) > location }
+    }
+
+
+    /// The field itself, not as a word typed with Caps Lock sees it: fixing puts back text it didn't
+    /// type (the rest of the line), which must keep its case. A word that went in in capitals reads
+    /// as changed through it, so it isn't fixed.
+    private static func uncased(_ client: TextClient) -> TextClient { (client as? CapsLockClient)?.base ?? client }
+
+    /// Whether the marked range matches the fix's expected location and UTF-16 length. Records
+    /// mismatched ranges in `fixingDropped`; this does not verify the marked text's contents.
+    private func markLanded(_ fixing: Fixing, _ client: TextClient) -> Bool {
+        let wanted = NSRange(location: fixing.start, length: utf16(fixing.shown))
+        let marked = client.markedRange()
+        if marked != wanted { fixingDropped = (marked, wanted) }
+        return marked == wanted
+    }
+
+    /// A fix's marked text the app put somewhere else (at the caret): taken away, so the app can't
+    /// put it in there later. Only clear of the text the fix was for: marked text over any of it may
+    /// be that text, which taking it away would delete.
+    private func dropMisplacedMark(_ fixing: Fixing, _ client: TextClient) {
+        let marked = client.markedRange()
+        let original = NSRange(location: fixing.start, length: utf16(fixing.original))
+        guard marked.location != NSNotFound, marked.length > 0,
+              NSIntersectionRange(marked, original).length == 0 else { return }
+        client.setMarkedText("")
+        removePlaceholder(fixing, client)
+    }
+
+    /// Where the app had the marked text, and where the fix had put it, when a fix was dropped for
+    /// it (`markLanded`): positions only, for the log.
+    public var fixingDropped: (marked: NSRange, wanted: NSRange)?
 
     // MARK: - Japanese conversion
 
@@ -901,7 +2017,7 @@ public final class InputSession {
         guard forced == nil, ch == "-" || ch == "'", previewLanguage == .english,
               !EnglishModel.shared.isKnownWord(keys),
               RomajiComposer.compose(keys, partial: true).strayLetters == 0 else { return false }
-        let context = DecisionContext(previousLanguage: previousLanguage, partial: true, app: app)
+        let context = DecisionContext(previousLanguage: previousLanguage, partial: true, app: app, japanese: japaneseEnabled)
         return engine.decide(keys + String(ch), context: context).language == .japanese
     }
 
@@ -924,8 +2040,10 @@ public final class InputSession {
         return nil
     }
 
-    /// Splits English words out of a Japanese phrase (google in kyouhagoogledekensaku).
-    public var segmenter: JapaneseSegmenter?
+    /// Splits English words out of a Japanese phrase (google in kyouhagoogledekensaku), only
+    /// where Japanese is on, as `converter`.
+    public var segmenter: JapaneseSegmenter? { japaneseEnabled ? japaneseSegmenter : nil }
+    private var japaneseSegmenter: JapaneseSegmenter?
 
     /// Kana for the keys, with any English words inside the phrase kept as typed.
     private func japaneseReading(partial: Bool) -> String {
@@ -1222,6 +2340,8 @@ public final class InputSession {
                           userForced: conversion.userForced, numberPrefix: conversion.numberPrefix)
     }
 
+    /// Handles candidate selection and Japanese clause resizing, including shifted arrows. Input
+    /// that continues typing commits the conversion first. Returns whether the key was consumed.
     private func handleConverting(_ key: Key, client: TextClient) -> Bool {
         guard var conversion else { return false }
         switch key {
@@ -1237,8 +2357,9 @@ public final class InputSession {
             showConversion(client)
             return true
 
-        case .left, .right:
-            if conversion.language == .japanese, let resized = resizeFirstClause(conversion, by: key == .left ? -1 : 1) {
+        case .left, .right, .shiftLeft, .shiftRight:
+            let shorter = key == .left || key == .shiftLeft
+            if conversion.language == .japanese, let resized = resizeFirstClause(conversion, by: shorter ? -1 : 1) {
                 self.conversion = resized
                 showConversion(client)
             }
@@ -1447,19 +2568,32 @@ public final class InputSession {
             lastTrace = Trace(keys: keys, previous: previousLanguage, decision: decision, partial: partial)
             return decision
         }
-        var d = engine.decide(keys, context: DecisionContext(previousLanguage: previousLanguage, partial: partial, app: app))
+        var d = engine.decide(keys, context: DecisionContext(previousLanguage: previousLanguage, partial: partial, app: app, japanese: japaneseEnabled))
         // A word learned as Japanese while Japanese was on: with it off, the engine without what
         // was learned decides it (sushi stays sushi, not すし). Turned on again, it is learned again.
         if d.language == .japanese, !japaneseEnabled {
-            d = engine.base.decide(keys, context: DecisionContext(previousLanguage: previousLanguage, partial: partial, app: app))
+            d = engine.base.decide(keys, context: DecisionContext(previousLanguage: previousLanguage, partial: partial, app: app, japanese: japaneseEnabled))
         }
         // While typing, a consonant at the end may still be waiting for its vowel, which keeps
         // Japanese close and a Korean word under a Strict app's threshold until the word ends
         // (qud: 0.60 while typed, 0.98 at Space). The word as it would go in now decides, so the
         // preview shows what Space commits (병), not English that turns Korean on Space.
         if partial, d.language == .korean, d.confidence < policy.conversionThreshold {
-            let now = engine.decide(keys, context: DecisionContext(previousLanguage: previousLanguage, partial: false, app: app))
+            let now = engine.decide(keys, context: DecisionContext(previousLanguage: previousLanguage, partial: false, app: app, japanese: japaneseEnabled))
             if now.language == .korean, now.confidence >= policy.conversionThreshold { d = now }
+        }
+        // Typed with Caps Lock, keys that are loose jamo throughout, two or more, are an acronym
+        // (RST, RD, DDR): the capitals that made them English without Caps Lock are gone, and as
+        // lowercase they read as chat jamo (ㄱㄴㅅ). The same while typing and at Space, so what is
+        // shown goes in; a word with a syllable in it (안녕ㄱ) and one jamo alone (ㅎ, on its way
+        // to 하면) read as without Caps Lock. English the engine chose by a hair over Korean gets the
+        // same certainty, so the ㄱ shown on RD's first key doesn't hold on through the hysteresis;
+        // over Japanese it stays as it was (hon is ほん). A word the dictionary remembers keeps its
+        // language.
+        if capsWord, d.language == .korean || d.language == .english && d.runnerUp == .korean,
+           engine.rememberedLanguage(keys, app: app) == nil,
+           let composed = HangulComposer.compose(keys: keys), composed.units.count >= 2, composed.syllables.isEmpty {
+            d = Decision(language: .english, confidence: 1, output: keys, explanation: "Caps Lock: loose jamo")
         }
         let kept = d.language != .english && d.confidence < policy.conversionThreshold
         keptEnglishByStrict = kept && policy.conversionThreshold >= AppPolicy.strictThreshold && keys.count <= 3
@@ -1582,7 +2716,7 @@ public final class InputSession {
         let remembered = engine.rememberedLanguage(keys, app: app)
         let once = engine.correctedOnce(keys, app: app)
         let own = remembered == nil && once == nil ? decided
-            : engine.ownDecision(keys, context: DecisionContext(app: app)).language
+            : engine.ownDecision(keys, context: DecisionContext(app: app, japanese: japaneseEnabled)).language
         return Readings(texts: cycle.map { rendered(keys, $0) }, languages: cycle, selected: selected,
                         own: cycle.firstIndex(of: own), remembered: remembered.flatMap { cycle.firstIndex(of: $0) },
                         once: once.flatMap { cycle.firstIndex(of: $0) })
@@ -1618,7 +2752,7 @@ public final class InputSession {
               // Only what reads as Korean on its own: a Japanese phrase whose start happens to
               // spell Hangul (chanwo…, 초무をころした) stays whole. Judged without context, since
               // right after Japanese everything leans Japanese.
-              engine.decide(keys, context: DecisionContext(partial: true, app: app)).language == .korean else { return }
+              engine.decide(keys, context: DecisionContext(partial: true, app: app, japanese: japaneseEnabled)).language == .korean else { return }
         let chars = Array(keys)
         for cut in 4...(chars.count - 3) {
             let front = String(chars[..<cut]), back = String(chars[cut...])
@@ -1640,7 +2774,7 @@ public final class InputSession {
     /// A known English word, one with a Korean particle (google에서), or romaji the engine is
     /// sure is Japanese (no word starts with っ or ん: that cut takes a letter from the Korean).
     private func isOtherLanguageWord(_ keys: String) -> Bool {
-        let decision = engine.decide(keys, context: DecisionContext(previousLanguage: .korean, partial: true, app: app))
+        let decision = engine.decide(keys, context: DecisionContext(previousLanguage: .korean, partial: true, app: app, japanese: japaneseEnabled))
         switch decision.language {
         case .english: return keys.count >= 3 && EnglishModel.shared.isKnownWord(keys)
         case .mixed: return true
@@ -1673,7 +2807,7 @@ public final class InputSession {
                   RomajiComposer.compose(front).isClean,
                   // Not an English word with a particle (linderman isn't linで그무).
                   segmenter?.englishWithParticle(front) == nil,
-                  case let decision = engine.decide(front, context: DecisionContext(previousLanguage: previousLanguage, app: app)),
+                  case let decision = engine.decide(front, context: DecisionContext(previousLanguage: previousLanguage, app: app, japanese: japaneseEnabled)),
                   decision.language == .japanese, decision.confidence >= 0.9 else { continue }
             keys = front
             let japanese = committedJapanese()
@@ -1705,9 +2839,12 @@ public final class InputSession {
             let text = engine.render(keys, as: .mixed)
             return text == keys ? nil : text
         case .japanese:
-            // Only っ and letters (ss: っs) is no Japanese word, so it isn't a reading to hold on to.
+            // Only っ and letters (ss: っs) is no Japanese word, nor letters still waiting for their
+            // vowels (ths, shown as typed), so it isn't a reading to hold on to: Space converted ths
+            // to ＴＨＳ, and the next letter put it in without the space.
             guard japaneseEnabled else { return nil }
-            return RomajiComposer.compose(keys, partial: true).isOnlySokuon ? nil : japaneseReading(partial: true)
+            let kana = RomajiComposer.compose(keys, partial: true)
+            return kana.kanaCount == 0 || kana.isOnlySokuon ? nil : japaneseReading(partial: true)
         }
     }
 
@@ -1809,16 +2946,18 @@ public final class InputSession {
     }
 
     /// Where the keys of the last syllable start: the longest front that makes `earlier` alone.
+    /// No front at all makes nothing, whatever the layout: 3-set composes no keys as nil, not as
+    /// no units, and the first syllable cut after its first key (안 → 아, then ㄴ made 아ㄴ).
     private static func cut(_ chars: [Character], before earlier: [HangulComposer.Unit]) -> Int {
         stride(from: chars.count - 1, through: 0, by: -1).first {
-            HangulComposer.compose(keys: String(chars[..<$0]))?.units == earlier
+            $0 == 0 ? earlier.isEmpty : HangulComposer.compose(keys: String(chars[..<$0]))?.units == earlier
         } ?? chars.count - 1
     }
 
     /// The word as Hangul, with the syllable being typed kept apart from those before it
     /// after a Delete (`syllableStart`).
     private func hangul() -> String? {
-        guard let start = syllableStart, start < keys.count else { return HangulComposer.compose(keys: keys)?.text }
+        guard let start = syllableStart, start > 0, start < keys.count else { return HangulComposer.compose(keys: keys)?.text }
         let chars = Array(keys)
         guard let front = HangulComposer.compose(keys: String(chars[..<start])),
               let back = HangulComposer.compose(keys: String(chars[start...])) else { return nil }
@@ -1850,6 +2989,8 @@ public final class InputSession {
         engine.render(keys, as: .mixed) != keys
     }
 
+    /// Replaces a committed word and its boundary with their next reading. Returns the updated
+    /// word, or nil if the caret is not immediately after it or the field no longer matches.
     private func cycle(_ commit: Committed, client: TextClient) -> Committed? {
         let range = NSRange(location: commit.location, length: (commit.text as NSString).length)
         let cursor = client.selectedRange()
@@ -1857,13 +2998,18 @@ public final class InputSession {
               client.text(in: range) == commit.text else { return nil }
 
         let language = commit.language.next(for: commit.keys, japanese: japaneseEnabled, splits: engineSplits(commit.keys))
-        let text = committedReading(commit.keys, as: language) + commit.boundary(in: language)
+        // Back to the reading it went in as: what went in, a kanji Return confirmed with live conversion too.
+        let text = language == commit.committedAs ? commit.firstText ?? committedReading(commit.keys, as: language) + commit.boundary(in: language)
+                                                  : committedReading(commit.keys, as: language) + commit.boundary(in: language)
         client.insertText(text, replacing: range)
         if runText.hasSuffix(commit.text) { runText = String(runText.dropLast(commit.text.count)) + text }
-        previousLanguage = language.sentenceLanguage
-        return Committed(keys: commit.keys, decided: commit.decided, committedAs: commit.committedAs,
-                         language: language, text: text, boundary: commit.boundary, location: commit.location,
-                         previous: commit.previous, learns: commit.learns, typedBoundary: commit.typedBoundary)
+        if commit.inLine == nil { previousLanguage = language.sentenceLanguage }
+        var changed = Committed(keys: commit.keys, decided: commit.decided, committedAs: commit.committedAs,
+                                language: language, text: text, boundary: commit.boundary, location: commit.location,
+                                previous: commit.previous, learns: commit.learns, typedBoundary: commit.typedBoundary)
+        changed.inLine = commit.inLine
+        changed.firstText = commit.firstText ?? commit.text
+        return changed
     }
 
     private func closeFlipWindow() {
@@ -1872,10 +3018,26 @@ public final class InputSession {
     }
 
     /// The undo window closed: learn where the word ended up (once, not every reading Esc
-    /// passed through on the way).
+    /// passed through on the way). Retains the word for later fixes, updating its entry and shifting
+    /// later entries when it was switched in place; otherwise retains at most `recentLimit` words.
     private func finalize(_ commit: Committed) {
         if commit.learns, commit.language != commit.committedAs {
             record(commit.keys, as: commit.language, engineChoice: commit.decided)
         }
+        if let line = commit.inLine {
+            // Switched where it is: the entry takes the new word, with its own space, and the words
+            // after it move by the difference.
+            guard recent.indices.contains(line.index) else { return }
+            let old = recent[line.index], delta = utf16(commit.text) - line.length
+            recent[line.index] = Committed(keys: old.keys, decided: old.decided, committedAs: commit.language,
+                                           language: commit.language, text: commit.text + old.boundary,
+                                           boundary: old.boundary, location: old.location, previous: old.previous,
+                                           learns: old.learns, typedBoundary: old.typedBoundary)
+            for i in recent.indices where i > line.index { recent[i] = recent[i].moved(by: delta) }
+            return
+        }
+        forgetRecent(from: commit.location) // what was there or after it has moved (typed over, typed before)
+        recent.append(commit)
+        if recent.count > Self.recentLimit { recent.removeFirst(recent.count - Self.recentLimit) }
     }
 }
