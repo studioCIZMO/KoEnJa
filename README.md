@@ -7,12 +7,13 @@
 <p align="center"><b>한 자판으로 한·영·일 · 一つの配列で韓・英・日 · Korean, English, Japanese on one keyboard</b></p>
 
 <p align="center">한영일(KoEnJa)은 한국어·영어·일본어를 언어 전환 없이 입력하는 키보드입니다.<br>
-iOS 키보드, Android 키보드, Windows 입력기로 만들고 있습니다.</p>
+Mac 입력기, iOS 키보드, Android 키보드, Windows 입력기로 만들고 있습니다.</p>
 
 <p align="center">
   <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="https://img.shields.io/github/v/release/studioCIZMO/KoEnJa?style=flat-square&label=release" alt="최신 릴리스"></a>
   <a href="https://github.com/studioCIZMO/KoEnJa/actions/workflows/windows.yml"><img src="https://img.shields.io/github/actions/workflow/status/studioCIZMO/KoEnJa/windows.yml?branch=main&style=flat-square&label=windows" alt="Windows 빌드와 골든 테스트"></a>
   <img src="https://img.shields.io/badge/Windows%2010%2F11-x64-555?style=flat-square" alt="Windows 10/11 x64">
+  <img src="https://img.shields.io/badge/macOS-13%2B-555?style=flat-square" alt="macOS 13+">
   <img src="https://img.shields.io/badge/iOS-16%2B-555?style=flat-square" alt="iOS 16 이상">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT 라이선스"></a>
 </p>
@@ -53,7 +54,7 @@ kinouemailwookutta⏎                                       →  きのうemail�
 ## 목차
 
 - [만든 이유](#만든-이유)
-- [설치](#설치): [Windows](#windows) · [iOS](#ios) · [Android](#android)
+- [설치](#설치): [Mac](#mac) · [Windows](#windows) · [iOS](#ios) · [Android](#android)
 - [키](#키)
 - [판단 방식](#판단-방식) · [평가 결과](#평가-결과)
 - [알려진 한계](#알려진-한계)
@@ -67,9 +68,24 @@ kinouemailwookutta⏎                                       →  きのうemail�
 한국어·영어·일본어를 매일 섞어 쓰면 입력 소스가 셋이 되고, 전환 키를 누르는 일도 엉뚱한 언어로 쳐 버리는
 일도 잦습니다. macOS에서는 [Araso](https://github.com/nyttastudio/araso)가 이 문제를 단어마다 언어를 알아보는
 방식으로 풀었습니다. KoEnJa는 그 판단 엔진을 MIT 라이선스에 따라 빌려, Araso가 돌아가지 않는 iPhone, Android,
-Windows에서 같은 방식으로 쓸 수 있게 만든 별도 제품입니다.
+Windows에서 같은 방식으로 쓸 수 있게 만든 별도 제품입니다. 모든 기기에서 같은 엔진으로 쓰도록, Araso의 macOS 입력기를
+바탕으로 한 Mac 버전도 함께 냅니다.
 
 ## 설치
+
+### Mac
+
+macOS 13 이상(Apple 실리콘, Intel). 터미널에서 실행하세요.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh | sh
+```
+
+또는 [릴리스](https://github.com/studioCIZMO/KoEnJa/releases/latest)에서 `KoEnJa-Mac.zip`을 받아 풀고, `KoEnJa.app`을
+`~/Library/Input Methods`로 옮기세요. 그다음 시스템 설정 → 키보드 → 입력 소스 → 편집… → + → 한국어 → **한영일**을
+추가합니다(목록에 없으면 한 번 로그아웃했다 다시 로그인). 앱은 CIZMO의 Developer ID로 서명하고 Apple 공증을 받았습니다.
+Araso와 함께 설치해도 설정과 학습한 단어는 따로 둡니다(`~/Library/Application Support/KoEnJa`).
+제거는 설정 창의 정보 탭이나 `… | sh -s -- --uninstall`로 합니다. 소스는 `Mac/`에 있습니다.
 
 ### Windows
 
@@ -231,31 +247,32 @@ MSVC로 골든 테스트를 돌린 뒤 설치 프로그램을 만들고, `v*` �
 ## 개인정보
 
 입력한 내용은 기기 안에서만 처리되고 밖으로 보내지 않습니다. 키보드와 입력기에는 네트워크 기능이 없습니다.
-Windows의 **문제 보고…**는 누를 때만 브라우저에서 GitHub 페이지를 엽니다. iOS 앱의 개인정보처리방침은
+Mac 입력기는 하루 한 번 GitHub에 최신 릴리스 버전만 묻습니다(설정에서 끌 수 있습니다). Windows의 **문제 보고…**는 누를 때만 브라우저에서 GitHub 페이지를 엽니다. iOS 앱의 개인정보처리방침은
 [docs/privacy-policy.md](docs/privacy-policy.md)에 있습니다.
 
 ## KoEnJa와 Araso
 
 KoEnJa는 [Araso](https://github.com/nyttastudio/araso)(© aimdevlee, MIT 라이선스)의 **엔진**을 씁니다. Araso는
-macOS 입력기이고, 엔진은 그 가운데 단어의 언어를 판단하는 부분입니다. KoEnJa는 Araso의 사본이 아닙니다.
-Araso는 iOS, Android, Windows에서 돌아가지 않고, KoEnJa의 앱·키보드·입력기는 이 프로젝트를 위해 새로 만들었습니다.
+macOS 입력기이고, 엔진은 그 가운데 단어의 언어를 판단하는 부분입니다. iOS, Android, Windows의 앱·키보드·입력기는
+이 프로젝트를 위해 새로 만들었고, Mac 입력기는 Araso의 macOS 입력기를 MIT 라이선스에 따라 가져와 고친 것입니다.
 
 | 부분 | 출처 |
 | --- | --- |
 | 언어 엔진, iOS (`Packages/SeamtypeCore`) | Araso의 엔진 소스(`ArasoCore`, 0.4.1)를 MIT 라이선스에 따라 쓰고 KoEnJa의 변경을 더했습니다. 변경은 `// REA:`로 표시하고 `Packages/SeamtypeCore/UPSTREAM`에 적었습니다. 한국어 단어 목록의 메모리, 화면에 보인 그대로 확정하기, 섞인 언어 규칙입니다. |
 | 언어 엔진, Android (`Android/engine`, Kotlin)와 Windows (`Windows/engine`, C++20) | Araso의 엔진을 따라 KoEnJa용으로 새로 작성하고 대조했습니다. Swift, Kotlin, C++ 엔진은 같은 골든 파일(`Android/engine/src/test/resources/golden.tsv`)을 재생해 한 줄도 다르지 않아야 합니다. |
+| Mac 입력기 (`Mac/`) | Araso의 macOS 입력기(`Sources/Araso`, 0.4.1)를 MIT 라이선스에 따라 가져와 KoEnJa 엔진에 연결했습니다. 이름, 번들 ID, 저장 위치, 업데이트 확인, 메뉴 아이콘을 바꿨고 `Mac/UPSTREAM`에 적었습니다. |
 | iOS 키보드와 앱 (`iOS/`) | KoEnJa용으로 작성: 키 배치, 후보 막대, 전환 키, 설정 |
 | Android 키보드 (`Android/app`, `Android/japanese`) | KoEnJa용으로 작성: Mozc 사전 위의 일본어 변환기 포함 |
 | Windows 입력기 (`Windows/tip`, `Windows/japanese`, `Windows/installer`) | KoEnJa용으로 작성: TSF 텍스트 서비스, Mozc 사전 위의 MS-IME식 변환, 키보드 종류, 전환 키, 우선 언어, 설정, 설치 프로그램 |
 
-Araso의 macOS 입력기, 앱, 설치 프로그램은 KoEnJa에 들어 있지 않습니다. 엔진의 원래 저작권 고지는
+Araso의 원래 저작권 고지는
 `THIRD_PARTY_NOTICES.txt`(와 iOS 앱의 라이선스 화면)에 그대로 두었습니다.
 
-**한국어:** KoEnJa는 [Araso](https://github.com/nyttastudio/araso)(MIT)의 **언어 판별 엔진**을 MIT 라이선스에 따라 사용합니다. iOS는 그 엔진 소스에 저희 수정을 더해 쓰고, Android와 Windows용 엔진은 그 엔진을 따라 Kotlin과 C++로 새로 작성했습니다. 앱, 키보드, 입력기, 일본어 변환기, 설치 프로그램은 모두 KoEnJa를 위해 직접 만들었습니다. Araso는 macOS 입력기이고 KoEnJa는 iOS·Android·Windows용 별도 제품입니다. 엔진을 공개해 주신 Araso 개발자께 감사드립니다.
+**한국어:** KoEnJa는 [Araso](https://github.com/nyttastudio/araso)(MIT)의 **언어 판별 엔진**을 MIT 라이선스에 따라 사용합니다. iOS는 그 엔진 소스에 저희 수정을 더해 쓰고, Android와 Windows용 엔진은 그 엔진을 따라 Kotlin과 C++로 새로 작성했습니다. iOS·Android·Windows의 앱, 키보드, 입력기, 일본어 변환기, 설치 프로그램은 KoEnJa를 위해 직접 만들었고, Mac 입력기는 Araso의 macOS 입력기를 MIT 라이선스에 따라 가져와 KoEnJa용으로 고쳤습니다. 엔진을 공개해 주신 Araso 개발자께 감사드립니다.
 
-**日本語：** KoEnJa は [Araso](https://github.com/nyttastudio/araso)（MIT）の**言語判定エンジン**を MIT ライセンスに基づいて使用しています。iOS ではそのエンジンのソースに当社の変更を加えて使い、Android と Windows 用のエンジンはそれに倣って Kotlin と C++ で新たに書きました。アプリ、キーボード、入力メソッド、日本語変換、インストーラーはすべて KoEnJa のために独自に開発したものです。Araso は macOS 用の入力メソッドで、KoEnJa は iOS・Android・Windows 向けの別製品です。エンジンを公開してくださった Araso の開発者に感謝します。
+**日本語：** KoEnJa は [Araso](https://github.com/nyttastudio/araso)（MIT）の**言語判定エンジン**を MIT ライセンスに基づいて使用しています。iOS ではそのエンジンのソースに当社の変更を加えて使い、Android と Windows 用のエンジンはそれに倣って Kotlin と C++ で新たに書きました。iOS・Android・Windows のアプリ、キーボード、入力メソッド、日本語変換、インストーラーは KoEnJa のために独自に開発し、Mac の入力メソッドは Araso の macOS 入力メソッドを MIT ライセンスに基づいて取り込み、KoEnJa 用に手を加えたものです。エンジンを公開してくださった Araso の開発者に感謝します。
 
-**English:** KoEnJa uses the **language engine** of [Araso](https://github.com/nyttastudio/araso) (MIT) under the MIT License. On iOS it uses that engine's source with our changes; the Android and Windows engines were written anew in Kotlin and C++ to follow it. The apps, keyboards, input method, Japanese converters and installer were all written for KoEnJa. Araso is a macOS input method; KoEnJa is a separate product for iOS, Android and Windows. We are grateful to Araso's author for publishing the engine under the MIT License, which made this project possible.
+**English:** KoEnJa uses the **language engine** of [Araso](https://github.com/nyttastudio/araso) (MIT) under the MIT License. On iOS it uses that engine's source with our changes; the Android and Windows engines were written anew in Kotlin and C++ to follow it. The iOS, Android and Windows apps, keyboards, input method, Japanese converters and installer were written for KoEnJa; the Mac input method is Araso's macOS input method, taken under the MIT License and changed for KoEnJa. We are grateful to Araso's author for publishing the engine under the MIT License, which made this project possible.
 
 ## 문제 보고
 

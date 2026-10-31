@@ -1,0 +1,275 @@
+/* Araso — 한국어. 키는 영어 원문이고, 영어 사용자에게는 키가 그대로 보인다. */
+
+/* 설정 창: 사이드바 */
+"Apps" = "앱별";
+"About" = "정보";
+"KoEnJa Settings" = "한영일 설정";
+
+/* 앱 메뉴 */
+"Quit KoEnJa Settings" = "한영일 설정 종료";
+"Edit" = "편집";
+"Close" = "닫기";
+"Cut" = "잘라내기";
+"Copy" = "복사하기";
+"Paste" = "붙여넣기";
+"Select All" = "전체 선택";
+
+/* 일반 */
+"Languages" = "언어";
+"Japanese" = "일본어";
+"Live conversion" = "라이브 변환";
+"Shows the top kanji candidate as you type." = "입력하면서 가장 앞선 한자 후보를 바로 보여 줍니다.";
+"Full-width numbers" = "전각 숫자";
+"Full-width space" = "전각 공백";
+"Reset the kanji candidate order?" = "한자 후보 순서를 처음으로 되돌릴까요?";
+"Reset" = "되돌리기";
+"Kanji you picked before won't come first anymore. Remembered words stay." = "전에 고른 한자가 더는 앞에 나오지 않습니다. 기억한 단어는 그대로입니다.";
+
+/* 앱별 */
+"Default — every app" = "기본 동작 — 모든 앱";
+"Conversion" = "변환 기준";
+"Converts a word when it reads more like Korean or Japanese than English (gst → ㅎㄴㅅ)." = "영어보다 한국어나 일본어에 가까운 단어를 바꿉니다(gst → ㅎㄴㅅ).";
+"Converts only words that are clearly Korean or Japanese, so short commands stay as typed (gst stays gst). For terminals." = "확실히 한국어나 일본어인 단어만 바꿔서 짧은 명령어는 친 그대로 둡니다(gst는 gst). 터미널에 맞습니다.";
+"Normal" = "보통";
+"Strict" = "엄격하게";
+"Switch keys" = "언어 바꾸기 키";
+"After Space / punctuation" = "Space·문장부호 뒤";
+"Off: words here are Korean or English only, as with Japanese off. On: Japanese here even when it is off under Languages." = "끔: 이 앱에서는 일본어를 끈 것처럼 한국어·영어로만 가립니다. 켬: 언어 탭에서 일본어를 꺼 두어도 이 앱에서는 일본어를 씁니다.";
+"Hold" = "밑줄 유지";
+"Finish" = "단어 확정";
+"Hold: Space or punctuation goes inside the underline, so the word can still be changed until the next word starts. For terminals." = "밑줄 유지: Space나 문장부호가 밑줄 안에 들어가, 다음 단어를 칠 때까지 단어를 바꿀 수 있습니다. 터미널용입니다.";
+"None" = "없음";
+"None — can't switch" = "없음 — 바꿀 수 없음";
+"Convert words" = "단어 변환";
+"App" = "앱";
+"Default · %@" = "기본 · %@";
+"Exceptions — only apps that differ" = "예외 앱 — 다르게 쓸 앱만";
+"None. Add an app that should work differently." = "없음. 다르게 동작할 앱을 추가하세요.";
+"Add" = "추가";
+"Default (%@)" = "기본 (%@)";
+"On" = "켬";
+"Off" = "끔";
+
+/* 학습 */
+"List" = "목록";
+"Remembered %ld" = "기억함 %ld";
+"Corrected once %ld" = "한 번 고침 %ld";
+"Search" = "찾기";
+"Forget All" = "모두 잊기";
+"English" = "영어";
+"Korean" = "한국어";
+"Mixed" = "섞인 단어";
+
+/* 정보 */
+"License" = "라이선스";
+"Settings and learning files" = "설정과 학습 파일";
+"Show in Finder" = "Finder에서 보기";
+"What you type never leaves this Mac: deciding words and converting kanji both happen here." = "친 내용은 이 Mac 밖으로 나가지 않습니다. 단어 판단과 한자 변환 모두 이 Mac에서 합니다.";
+
+/* 입력 메뉴 */
+"Japanese Input" = "일본어 입력";
+"Live Conversion" = "라이브 변환";
+"%@ — App Settings" = "%@ — 앱별 설정";
+"%@ — Default Settings" = "%@ — 기본 설정";
+"Convert Words" = "단어 변환";
+"Conversion: Normal" = "변환 기준: 보통";
+"Conversion: Strict" = "변환 기준: 엄격하게";
+"Hold the Word After Space or Punctuation" = "Space·문장부호 뒤에도 단어 유지";
+"Japanese Input in This App" = "이 앱에서 일본어 입력";
+"Esc Switches Language" = "Esc로 언어 바꾸기";
+"Use Default Settings in This App" = "이 앱에서 기본 설정 따르기";
+"Pause in This Text Field (%@)" = "이 입력창에서 일시정지 (%@)";
+"Pause in This Text Field" = "이 입력창에서 일시정지";
+"Keys" = "키";
+"Return only confirms" = "Return은 확정만";
+"Language switch keys" = "언어 바꾸기 키";
+"Nothing switches a word's language." = "언어를 바꿀 키가 없습니다.";
+"Right ⌥ tap" = "오른쪽 ⌥ 단독";
+"⌥Space" = "⌥Space";
+"Right ⇧ tap" = "오른쪽 ⇧ 단독";
+"Undo Last Learned (%@)" = "마지막 학습 취소 (%@)";
+"KoEnJa Settings…" = "한영일 설정…";
+
+/* Typing test */
+"Try Typing" = "입력해 보기";
+"Try Typing…" = "입력해 보기…";
+"KoEnJa isn't the input source in use." = "지금 입력 소스가 한영일가 아닙니다.";
+"Switch to KoEnJa" = "한영일로 바꾸기";
+"The language switch key changes the word's reading, also right after the word." = "언어 바꾸기 키로 읽기를 바꿉니다. 단어를 확정한 직후에도 됩니다.";
+"Clear" = "지우기";
+"How it was decided" = "판정 내용";
+"Type a word above to see its scores." = "위에 단어를 치면 언어별 점수가 보입니다.";
+"After a %@ word" = "앞 단어: %@";
+
+/* Dictionary, empty */
+"No matches" = "찾는 단어가 없습니다";
+"Type here on the English layout, e.g. dkssud hello" = "여기에 영문 자판으로 쳐 보세요. 예: dkssud hello";
+
+/* Pause, under the caret */
+"KoEnJa paused" = "한영일 일시정지";
+"KoEnJa resumed" = "한영일 다시 켜짐";
+
+/* 정보: 제거 */
+"Uninstall KoEnJa" = "한영일 제거";
+"Uninstall…" = "제거…";
+"Removes KoEnJa from this Mac and switches to another input source. If it was installed with the installer, macOS asks for your password." = "이 Mac에서 한영일를 지우고 다른 입력 소스로 바꿉니다. 설치 파일(.pkg)로 설치했다면 macOS가 암호를 묻습니다.";
+"Uninstall KoEnJa?" = "한영일를 제거할까요?";
+"KoEnJa is removed from your input sources and from this Mac. You can install it again any time." = "입력 소스와 이 Mac에서 한영일를 지웁니다. 언제든 다시 설치할 수 있습니다.";
+"Uninstall" = "제거";
+"Cancel" = "취소";
+"Also delete settings and learned words" = "설정과 학습한 단어도 지우기";
+"Couldn't uninstall KoEnJa" = "한영일를 제거하지 못했습니다";
+"KoEnJa was uninstalled." = "한영일를 제거했습니다.";
+"KoEnJa wants to remove itself from /Library/Input Methods." = "한영일를 /Library/Input Methods에서 제거하려고 합니다.";
+
+/* Updates */
+"Update to KoEnJa %@…" = "한영일 %@로 업데이트…";
+"Updates" = "업데이트";
+"Install %@…" = "%@ 설치…";
+"Check Now" = "지금 확인";
+"Check for updates automatically" = "업데이트 자동 확인";
+"Once a day, and each time this window opens. Only the latest version number is asked of GitHub; nothing you type is sent." = "하루 한 번, 그리고 이 창을 열 때마다 확인합니다. GitHub에 최신 버전 번호만 물어보며, 입력한 내용은 보내지 않습니다.";
+"KoEnJa %@ is available" = "한영일 %@이 나왔습니다";
+"What's changed" = "바뀐 것";
+"Full Release Notes" = "전체 릴리스 노트";
+"Checking for updates…" = "업데이트 확인 중…";
+"KoEnJa is up to date" = "최신 버전입니다";
+"Version %@" = "버전 %@";
+"Downloading… Installer opens when it's done; macOS asks for your password." = "내려받는 중… 다 받으면 설치 프로그램이 열리고, macOS가 암호를 묻습니다.";
+"Installer opens and macOS asks for your password. Settings and learned words stay." = "설치 프로그램이 열리고 macOS가 암호를 묻습니다. 설정과 학습한 단어는 그대로 남습니다.";
+"Couldn't reach GitHub. Try again later." = "GitHub에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요.";
+"Couldn't download the update. Try again later." = "업데이트를 내려받지 못했습니다. 잠시 뒤 다시 시도하세요.";
+"The downloaded installer isn't signed by KoEnJa's developer, so it was deleted." = "내려받은 설치 파일이 한영일 개발자의 서명이 아니어서 지웠습니다.";
+
+/* 설정 창 */
+"%ld apps use their own keys." = "앱 %ld개는 따로 정한 키를 씁니다.";
+"A full-width space after Japanese; ⇧Space types the other width." = "일본어 뒤의 공백을 전각으로 씁니다. ⇧Space는 반대 폭입니다.";
+"A right ⌥ or ⇧ tap with other modifiers (a Hyper key) is left to what it's bound to." = "다른 modifier와 함께 온 오른쪽 ⌥·⇧(Hyper 키 등)는 받지 않고, 원래 묶어 둔 동작에 맡깁니다.";
+"All of these switch languages." = "모든 키가 언어를 바꿉니다.";
+"Every app uses these keys." = "모든 앱이 이 키를 씁니다.";
+"Japanese input" = "일본어 입력";
+"Keys go through as typed in that text field, for hjkl in terminal programs. Press it again to resume." = "그 입력창에서는 키가 친 그대로 갑니다. 터미널의 hjkl 같은 곳에 씁니다. 한 번 더 누르면 다시 켜집니다.";
+"Pause" = "일시정지";
+"Right %@ tap" = "오른쪽 %@ 단독";
+"Record Shortcut…" = "단축키 기록…";
+"Type a shortcut" = "단축키를 누르세요";
+"Cancel (Esc)" = "취소 (Esc)";
+"%@ — switches languages" = "%@ — 언어 바꾸기 키";
+"This key pauses. Choose another pause key first." = "일시정지 키로 쓰는 중입니다. 일시정지 키를 먼저 바꾸세요.";
+"Add ⌘, ⌃ or ⌥: without one the key types. F-keys can go alone." = "⌘, ⌃, ⌥ 중 하나를 함께 누르세요. 없으면 글자가 입력됩니다. F 키는 혼자 써도 됩니다.";
+"%@ types hiragana or katakana." = "%@는 히라가나·가타카나 키입니다.";
+"%@ switches a word's language. Turn that off first." = "%@는 언어 바꾸기 키입니다. 그쪽을 먼저 끄세요.";
+"One app uses its own keys." = "앱 1개는 따로 정한 키를 씁니다.";
+"Other keys" = "다른 키";
+"Quick, but Chromium apps (Slack, Claude) also see the Esc and may close or clear." = "빠르지만, Chromium 앱(Slack, Claude 등)은 그 Esc도 받아서 창을 닫거나 입력을 지울 수 있습니다.";
+"Return on an underlined word confirms it; press it again for a new line. Japanese is always only confirmed." = "밑줄 친 단어에서 누른 Return은 확정만 합니다. 줄바꿈은 한 번 더 누르세요. 일본어는 항상 확정만 합니다.";
+"Switch a word's language" = "단어의 언어 바꾸기";
+"Tap the right ⇧ on its own. Apps ignore it, so nothing else happens." = "오른쪽 ⇧만 눌렀다 뗍니다. 앱은 이 키를 무시하므로 다른 일이 생기지 않습니다.";
+"Tap the right ⌥ on its own. Apps ignore it, so nothing else happens." = "오른쪽 ⌥만 눌렀다 뗍니다. 앱은 이 키를 무시하므로 다른 일이 생기지 않습니다.";
+"Which key to choose" = "어떤 키를 고를까";
+"With nothing to change, it does nothing." = "바꿀 단어가 없으면 아무 일도 하지 않습니다.";
+"right %@" = "오른쪽 %@";
+"right, alone" = "오른쪽 단독";
+"⌥ and Space together. It no longer types a no-break space." = "⌥와 Space를 함께. 줄바꿈 없는 공백은 더 이상 입력되지 않습니다.";
+"１２３ after Japanese; Space offers 123." = "일본어 뒤 숫자를 １２３으로 씁니다. Space로 123을 고릅니다.";
+
+/* Dictionary */
+"Dictionary" = "사전";
+"Dictionary…" = "사전…";
+"All %ld" = "모두 %ld";
+"Added %ld" = "등록함 %ld";
+"Add…" = "추가…";
+"No words yet" = "아직 단어가 없습니다";
+"Add a word with +, or switch a word that came out wrong with the language switch key: corrected the same way twice, it's remembered here." = "+로 단어를 추가하거나, 잘못 바뀐 단어를 언어 바꾸기 키로 바꾸세요. 같은 쪽으로 두 번 고치면 여기에 기억됩니다.";
+"Forget Learned Words…" = "학습한 단어 모두 잊기…";
+"Forget every learned word?" = "학습한 단어를 모두 잊을까요?";
+"Words you added stay. This can't be undone." = "등록한 단어는 남습니다. 되돌릴 수 없습니다.";
+"Result" = "결과";
+"Keep for Good" = "등록으로 고정";
+"Remove" = "지우기";
+"Remove %@" = "%@ 지우기";
+"Edit…" = "고치기…";
+"My text" = "내 글";
+"Every app" = "모든 앱";
+"Added" = "등록함";
+"Remembered" = "기억함";
+"Corrected once" = "한 번 고침";
+"Add to Dictionary" = "사전에 추가";
+"Add to Dictionary…" = "사전에 추가…";
+"Change Word" = "단어 고치기";
+"Type the keys" = "키를 치세요";
+"Type the keys as you would on the English layout. They go in as typed, not through an input method." = "영문 자판에서 치듯이 키를 치세요. 입력기를 거치지 않고 친 키 그대로 들어갑니다.";
+"Comes out as" = "읽기";
+"— also with a particle: %@" = "— 조사가 붙어도: %@";
+"Save" = "저장";
+
+/* 설정 창: 탭 머리 */
+"Which languages each word is decided between, the layouts they are typed on, and how Japanese types." = "단어마다 어느 언어로 판단할지, 어느 자판으로 칠지, 일본어는 어떻게 칠지 정합니다.";
+"The keys that change a word's language, and a few more." = "단어의 언어를 바꾸는 키와 그 밖의 키를 정합니다.";
+"How sure a word must be to convert, and apps that work differently." = "얼마나 확실해야 바꿀지, 다르게 동작할 앱을 정합니다.";
+"Keys that always come out one way." = "늘 같은 글자로 나오는 키입니다.";
+"Type here to see how each word is decided." = "직접 쳐 보고 단어마다 어떻게 판단했는지 봅니다.";
+"Version, updates and files." = "버전, 업데이트, 파일을 확인합니다.";
+
+/* 언어 */
+"Off: keys go to the app as typed, as with the ABC layout. Apps can differ, under Apps." = "끄면 ABC 자판처럼 친 그대로 앱에 갑니다. 앱별로 다르게 할 수 있습니다.";
+"Type Japanese with romaji; Space converts to kanji." = "로마자로 일본어를 치고, Space로 한자로 바꿉니다.";
+"Kanji candidate order" = "한자 후보 순서";
+"Kanji you pick come first next time." = "고른 한자가 다음에 앞에 나옵니다.";
+"Display" = "표시";
+"Language" = "언어";
+"Of this window, the input menu and KoEnJa's messages." = "이 창과 입력 메뉴, 한영일가 보여 주는 글의 언어입니다.";
+"System" = "시스템 설정";
+"Reset…" = "초기화…";
+
+/* 키 */
+"Turns the word being typed, or the one just typed, into the next reading. Choose one or more." = "치고 있는 단어나 방금 친 단어를 다음 읽기로 바꿉니다. 하나 이상 고르세요.";
+"Switching: %@. The others go to the app as usual." = "바꾸는 키: %@. 나머지 키는 평소처럼 앱에 갑니다.";
+"Apps with their own keys" = "따로 키를 쓰는 앱";
+"Set in Apps…" = "앱별에서 정하기…";
+
+/* 앱별 */
+"Convert words is off under Languages, so nothing converts." = "언어 탭에서 단어 변환이 꺼져 있어 아무것도 바꾸지 않습니다.";
+"Add App…" = "앱 추가…";
+"Grey values follow the default; anything else applies to this app only." = "흐린 값은 기본값을 따르고, 진한 값은 이 앱에만 적용됩니다.";
+"Remove: the app follows the default again" = "빼기: 이 앱이 다시 기본값을 따릅니다";
+
+/* 사전 */
+"These keys come out as written here, also with a particle after them." = "이 키들은 뒤에 조사가 붙어도 여기 적힌 대로 나옵니다.";
+"Words you added here. They always come out this way." = "여기서 직접 추가한 단어입니다. 늘 이렇게 나옵니다.";
+"Words you switched the same way twice. They always come out this way." = "같은 쪽으로 두 번 고친 단어입니다. 늘 이렇게 나옵니다.";
+"Words you switched once. They only lean that way, and are forgotten after 30 days unless you switch or type them again." = "한 번 고친 단어입니다. 그쪽으로 기울기만 하고, 30일 안에 다시 고치거나 치지 않으면 잊습니다.";
+"Status" = "상태";
+"Expires" = "남은 기간";
+"%ld days" = "%ld일";
+"Edit, keep for good or remove" = "고치기, 등록으로 고정, 지우기";
+"Actions for %@" = "%@ 동작";
+
+/* 정보 */
+"This Mac" = "이 Mac";
+"MIT, with open source notices for the data it uses." = "MIT 라이선스입니다. 쓰는 데이터의 오픈 소스 고지도 함께 있습니다.";
+"Open Notices" = "고지 열기";
+"Update" = "업데이트";
+"Korean · English" = "한국어 · 영어";
+"Always on" = "항상 켜짐";
+"Layouts" = "자판";
+"Hangul" = "한글";
+"English letters" = "영문";
+"Romaji" = "로마자";
+"Used with Japanese on." = "일본어를 켜면 씁니다.";
+"3-set types jamo on the digit and symbol keys too; a number on its own stays a number." = "세벌식은 숫자·기호 키로도 자모를 칩니다. 숫자만 친 것은 숫자로 둡니다.";
+"Same as English (%@)" = "영문과 같게 (%@)";
+"2-set" = "두벌식";
+"3-set final" = "세벌식 최종";
+"3-set 390" = "세벌식 390";
+"Readings, %@ selected" = "읽기 목록, %@ 선택됨";
+"%@ → always %@" = "%@ → 이제 늘 %@로";
+"Changed by the Dictionary" = "사전이 바꾼 단어";
+"%@ → %@ · Forget" = "%@ → %@ · 잊기";
+"%@ → %@, once" = "%@ → %@, 한 번 고침";
+"%@, back to KoEnJa's own reading" = "%@, 원래대로: 한영일가 고르는 읽기";
+"Noted" = "한 번 고침";
+"Learned" = "기억함";
+"Reset" = "원래대로";
+"%@, %ld of %ld" = "%1$@, %3$ld개 중 %2$ld번째";
+"Candidates, %@ selected" = "후보, %@ 선택됨";

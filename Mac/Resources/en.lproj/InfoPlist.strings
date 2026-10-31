@@ -1,0 +1,4 @@
+/* The name System Settings and the input menu show for the input source. */
+CFBundleName = "KoEnJa";
+CFBundleDisplayName = "KoEnJa";
+"com.cizmo.inputmethod.KoEnJa" = "KoEnJa";

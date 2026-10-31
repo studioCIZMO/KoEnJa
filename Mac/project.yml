@@ -1,0 +1,41 @@
+name: KoEnJaMac
+options:
+  deploymentTarget: { macOS: "13.0" }
+packages:
+  SeamtypeCore: { path: ../Packages/SeamtypeCore }
+settings:
+  base:
+    SWIFT_VERSION: "5"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: N723QM4R64
+targets:
+  KoEnJa:
+    type: application
+    platform: macOS
+    # The input method from Araso's Sources/Araso (MIT), on our engine; see UPSTREAM.
+    sources:
+      - path: Sources
+      - path: Resources
+        excludes: [Info.plist]
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: KoEnJa
+        PRODUCT_BUNDLE_IDENTIFIER: com.cizmo.inputmethod.KoEnJa
+        INFOPLIST_FILE: Resources/Info.plist
+        ENABLE_HARDENED_RUNTIME: YES
+        ARCHS: "arm64 x86_64"
+        ONLY_ACTIVE_ARCH: NO
+    postBuildScripts:
+      # Models SeamtypeCore reads from Bundle.main.resourceURL (Resources.swift), the kanji
+      # dictionary (AzooKey, Apache-2.0) and the licenses the About pane opens.
+      - name: Copy language models
+        script: |
+          out="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
+          cp "$SRCROOT"/../Packages/SeamtypeCore/Sources/SeamtypeCore/Data/*.txt "$out/"
+          rm -rf "$out/Dictionary"
+          cp -R "${BUILD_DIR%/Build/*}/SourcePackages/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/Dictionary" "$out/"
+          cp "$SRCROOT/../THIRD_PARTY_NOTICES.txt" "$out/ThirdPartyNotices.txt"
+        basedOnDependencyAnalysis: false
+    dependencies:
+      - package: SeamtypeCore

@@ -7,12 +7,13 @@
 <p align="center"><b>한 자판으로 한·영·일 · 一つの配列で韓・英・日 · Korean, English, Japanese on one keyboard</b></p>
 
 <p align="center">KoEnJa (한영일 · 韓英日) is a keyboard for typing Korean, English and Japanese without switching languages.<br>
-It comes as an iOS keyboard, an Android keyboard and a Windows input method.</p>
+It comes as a Mac input method, an iOS keyboard, an Android keyboard and a Windows input method.</p>
 
 <p align="center">
   <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="https://img.shields.io/github/v/release/studioCIZMO/KoEnJa?style=flat-square&label=release" alt="Latest release"></a>
   <a href="https://github.com/studioCIZMO/KoEnJa/actions/workflows/windows.yml"><img src="https://img.shields.io/github/actions/workflow/status/studioCIZMO/KoEnJa/windows.yml?branch=main&style=flat-square&label=windows" alt="Windows build and golden test"></a>
   <img src="https://img.shields.io/badge/Windows%2010%2F11-x64-555?style=flat-square" alt="Windows 10/11 x64">
+  <img src="https://img.shields.io/badge/macOS-13%2B-555?style=flat-square" alt="macOS 13+">
   <img src="https://img.shields.io/badge/iOS-16%2B-555?style=flat-square" alt="iOS 16 or later">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
 </p>
@@ -53,7 +54,7 @@ kinouemailwookutta⏎                                       →  きのうemail�
 ## Contents
 
 - [Why we made it](#why-we-made-it)
-- [Install](#install): [Windows](#windows) · [iOS](#ios) · [Android](#android)
+- [Install](#install): [Mac](#mac) · [Windows](#windows) · [iOS](#ios) · [Android](#android)
 - [Keys](#keys)
 - [How it decides](#how-it-decides) · [Evaluation](#evaluation)
 - [Known limitations](#known-limitations)
@@ -67,9 +68,24 @@ kinouemailwookutta⏎                                       →  きのうemail�
 If you write in Korean, English and Japanese every day, you have three input sources, and you keep pressing the
 switch key or typing in the wrong language. On macOS, [Araso](https://github.com/nyttastudio/araso) solved this by
 telling each word's language as you type. KoEnJa uses that engine under the MIT License and is a separate product
-that brings the same way of typing to iPhone, Android and Windows, where Araso doesn't run.
+that brings the same way of typing to iPhone, Android and Windows, where Araso doesn't run. So that every device
+types with the same engine, there is also a Mac version, built from Araso's macOS input method.
 
 ## Install
+
+### Mac
+
+macOS 13 or later (Apple silicon, Intel). In Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh | sh
+```
+
+Or download `KoEnJa-Mac.zip` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest), unzip it and move
+`KoEnJa.app` to `~/Library/Input Methods`. Then add it in System Settings → Keyboard → Input Sources → Edit… → + → Korean →
+**KoEnJa** (log out and back in once if it isn't listed). The app is signed with CIZMO's Developer ID and notarized by Apple.
+Installed beside Araso, it keeps its settings and learned words apart (`~/Library/Application Support/KoEnJa`).
+Uninstall from the settings window's About tab or with `… | sh -s -- --uninstall`. The source is in `Mac/`.
 
 ### Windows
 
@@ -241,26 +257,27 @@ An engine change goes into Swift, Kotlin and C++ together, and the golden file i
 ## Privacy
 
 What you type is processed on the device and never sent anywhere. The keyboards and the input method have no
-networking. On Windows, **Report a problem…** opens a GitHub page in your browser only when you click it. The iOS
+networking. The Mac input method asks GitHub for the latest release's version once a day and sends nothing else (it can be turned off in its settings). On Windows, **Report a problem…** opens a GitHub page in your browser only when you click it. The iOS
 app's privacy policy is in [docs/privacy-policy.md](docs/privacy-policy.md).
 
 ## KoEnJa and Araso
 
-KoEnJa uses the **engine** of [Araso](https://github.com/nyttastudio/araso) (© aimdevlee, MIT License). Araso is a macOS input method. The engine is the part of it that decides which language a word is in. KoEnJa is not a copy of Araso: Araso does not run on iOS, Android or Windows, and KoEnJa's apps, keyboards and input methods were written for this project.
+KoEnJa uses the **engine** of [Araso](https://github.com/nyttastudio/araso) (© aimdevlee, MIT License). Araso is a macOS input method. The engine is the part of it that decides which language a word is in. The iOS, Android and Windows apps, keyboards and input method were written for this project; the Mac input method is Araso's macOS input method, taken under the MIT License and changed.
 
 | Part | Where it comes from |
 |---|---|
 | Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.4.1), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
 | Language engine, Android (`Android/engine`, Kotlin) and Windows (`Windows/engine`, C++20) | Written for KoEnJa to follow Araso's engine, then checked against it. The Swift, Kotlin and C++ engines replay the same golden file (`Android/engine/src/test/resources/golden.tsv`) and must match line for line. |
+| Mac input method (`Mac/`) | Araso's macOS input method (`Sources/Araso`, 0.4.1), taken under the MIT License and connected to KoEnJa's engine, with its name, bundle ID, storage folder, update check and menu icon changed (listed in `Mac/UPSTREAM`). |
 | iOS keyboard and app (`iOS/`) | Written for KoEnJa: the key layout, candidate bar, switch key and settings. |
 | Android keyboard (`Android/app`, `Android/japanese`) | Written for KoEnJa, including a Japanese converter over the Mozc dictionary. |
 | Windows input method (`Windows/tip`, `Windows/japanese`, `Windows/installer`) | Written for KoEnJa: the TSF text service, MS-IME-style conversion over the Mozc dictionary, keyboard types, switch key, language priority, settings and installer. |
 
-Araso's macOS input method, its app and its installer are not part of KoEnJa. We are grateful to Araso's author for publishing the engine under the MIT License, which made this project possible. The engine's original copyright notice is kept in `THIRD_PARTY_NOTICES.txt` (and in the iOS app's license screen).
+We are grateful to Araso's author for publishing the engine under the MIT License, which made this project possible. The engine's original copyright notice is kept in `THIRD_PARTY_NOTICES.txt` (and in the iOS app's license screen).
 
 ## Report a problem
 
-[Open an issue](https://github.com/studioCIZMO/KoEnJa/issues/new?template=bug.yml). On Windows, **Report a problem…** in KoEnJa Settings opens the same form with your version, Windows build and settings filled in (never what you typed). Issues are public, so leave out private text.
+[Open an issue](https://github.com/studioCIZMO/KoEnJa/issues/new?template=bug.yml). The Mac input method asks GitHub for the latest release's version once a day and sends nothing else (it can be turned off in its settings). On Windows, **Report a problem…** in KoEnJa Settings opens the same form with your version, Windows build and settings filled in (never what you typed). Issues are public, so leave out private text.
 
 ## Code signing policy
 
