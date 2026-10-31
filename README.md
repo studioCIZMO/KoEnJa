@@ -247,7 +247,7 @@ MSVC로 골든 테스트를 돌린 뒤 설치 프로그램을 만들고, `v*` �
 ## 개인정보
 
 입력한 내용은 기기 안에서만 처리되고 밖으로 보내지 않습니다. iOS·Android 키보드와 Windows 입력기에는 네트워크 기능이 없습니다.
-Mac 입력기는 하루 한 번 GitHub에 최신 릴리스 버전만 묻습니다(설정에서 끌 수 있습니다). Windows의 **문제 보고…**는 누를 때만 브라우저에서 GitHub 페이지를 엽니다. iOS 앱의 개인정보처리방침은
+Mac 입력기는 하루 한 번 GitHub에 최신 릴리스 버전만 묻습니다(설정에서 끌 수 있습니다). 같은 Mac에 MyTypeless 받아쓰기 앱이 있으면 그 사전(`~/Library/Application Support/MyTypeless/dictionary.json`)을 읽기만 해서, 음성으로 등록한 단어를 타이핑에서도 그대로 씁니다. 개인화 계획은 [docs/roadmap-personal.md](docs/roadmap-personal.md)에 있습니다. Windows의 **문제 보고…**는 누를 때만 브라우저에서 GitHub 페이지를 엽니다. iOS 앱의 개인정보처리방침은
 [docs/privacy-policy.md](docs/privacy-policy.md)에 있습니다.
 
 ## KoEnJa와 Araso

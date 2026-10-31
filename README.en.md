@@ -257,7 +257,7 @@ An engine change goes into Swift, Kotlin and C++ together, and the golden file i
 ## Privacy
 
 What you type is processed on the device and never sent anywhere. The iOS and Android keyboards and the Windows input
-method have no networking. The Mac input method asks GitHub for the latest release's version once a day and sends nothing else (it can be turned off in its settings). On Windows, **Report a problem…** opens a GitHub page in your browser only when you click it. The iOS
+method have no networking. The Mac input method asks GitHub for the latest release's version once a day and sends nothing else (it can be turned off in its settings). If the MyTypeless dictation app is on the same Mac, the input method only reads its dictionary (`~/Library/Application Support/MyTypeless/dictionary.json`) so words added there by voice type the same way here. On Windows, **Report a problem…** opens a GitHub page in your browser only when you click it. The iOS
 app's privacy policy is in [docs/privacy-policy.md](docs/privacy-policy.md).
 
 ## KoEnJa and Araso

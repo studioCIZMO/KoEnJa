@@ -249,7 +249,7 @@ MSVC のゴールデンテストは `main` への push のたびに [CI](.github
 ## プライバシー
 
 入力した内容は端末の中だけで処理され、外には送りません。iOS・Android のキーボードと Windows の入力メソッドにはネットワーク機能がありません。
-Mac の入力メソッドは 1 日 1 回、GitHub に最新リリースのバージョンだけを問い合わせます（設定でオフにできます）。Windows の「**問題を報告…**」は、クリックしたときだけブラウザーで GitHub のページを開きます。iOS アプリの
+Mac の入力メソッドは 1 日 1 回、GitHub に最新リリースのバージョンだけを問い合わせます（設定でオフにできます）。同じ Mac に音声入力アプリ MyTypeless があれば、その辞書（`~/Library/Application Support/MyTypeless/dictionary.json`）を読むだけで、音声で登録した単語をタイピングでも同じように使います。Windows の「**問題を報告…**」は、クリックしたときだけブラウザーで GitHub のページを開きます。iOS アプリの
 プライバシーポリシーは [docs/privacy-policy.md](docs/privacy-policy.md) にあります。
 
 ## KoEnJa と Araso
