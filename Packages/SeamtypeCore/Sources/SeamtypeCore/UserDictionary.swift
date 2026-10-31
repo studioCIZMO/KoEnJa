@@ -275,7 +275,8 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     /// they win as added words do, under the user's own entries for the same keys.
     private var shared: [UserDictionary.Entry] = []
     private let sharedURL: URL?
-    private var sharedRead: Date?
+    /// The file's modification date and the layouts it was read with: keys depend on both.
+    private var sharedRead: String?
     /// The language entries by keys, so each key typed looks its keys (and the fronts a particle
     /// may follow) up instead of going through every entry.
     private var byKeys: [String: [UserDictionary.Entry]] = [:]
@@ -303,7 +304,8 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
 
     private static func index(_ store: UserDictionary, _ shared: [UserDictionary.Entry]) -> [String: [UserDictionary.Entry]] {
         let own = store.entries.filter { $0.language != nil }
-        let ownKeys = Set(own.map(\.keys))
+        // Only an entry for every app hides a shared one; an app's own entry wins in that app alone.
+        let ownKeys = Set(own.filter(\.forEveryApp).map(\.keys))
         return Dictionary(grouping: own + shared.filter { !ownKeys.contains($0.keys) }, by: \.keys)
     }
 
@@ -319,23 +321,24 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
         guard let sharedURL else { return }
         // Not URL.resourceValues: those are cached on the URL and wouldn't see a change.
         let modified = (try? FileManager.default.attributesOfItem(atPath: sharedURL.path))?[.modificationDate] as? Date
-        guard lock.withLock({ modified != sharedRead }) else { return }
+        let read = "\(modified?.timeIntervalSince1970 ?? -1) \(KoreanLayout.current.rawValue) \(LatinLayout.current.rawValue)"
+        guard lock.withLock({ read != sharedRead }) else { return }
         struct Term: Decodable { let term: String }
         let terms = (try? Data(contentsOf: sharedURL)).flatMap { try? JSONDecoder().decode([Term].self, from: $0) } ?? []
         let entries = terms.flatMap { sharedEntries($0.term.trimmingCharacters(in: .whitespaces)) }
         lock.withLock {
-            sharedRead = modified
+            sharedRead = read
             shared = entries
             byKeys = Self.index(store, shared)
         }
     }
 
-    /// A term as entries: Hangul by its 2-set keys (깃허브 → rltgjqm), Latin letters and digits as
-    /// written and in lower case, unless those keys read as a Korean word (rk is 가). Others
-    /// (kanji, kana, spaces) aren't one word typed here.
+    /// A term as entries: Hangul by its 2-set keys (깃허브 → rltgjqm) unless those are an English
+    /// word (내 is so), Latin letters and digits as written and in lower case unless those keys
+    /// read as a Korean word (rk is 가). Others (kanji, kana, spaces) aren't one word typed here.
     func sharedEntries(_ term: String) -> [UserDictionary.Entry] {
         if let keys = DubeolsikLayout.keys(for: term) {
-            return [UserDictionary.Entry(keys: keys, language: .korean, source: .user)]
+            return english.isKnownWord(keys.lowercased()) ? [] : [UserDictionary.Entry(keys: keys, language: .korean, source: .user)]
         }
         guard term.count >= 2, term.count <= UserDictionary.longestLearned,
               term.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }), term.first!.isLetter
@@ -426,7 +429,7 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     /// Re-reads dictionary.json (after the settings window changed it).
     public func reload() {
         let fresh = Self.read(storeURL, today: today())
-        lock.withLock { store = fresh; sharedRead = nil }
+        lock.withLock { shared = []; sharedRead = nil; store = fresh }
         refreshShared()
     }
 

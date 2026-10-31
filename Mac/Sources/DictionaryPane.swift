@@ -240,6 +240,7 @@ struct EntrySheet: View {
     @State private var app: String?
     /// KoEnJa: the word as written (깃허브), turned into the keys that type it.
     @State private var written = ""
+    @State private var derived: String?
     @Environment(\.dismiss) private var dismiss
 
     init(model: SettingsModel, target: Target) {
@@ -303,7 +304,10 @@ struct EntrySheet: View {
                             if let typed = DubeolsikLayout.keys(for: word.trimmingCharacters(in: .whitespaces)) {
                                 keys = typed
                                 language = .korean
+                            } else if keys == derived {
+                                keys = "" // not the last word written any more
                             }
+                            derived = DubeolsikLayout.keys(for: word.trimmingCharacters(in: .whitespaces))
                         }
                 }
             }
