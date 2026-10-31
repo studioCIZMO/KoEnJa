@@ -31,6 +31,7 @@ targets:
       # dictionary (AzooKey, Apache-2.0) and the licenses the About pane opens.
       - name: Copy language models
         script: |
+          set -eu
           out="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
           cp "$SRCROOT"/../Packages/SeamtypeCore/Sources/SeamtypeCore/Data/*.txt "$out/"
           rm -rf "$out/Dictionary"

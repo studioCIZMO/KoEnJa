@@ -22,7 +22,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>0.3.0</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>2</string>
 	<key>InputMethodConnectionName</key>
 	<string>com.cizmo.inputmethod.KoEnJa_Connection</string>
 	<key>InputMethodServerControllerClass</key>

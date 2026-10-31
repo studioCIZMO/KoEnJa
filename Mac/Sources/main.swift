@@ -3,11 +3,13 @@ import Cocoa
 import InputMethodKit
 import Carbon
 
-// KoEnJa: its own folder, so an Araso installed beside it keeps its settings and learned words.
-if ProcessInfo.processInfo.environment["ARASO_SUPPORT_DIR"] == nil {
-    SupportDirectory.override = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-        .appendingPathComponent("KoEnJa", isDirectory: true)
-}
+// KoEnJa: always its own folder (KOENJA_SUPPORT_DIR for a development copy), so an Araso installed
+// beside it keeps its settings and learned words; ARASO_SUPPORT_DIR could lead back to Araso's.
+SupportDirectory.override = ProcessInfo.processInfo.environment["KOENJA_SUPPORT_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0, isDirectory: true) }
+    ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?.appendingPathComponent("KoEnJa", isDirectory: true)
+
+/// KoEnJa: vim's mode signal under our own name; SeamtypeCore's `VimSignal.notification` is Araso's.
+let vimNotification = Notification.Name("com.cizmo.inputmethod.KoEnJa.vimMode")
 
 // A `--` flag none of the branches below takes (`--help`, a typo) would otherwise fall through to
 // a second IMKServer: it can't get the connection name but keeps running, and apps launched after
@@ -32,7 +34,7 @@ if let flag = CommandLine.arguments.firstIndex(of: "--vim") {
     }
     let app = args.firstIndex(of: "--app").flatMap { args.dropFirst($0 + 1).first }.flatMap { $0.isEmpty ? nil : $0 }
     DistributedNotificationCenter.default().postNotificationName(
-        VimSignal.notification, object: mode, userInfo: app.map { [VimSignal.appKey: $0] }, deliverImmediately: true)
+        vimNotification, object: mode, userInfo: app.map { [VimSignal.appKey: $0] }, deliverImmediately: true)
     exit(0)
 }
 

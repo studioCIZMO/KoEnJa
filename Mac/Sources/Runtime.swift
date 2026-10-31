@@ -40,7 +40,7 @@ final class Runtime {
             let kanjiReset = note.object as? String == SettingsNotice.kanjiReset
             MainActor.assumeIsolated { Runtime.shared.reloadFromDisk(kanjiReset: kanjiReset) }
         }
-        center.addObserver(forName: VimSignal.notification, object: nil, queue: .main) { note in
+        center.addObserver(forName: vimNotification, object: nil, queue: .main) { note in
             guard let signal = (note.object as? String).flatMap(VimSignal.init(rawValue:)) else { return }
             let app = note.userInfo?[VimSignal.appKey] as? String
             MainActor.assumeIsolated {
