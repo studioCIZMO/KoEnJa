@@ -273,3 +273,4 @@
 "Reset" = "원래대로";
 "%@, %ld of %ld" = "%1$@, %3$ld개 중 %2$ld번째";
 "Candidates, %@ selected" = "후보, %@ 선택됨";
+"Or write the word in Hangul: 깃허브" = "또는 한글로 쓰기: 깃허브";

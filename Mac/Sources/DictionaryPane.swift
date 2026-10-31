@@ -238,6 +238,8 @@ struct EntrySheet: View {
     @State private var keys: String
     @State private var language: Language
     @State private var app: String?
+    /// KoEnJa: the word as written (깃허브), turned into the keys that type it.
+    @State private var written = ""
     @Environment(\.dismiss) private var dismiss
 
     init(model: SettingsModel, target: Target) {
@@ -295,6 +297,15 @@ struct EntrySheet: View {
                 KeyField(keys: $keys).frame(height: 30)
                 Text(L("Type the keys as you would on the English layout. They go in as typed, not through an input method."))
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if original == nil {
+                    TextField(L("Or write the word in Hangul: 깃허브"), text: $written)
+                        .onChange(of: written) { word in
+                            if let typed = DubeolsikLayout.keys(for: word.trimmingCharacters(in: .whitespaces)) {
+                                keys = typed
+                                language = .korean
+                            }
+                        }
+                }
             }
             Picker(L("Comes out as"), selection: $language) {
                 ForEach(choices, id: \.self) { choice in

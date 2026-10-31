@@ -62,7 +62,8 @@ final class Runtime {
         let engine = DictionaryEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
                                                             japanese: heuristic.segmenter),
                                       english: heuristic.english, korean: heuristic.korean,
-                                      japaneseParticles: heuristic.segmenter != nil)
+                                      japaneseParticles: heuristic.segmenter != nil,
+                                      sharedURL: DictionaryEngine.myTypelessURL)
         // An open settings window shows a word learned while typing at once, not on its next activation.
         engine.saved = { SettingsNotice.postFromInputMethod() }
         return engine

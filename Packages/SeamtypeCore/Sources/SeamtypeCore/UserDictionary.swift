@@ -270,7 +270,12 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     /// For keys that read as a Korean word, or one with a particle, as a whole (놈들을, not sha들을).
     private let splitter: ParticleSplitter
     private let lock = NSLock()
-    private var store: UserDictionary { didSet { byKeys = Self.index(store) } }
+    private var store: UserDictionary { didSet { byKeys = Self.index(store, shared) } }
+    /// REA: MyTypeless's terms (`myTypelessURL`), read only and never written to dictionary.json:
+    /// they win as added words do, under the user's own entries for the same keys.
+    private var shared: [UserDictionary.Entry] = []
+    private let sharedURL: URL?
+    private var sharedRead: Date?
     /// The language entries by keys, so each key typed looks its keys (and the fronts a particle
     /// may follow) up instead of going through every entry.
     private var byKeys: [String: [UserDictionary.Entry]] = [:]
@@ -279,23 +284,64 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
 
     public init(base: DecisionEngine, english: EnglishModel = .shared, korean: KoreanModel = KoreanModel(),
                 japaneseParticles: Bool = false, storeURL: URL? = DictionaryEngine.defaultStoreURL,
-                today: @escaping @Sendable () -> Date = { Date() }) {
+                sharedURL: URL? = nil, today: @escaping @Sendable () -> Date = { Date() }) {
         self.base = base
         self.english = english
         self.japaneseParticles = japaneseParticles
         splitter = ParticleSplitter(english: english, korean: korean)
         self.storeURL = storeURL
+        self.sharedURL = sharedURL
         self.today = today
         store = Self.read(storeURL, today: today())
-        byKeys = Self.index(store) // didSet doesn't run in init
+        byKeys = Self.index(store, shared) // didSet doesn't run in init
+        refreshShared()
     }
 
     public static var defaultStoreURL: URL? {
         SupportDirectory.url?.appendingPathComponent("dictionary.json")
     }
 
-    private static func index(_ store: UserDictionary) -> [String: [UserDictionary.Entry]] {
-        Dictionary(grouping: store.entries.filter { $0.language != nil }, by: \.keys)
+    private static func index(_ store: UserDictionary, _ shared: [UserDictionary.Entry]) -> [String: [UserDictionary.Entry]] {
+        let own = store.entries.filter { $0.language != nil }
+        let ownKeys = Set(own.map(\.keys))
+        return Dictionary(grouping: own + shared.filter { !ownKeys.contains($0.keys) }, by: \.keys)
+    }
+
+    /// REA: the dictionary of MyTypeless (on-device dictation, the same user's) beside ours in
+    /// Application Support: `[{"term": "KoEnJa", …}]`, its words added by hand or learned.
+    public static var myTypelessURL: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("MyTypeless/dictionary.json")
+    }
+
+    /// REA: reads `sharedURL` again when it changed since it was read (cheap: one stat).
+    public func refreshShared() {
+        guard let sharedURL else { return }
+        // Not URL.resourceValues: those are cached on the URL and wouldn't see a change.
+        let modified = (try? FileManager.default.attributesOfItem(atPath: sharedURL.path))?[.modificationDate] as? Date
+        guard lock.withLock({ modified != sharedRead }) else { return }
+        struct Term: Decodable { let term: String }
+        let terms = (try? Data(contentsOf: sharedURL)).flatMap { try? JSONDecoder().decode([Term].self, from: $0) } ?? []
+        let entries = terms.flatMap { sharedEntries($0.term.trimmingCharacters(in: .whitespaces)) }
+        lock.withLock {
+            sharedRead = modified
+            shared = entries
+            byKeys = Self.index(store, shared)
+        }
+    }
+
+    /// A term as entries: Hangul by its 2-set keys (깃허브 → rltgjqm), Latin letters and digits as
+    /// written and in lower case, unless those keys read as a Korean word (rk is 가). Others
+    /// (kanji, kana, spaces) aren't one word typed here.
+    func sharedEntries(_ term: String) -> [UserDictionary.Entry] {
+        if let keys = DubeolsikLayout.keys(for: term) {
+            return [UserDictionary.Entry(keys: keys, language: .korean, source: .user)]
+        }
+        guard term.count >= 2, term.count <= UserDictionary.longestLearned,
+              term.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber) }), term.first!.isLetter
+        else { return [] }
+        return Set([term, term.lowercased()]).filter { !readsAsKoreanWord($0) }
+            .map { UserDictionary.Entry(keys: $0, language: .english, source: .user) }
     }
 
     /// `UserDictionary.languageEntry`, from the index: the app's own entry, else the one for every app.
@@ -380,7 +426,8 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     /// Re-reads dictionary.json (after the settings window changed it).
     public func reload() {
         let fresh = Self.read(storeURL, today: today())
-        lock.withLock { store = fresh }
+        lock.withLock { store = fresh; sharedRead = nil }
+        refreshShared()
     }
 
     /// A word the dictionary decided that went in: its entry's keys, the word as it went in

@@ -32,6 +32,33 @@ import Testing
         #expect(hello.language == .korean && hello.confidence == 1 && hello.explanation == "learned")
     }
 
+    /// REA: MyTypeless's terms win as added words do: Hangul by its 2-set keys, Latin as written
+    /// and in lower case (not keys that read as Korean), under the user's own entries, re-read
+    /// when the file changes, and never written into dictionary.json.
+    @Test func myTypelessTermsWinUnderOwnEntries() throws {
+        #expect(DubeolsikLayout.keys(for: "깃허브") == "rltgjqm")
+        #expect(DubeolsikLayout.keys(for: "왠지 맑은") == nil)
+        #expect(DubeolsikLayout.keys(for: "왠지") == "dhoswl" && DubeolsikLayout.keys(for: "맑은") == "akfrdms")
+        #expect(DubeolsikLayout.keys(for: "꽉") == "Rhkr" && DubeolsikLayout.keys(for: "ㄱ") == nil)
+        let terms = dir.appendingPathComponent("terms.json"), store = dir.appendingPathComponent("d.json")
+        try Data(#"[{"term":"깃허브","source":"manual"},{"term":"KoEnJa"},{"term":"rk"},{"term":"日本語"}]"#.utf8).write(to: terms)
+        let engine = DictionaryEngine(base: sharedEngine, storeURL: store, sharedURL: terms)
+        let git = engine.decide("rltgjqm", context: DecisionContext())
+        #expect(git.language == .korean && git.output == "깃허브" && git.confidence == 1)
+        #expect(engine.decide("koenja", context: DecisionContext()).output == "koenja")
+        #expect(engine.decide("KoEnJa", context: DecisionContext()).language == .english)
+        #expect(engine.decide("rk", context: DecisionContext()).output == "가")
+        engine.add(UserDictionary.Entry(keys: "koenja", language: .korean, source: .user))
+        #expect(engine.decide("koenja", context: DecisionContext()).language == .korean)
+        #expect(engine.dictionary.entries.count == 1)
+
+        try Data(#"[{"term":"시즈모"}]"#.utf8).write(to: terms)
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(60)], ofItemAtPath: terms.path)
+        engine.refreshShared()
+        #expect(engine.decide("tlwmah", context: DecisionContext()).output == "시즈모")
+        #expect(engine.decide("rltgjqm", context: DecisionContext()).explanation != "added")
+    }
+
     /// A remembered word switched once to another reading keeps its memory and notes the switch;
     /// the same switch again moves the memory, and typing the word as remembered drops the note.
     @Test func rememberedWordMovesOnTheSecondSwitch() {

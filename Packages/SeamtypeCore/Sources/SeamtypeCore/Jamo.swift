@@ -60,6 +60,26 @@ public enum DubeolsikLayout {
         "Q": "ㅃ", "W": "ㅉ", "E": "ㄸ", "R": "ㄲ", "T": "ㅆ", "O": "ㅒ", "P": "ㅖ",
     ]
 
+    /// REA: the keys that type `hangul` (깃허브 → rltgjqm), so a word can be added as written; nil
+    /// unless it is whole syllables the layout chosen types back the same.
+    /// ponytail: 2-set on QWERTY only; 3-set and Colemak would need their own inverse.
+    public static func keys(for hangul: String) -> String? {
+        let key = Dictionary(uniqueKeysWithValues: lower.merging(shifted) { a, _ in a }.map { ($1, $0) })
+        let vowels = Dictionary(uniqueKeysWithValues: Jamo.vowelCombos.map { ($1, $0) })
+        var keys = ""
+        for scalar in hangul.unicodeScalars {
+            guard (0xAC00...0xD7A3).contains(scalar.value) else { return nil }
+            let index = Int(scalar.value - 0xAC00)
+            var jamos = [Jamo.choseong[index / 588]] + Array(vowels[Jamo.jungseong[index % 588 / 28]] ?? String(Jamo.jungseong[index % 588 / 28]))
+            if let jong = Jamo.jongseong[index % 28] { jamos += Jamo.finalSplits[jong].map { [$0.0, $0.1] } ?? [jong] }
+            for jamo in jamos {
+                guard let k = key[jamo] else { return nil }
+                keys.append(k)
+            }
+        }
+        return !keys.isEmpty && HangulComposer.compose(keys: keys)?.text == hangul ? keys : nil
+    }
+
     /// Keys whose shifted form produces a different jamo. Shift on any other
     /// letter is a signal the user is typing English.
     public static func isKoreanShiftKey(_ key: Character) -> Bool {

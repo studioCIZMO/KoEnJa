@@ -65,6 +65,7 @@ final class InputController: IMKInputController {
         let app = client?.bundleIdentifier()
         MainActor.assumeIsolated {
             Runtime.shared.active = self
+            Runtime.shared.engine.refreshShared() // KoEnJa: MyTypeless's words, if they changed
             session.activate(app: app)
             session.replacements = Runtime.shared.textReplacements
             if let last = Runtime.shared.lastVim { vimChanged(to: last.signal, from: last.app) }
