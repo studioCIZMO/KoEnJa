@@ -37,7 +37,9 @@ pkill -x KoEnJa 2>/dev/null || true
 killall TextInputMenuAgent 2>/dev/null || true
 cat <<'MSG'
 KoEnJa is installed. If it isn't in the input menu yet: System Settings → Keyboard → Input Sources →
-Edit… → + → Korean → KoEnJa (log out and back in once if it isn't listed).
+Edit… → + → Korean → KoEnJa (log out and back in once if it isn't listed). If it is selected but
+typing does nothing, remove it there (−) and add it again (+), or log out and back in once.
 한영일이 설치되었습니다. 입력 메뉴에 없으면: 시스템 설정 → 키보드 → 입력 소스 → 편집… → + → 한국어 → 한영일
-(목록에 없으면 한 번 로그아웃 후 다시 로그인).
+(목록에 없으면 한 번 로그아웃 후 다시 로그인). 골랐는데 글자가 안 들어가면 거기서 한영일을 빼고(−) 다시
+추가하거나(+), 한 번 로그아웃 후 다시 로그인하세요.
 MSG
