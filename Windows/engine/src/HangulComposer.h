@@ -45,6 +45,14 @@ namespace HangulComposer {
      *  are composed as that layout types them. */
     std::optional<Result> compose(const std::u16string& keys);
 
+    /** The keys composed, or where digits or symbols are inside (k8s, utf-8) each run of letters
+     *  composed on its own; nullopt when a run doesn't compose (or there are no letters). */
+    std::optional<std::vector<Result>> composeEachRun(const std::u16string& keys);
+
+    /** Keys with digits or symbols inside (k8s, utf-8, an English word that kept them): each run of
+     *  letters composed on its own, the rest as typed (ㅏ8ㄴ, ㅕㅅㄹ-8). */
+    std::u16string composeRuns(const std::u16string& keys);
+
     Result composeJamo(const std::u16string& jamos);
 }
 

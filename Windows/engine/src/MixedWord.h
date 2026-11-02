@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "DecisionEngine.h"
+#include "Text.h"
 
 namespace rea {
 
@@ -90,8 +91,39 @@ public:
 
     Decision decide(const std::u16string& keys, const DecisionContext& context) override;
 
+    /** A word that kept the digits and `-`/`_` typed into it (`InputSession`: k8s, utf-8, 안녕1),
+     *  read piece by piece between them, each English unless it reads as Korean by enough
+     *  (`readsAsKoreanPiece`: 옵션1, 보고서_최종, 제1장; not cmd0, en_s2c, src_dir) or is a particle
+     *  after the last of them (mp3를, k8s에); not a Japanese phrase, clean romaji throughout
+     *  (ra-men, kyou3ji). */
+    std::optional<Decision> decideJoined(const std::u16string& keys, const DecisionContext& context);
+
+    /** Letters next to a digit, `-` or `_` are code more often than the same letters alone: Korean
+     *  only when the whole piece's Korean score leads its English score by `identifierCost`
+     *  (옵션1, 보고서_최종, 안녕1하세요; not en_s2c as 두_s2c), and a single syllable, rarely a word
+     *  in code, by `oneSyllableInIdentifier` more (not cmd0 as 층0, src_dir as src_약), unless it is
+     *  counted after a number (제1장, 3월5일) or one written before one (제1, 주3회, 표1). */
+    bool readsAsKoreanPiece(const std::u16string& keys, bool beforeDigit, bool afterDigit, bool afterEnglish, bool atEnd) const;
+
+    /** The piece's Korean score less its English one, over all its keys (nullopt when it isn't clean
+     *  Hangul): `ParticleSplitter`'s readings, a vocabulary word floored, English as a known word
+     *  or spelled. */
+    std::optional<double> koreanLead(const std::u16string& keys) const;
+
+    /** Syllables written right before a number (제1장, 주3회, 표1): Tatoeba's Korean has 제 and 주
+     *  there, and documents number 표, 장, 절, 항, 조 and 호. */
+    static const std::unordered_set<std::u16string>& numberWords();
+
+    /** What an English word keeps while it is typed: digits, `-` and `_`. */
+    static bool joinsWord(char16_t ch) { return isAsciiDigit(ch) || ch == u'-' || ch == u'_'; }
+
     /** A capital no lingering Shift explains (RNl, 꿀 typed fast, isn't a name). */
     static bool hasEnglishOnlyCapital(const std::u16string& front);
+
+private:
+    /** A particle making up [keys] or starting one letter into it (fmf: 를, sdp: s + 에), unless
+     *  [keys] is an English word: (front, particle). */
+    std::optional<std::pair<std::u16string, std::u16string>> particleAfter(const std::u16string& keys) const;
 };
 
 } // namespace rea

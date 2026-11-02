@@ -124,6 +124,9 @@ class EnglishModel(raw: Map<String, Int>, spelling: Sequence<String>? = null, ex
         /** Loading the word list takes a moment; share one instance. */
         val shared: EnglishModel by lazy { load(spellingPath = SPELLING_LIST_PATH) }
 
+        /** Acronyms people write (RNA, GMT, WYSIWYG; SCOWL, english_acronyms.txt), in capitals. */
+        val acronyms: Set<String> by lazy { Resources.lines("english_acronyms.txt") { it.toHashSet() } ?: emptySet() }
+
         /** From english_words.txt; a missing file leaves only [commonWords]. Trigrams are trained
          *  on [spellingPath]'s words when it can be read, otherwise on the list. */
         fun load(spellingPath: String? = null, extraWords: List<String> = commonWords): EnglishModel {

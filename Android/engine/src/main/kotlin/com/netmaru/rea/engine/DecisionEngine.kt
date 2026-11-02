@@ -31,14 +31,14 @@ enum class Language {
             when (it) {
                 ENGLISH -> true
                 MIXED -> splits ?: (MixedWord.split(keys) != null)
-                KOREAN -> HangulComposer.compose(keys) != null
+                KOREAN -> HangulComposer.composeEachRun(keys) != null
                 JAPANESE -> japanese
             }
         }
         val clean = available.filter {
             when (it) {
                 ENGLISH, MIXED -> true
-                KOREAN -> HangulComposer.compose(keys)?.let { it.strayJamo.isEmpty() || it.isJamoAbbreviation } == true
+                KOREAN -> HangulComposer.composeEachRun(keys)?.all { it.strayJamo.isEmpty() || it.isJamoAbbreviation } == true
                 JAPANESE -> RomajiComposer.compose(keys).strayLetters == 0
             }
         }
@@ -80,7 +80,7 @@ interface DecisionEngine {
     /** Renders [keys] in a given language regardless of what the engine would pick. */
     fun render(keys: String, language: Language): String = when (language) {
         Language.ENGLISH -> keys
-        Language.KOREAN -> HangulComposer.compose(keys)?.text ?: keys
+        Language.KOREAN -> HangulComposer.compose(keys)?.text ?: HangulComposer.composeRuns(keys)
         Language.MIXED -> {
             // The engine's own split (hello월드, github에); the particle split for engines without one.
             val decision = decide(keys, DecisionContext())
@@ -141,10 +141,17 @@ class HeuristicEngine(
         // A number is a number.
         if (keys.isNotEmpty() && keys.all { it.isDigit() }) return Decision(Language.ENGLISH, 0.99, keys, "a number")
         // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English,
-        // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를):
-        // then the scores decide.
+        // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를) or
+        // is held from one over whole Hangul (RKFRMAgkek 깔끔하다): then the scores decide.
         if (DubeolsikLayout.hasEnglishOnlyCapital(keys)) {
             return Decision(Language.ENGLISH, 0.99, keys, "uppercase outside QWERTOP")
+        }
+        // Held Shift reads as Korean over whole Hangul only. A consonant left over is the next
+        // syllable on its way while typing (깔끔ㅎ of 깔끔하다), but a word that ends on one was
+        // English: Colemak's GMTs (쓸ㅇ), WYSIWYGs.
+        if (!context.partial && DubeolsikLayout.hasHeldOverCapital(keys) &&
+            HangulComposer.compose(keys)?.endsWithPendingConsonant == true) {
+            return Decision(Language.ENGLISH, 0.99, keys, "held Shift over a stray consonant")
         }
 
         var e = english.averageLogProbability(keys.filter { it.isLetter() })

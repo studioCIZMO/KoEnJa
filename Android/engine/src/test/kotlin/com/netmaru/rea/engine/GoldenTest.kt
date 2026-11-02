@@ -105,5 +105,21 @@ class GoldenTest {
         }
     }
 
-    private fun resource(name: String) = javaClass.getResource("/$name")!!.readText()
+    /** Araso 0.4.5: an acronym keeps its particle, Shift held over Hangul is still Korean, digits
+     *  and `-`/`_` stay in the word and are read piece by piece. */
+    @Test
+    fun heldShiftAcronymsAndDigitsInAWord() {
+        val cases = mapOf("RNARkwl" to "RNA까지", "RKFRMAgkek" to "깔끔하다", "dhqtus1" to "옵션1", "cmd0" to "cmd0",
+                          "src_dir" to "src_dir", "mp3fmf" to "mp3를")
+        for ((keys, want) in cases) {
+            val s = session(listOf(Language.KOREAN, Language.ENGLISH, Language.JAPANESE))
+            val field = Field()
+            for (c in keys) if (!s.handle(if (c.isLetter()) InputSession.Key.Letter(c) else InputSession.Key.Printable(c), field)) field.insertText(c.toString(), null)
+            s.commit(field)
+            assertEquals(want, field.text, keys)
+        }
+        assertEquals("ㅕㅅㄹ-8", HangulComposer.composeRuns("utf-8"))
+    }
+
+    private fun resource(name: String) =javaClass.getResource("/$name")!!.readText()
 }

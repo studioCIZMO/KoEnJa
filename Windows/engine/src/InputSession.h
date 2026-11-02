@@ -360,6 +360,7 @@ private:
     std::optional<std::pair<std::u16string, TextRange>> passedRunBeforeCaret(TextClient& client);
     bool closesFullWidth(char16_t ch) const;
     void noteBrackets(const std::u16string& text);
+    bool keepsInWord(char16_t ch);
     bool belongsToJapanesePhrase(char16_t ch);
     std::optional<std::pair<Language, std::u16string>> shortcutReading(bool partial);
     std::u16string japaneseReading(bool partial);

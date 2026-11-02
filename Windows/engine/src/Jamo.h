@@ -37,11 +37,21 @@ namespace DubeolsikLayout {
     /** A capital on a key with no shifted jamo, not counting a lingering Shift: Shift still down
      *  for the one key right after a Korean shift key (어떤 typed fast is djEJs, 바뀌 is qkRNl:
      *  Shift was still down for the vowel after ㄸ or ㄲ). Such keys read as Korean or English by
-     *  their scores; any other capital (Hello, API, dHello) is only ever English. A Shift lingers
-     *  between lowercase keys, so a word typed in capitals throughout (TM, RN, TL: acronyms) gets
-     *  no such allowance, nor does ㅒ/ㅖ with no consonant before it (PDF, OAuth).
+     *  their scores, and so do keys Shift was held over on purpose (`heldOver`); any other capital
+     *  (Hello, API, dHello) is only ever English. A Shift lingers between lowercase keys, so a word
+     *  typed in capitals throughout (TM, RN, TL: acronyms) gets no such allowance, nor does ㅒ/ㅖ
+     *  with no consonant before it (PDF, OAuth).
      *  Not ported: Swift's LatinLayout seats (Colemak); keys are QWERTY's. */
     bool hasEnglishOnlyCapital(const std::u16string& keys);
+
+    /** Capitals that only Shift held on over them explains (`heldOver`; the A of RNARkwl, 꿈까지),
+     *  none that are English for sure. Such keys may as well be an acronym typed before a particle
+     *  (RNA까지), which is for the particle splitter to judge. Never in 3-set, which holds no Shift. */
+    bool hasHeldOverCapital(const std::u16string& keys);
+
+    /** Every run of capitals begins on a Korean shift key (RKFRMA, rjtQNS), as when Shift is held
+     *  on from a double consonant; not Hello, OpenAI or TypeScript. */
+    bool capitalRunsStartOnShiftKeys(const std::u16string& keys);
 
     /** The jamo a key produces, or nullopt for non-letters.
      *  Uppercase letters without a shifted jamo fall back to the lowercase jamo,

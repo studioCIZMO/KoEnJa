@@ -73,6 +73,9 @@ public:
     /** Everyday English (level ≤ 20): kept English even right after Korean or Japanese. */
     bool isCommonWord(const std::u16string& token) const;
 
+    /** Acronyms people write (RNA, GMT, WYSIWYG; SCOWL, Data/english_acronyms.txt), in capitals. */
+    static const std::unordered_set<std::u16string>& acronyms();
+
     static const std::unordered_set<std::u16string>& shortWords();
     /** Everyday/technical words SCOWL is missing or ranks rare. */
     static const std::vector<std::u16string>& commonWords();

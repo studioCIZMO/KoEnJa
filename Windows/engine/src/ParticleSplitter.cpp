@@ -34,6 +34,9 @@ std::optional<ParticleSplitter::Scored> ParticleSplitter::scored(const std::u16s
     if (n < 3 || english.isKnownWord(keys)) return std::nullopt;
     std::optional<Split> best;
     double bestScore = 0.0;
+    // An acronym before the particle, in capitals Shift held on would explain too (RNA까지 as
+    // RNARkwl, 꿈까지): the keys aren't read as Korean throughout.
+    bool acronymFront = false;
     auto offer = [&](Split split, const std::u16string& front, double particle, const std::u16string* korean = nullptr) {
         auto w = frontScore(front);
         if (!w) return;
@@ -52,6 +55,7 @@ std::optional<ParticleSplitter::Scored> ParticleSplitter::scored(const std::u16s
         auto text = composed->text();
         if (!MixedWord::suffixes().count(text)) continue;
         auto front = keys.substr(0, start);
+        if (isHeldShiftAcronym(front, tail, text, keys)) acronymFront = true;
         offer(Korean{MixedWord{front, tail, text}}, front,
               coreKorean().count(text) ? weights.coreParticle : weights.otherParticle, &text);
     }
@@ -66,7 +70,7 @@ std::optional<ParticleSplitter::Scored> ParticleSplitter::scored(const std::u16s
     }
     auto [w, word] = englishThenKoreanWord(keys);
     if (!best && !word) return std::nullopt;
-    double k = koreanScore(keys);
+    double k = acronymFront ? NEGATIVE_INFINITY : koreanScore(keys);
     double e = english.averageLogProbability(keys) - weights.unknownWord / double(n);
     double j = japaneseOn ? japaneseScore(keys) : NEGATIVE_INFINITY;
     double whole = std::max({k, e, j});
@@ -107,6 +111,14 @@ std::pair<double, std::optional<ParticleSplitter::WordSplit>> ParticleSplitter::
     return {best, split};
 }
 
+bool ParticleSplitter::isHeldShiftAcronym(const std::u16string& front, const std::u16string& tail, const std::u16string& particle,
+                                          const std::u16string& keys) const {
+    if (!EnglishModel::acronyms().count(front) || !DubeolsikLayout::hasHeldOverCapital(keys) ||
+        !all(tail, [](char16_t c) { return !isUpperCase(c) || DubeolsikLayout::isKoreanShiftKey(c); })) return false;
+    return !readsAsKorean(front)
+        || MixedWord::particleAgrees(particle, MixedWord::finalSoundOfAcronym(front)) != false;
+}
+
 bool ParticleSplitter::mayStandAsWord(const std::u16string& front, bool englishOnlyCapital, bool knownKorean) const {
     return englishOnlyCapital || !isAcronym(front) || (knownKorean && !spellsSeenKorean(front));
 }
@@ -132,11 +144,17 @@ std::optional<double> ParticleSplitter::frontScore(const std::u16string& front) 
 std::optional<std::pair<double, bool>> ParticleSplitter::frontReading(const std::u16string& front) const {
     if (front.size() < 2 || !all(front, isAsciiLetter)) return std::nullopt;
     // Capitals that are all shifted jamo in keys that spell clean Hangul are Korean typed
-    // with shift (akffkRod: 말라깽, tkrlRns: 사기꾼), not an acronym or a name.
+    // with shift (akffkRod: 말라깽, tkrlRns: 사기꾼), not an acronym or a name. So are capitals
+    // in runs that each start on a Korean shift key, in two syllables or more people use:
+    // Shift held on (RKFRMA, 깔끔 of 깔끔하다; rjtQNS, 것뿐). One syllable is still an acronym
+    // (RNA, not 꿈), and so is one whose syllables nobody writes (TOEIC, not 썌땿).
     auto composed = HangulComposer::compose(front);
-    bool korean = all(front, [](char16_t c) { return !isUpperCase(c) || DubeolsikLayout::isKoreanShiftKey(c); })
+    bool held = DubeolsikLayout::capitalRunsStartOnShiftKeys(front) && composed && composed->syllables().size() >= 2
+        && readsAsKorean(front);
+    bool korean = (held || all(front, [](char16_t c) { return !isUpperCase(c) || DubeolsikLayout::isKoreanShiftKey(c); }))
         && composed && composed->strayJamo().empty();
-    if (!korean && isAcronym(front)) return std::pair(weights.acronym, true);
+    // A listed acronym is one at any length (WYSIWYG, FORTRAN), not only of 2 to 6 capitals.
+    if (!korean && (isAcronym(front) || EnglishModel::acronyms().count(front))) return std::pair(weights.acronym, true);
     // A name scores lower the rarer its last part: macOS + 문서에서, not macOSans (Sans) + 서에서.
     if (!korean) {
         if (auto level = nameLevel(front)) return std::pair(weights.name - weights.perLevel * double(std::max(0, *level - 10)), true);

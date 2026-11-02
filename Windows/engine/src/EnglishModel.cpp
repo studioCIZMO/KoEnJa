@@ -176,6 +176,15 @@ EnglishModel EnglishModel::load(const std::optional<std::filesystem::path>& spel
     return EnglishModel(levels, &spelling, commonWords());
 }
 
+const std::unordered_set<std::u16string>& EnglishModel::acronyms() {
+    static const auto set = [] {
+        auto lines = Resources::lines("english_acronyms.txt");
+        if (!lines) fprintf(stderr, "KoEnJa: English acronym list missing\n");
+        return lines ? std::unordered_set<std::u16string>(lines->begin(), lines->end()) : std::unordered_set<std::u16string>();
+    }();
+    return set;
+}
+
 const std::unordered_set<std::u16string>& EnglishModel::shortWords() {
     static const auto list = rea::words(uR"(
         a i ad ah am an as at aw ax be by do eh go ha he hi hm if in is it lo ma me mo my no of oh ok on or ow ox pa

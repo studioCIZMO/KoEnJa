@@ -56,18 +56,62 @@ object DubeolsikLayout {
     /** A capital on a key with no shifted jamo, not counting a lingering Shift: Shift still down
      *  for the one key right after a Korean shift key (어떤 typed fast is djEJs, 바뀌 is qkRNl:
      *  Shift was still down for the vowel after ㄸ or ㄲ). Such keys read as Korean or English by
-     *  their scores; any other capital (Hello, API, dHello) is only ever English. A Shift lingers
-     *  between lowercase keys, so a word typed in capitals throughout (TM, RN, TL: acronyms) gets
-     *  no such allowance, nor does ㅒ/ㅖ with no consonant before it (PDF, OAuth).
+     *  their scores, and so do keys Shift was held over on purpose ([heldOver]); any other capital
+     *  (Hello, API, dHello) is only ever English. A Shift lingers between lowercase keys, so a word
+     *  typed in capitals throughout (TM, RN, TL: acronyms) gets no such allowance, nor does ㅒ/ㅖ
+     *  with no consonant before it (PDF, OAuth).
      *  Not ported: LatinLayout's seats (QWERTY only) and 3-set. */
-    fun hasEnglishOnlyCapital(keys: String): Boolean {
+    fun hasEnglishOnlyCapital(keys: String): Boolean = UnshiftedCapital.ENGLISH in unshiftedCapitals(keys)
+
+    /** Capitals that only Shift held on over them explains ([heldOver]; the A of RNARkwl, 꿈까지),
+     *  none that are English for sure. Such keys may as well be an acronym typed before a particle
+     *  (RNA까지), which is for the particle splitter to judge. */
+    fun hasHeldOverCapital(keys: String): Boolean {
+        val kinds = unshiftedCapitals(keys)
+        return UnshiftedCapital.HELD in kinds && UnshiftedCapital.ENGLISH !in kinds
+    }
+
+    /** Why a capital with no shifted jamo is there: Shift lingering for the one key after a Korean
+     *  shift key, Shift held on over it ([heldOver]), or neither, English. */
+    private enum class UnshiftedCapital { LINGERING, HELD, ENGLISH }
+
+    private fun unshiftedCapitals(keys: String): List<UnshiftedCapital> {
         val hasLowercase = keys.any { it.isLowerCase() }
-        for ((i, key) in keys.withIndex()) {
-            if (!key.isUpperCase() || key in shifted) continue
-            if (hasLowercase && i >= 1 && lingers(keys[i - 1], keys.getOrNull(i - 2), key)) continue
-            return true
+        return keys.indices.filter { keys[it].isUpperCase() && keys[it] !in shifted }.map { i ->
+            when {
+                hasLowercase && i >= 1 && lingers(keys[i - 1], keys.getOrNull(i - 2), keys[i]) -> UnshiftedCapital.LINGERING
+                heldOver(i, keys) -> UnshiftedCapital.HELD
+                else -> UnshiftedCapital.ENGLISH
+            }
         }
-        return false
+    }
+
+    /** Shift held down from a Korean shift key over the keys after it, since Shift doesn't change
+     *  them: 깔끔하다 as RKFRMAgkek (held from ㄲ to ㄲ and on through 끔), 빨리 as QKFfl. The run of
+     *  capitals has to start on a Korean shift key, end before the word does (a word in capitals
+     *  throughout is an acronym: RKFRMA, QUICK), and the keys have to spell whole Hangul, so
+     *  TFxla, PCqkd and OAuth stay English. */
+    private fun heldOver(i: Int, keys: String): Boolean {
+        val run = capitalRuns(keys).firstOrNull { i in it } ?: return false
+        if (!isKoreanShiftKey(keys[run.first]) || run.last + 1 >= keys.length || !keys[run.last + 1].isLowerCase()) return false
+        return HangulComposer.compose(keys)?.let { !it.isBroken } == true
+    }
+
+    /** Every run of capitals begins on a Korean shift key (RKFRMA, rjtQNS), as when Shift is held
+     *  on from a double consonant; not Hello, OpenAI or TypeScript. */
+    fun capitalRunsStartOnShiftKeys(keys: String) = capitalRuns(keys).all { isKoreanShiftKey(keys[it.first]) }
+
+    /** The runs of consecutive capitals, as ranges of positions. */
+    private fun capitalRuns(keys: String): List<IntRange> {
+        val runs = ArrayList<IntRange>()
+        var i = 0
+        while (i < keys.length) {
+            if (!keys[i].isUpperCase()) { i += 1; continue }
+            val start = i
+            while (i < keys.length && keys[i].isUpperCase()) i += 1
+            runs.add(start until i)
+        }
+        return runs
     }
 
     /** Shift still down for [key], right after [shiftKey], a Korean shift key that needed it. After

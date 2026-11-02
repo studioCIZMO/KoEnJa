@@ -29,6 +29,31 @@ object HangulComposer {
         return compose(jamos)
     }
 
+    /** The keys composed, or where digits or symbols are inside (k8s, utf-8) each run of letters
+     *  composed on its own; null when a run doesn't compose (or there are no letters). */
+    fun composeEachRun(keys: String): List<Result>? {
+        compose(keys)?.let { return listOf(it) }
+        val runs = keys.split(Regex("[^\\p{L}]+")).filter(String::isNotEmpty)
+        if (runs.isEmpty()) return null
+        return runs.map { compose(it) ?: return null }
+    }
+
+    /** Keys with digits or symbols inside (k8s, utf-8, an English word that kept them): each run of
+     *  letters composed on its own, the rest as typed (ㅏ8ㄴ, ㅕㅅㄹ-8). */
+    fun composeRuns(keys: String): String {
+        val text = StringBuilder()
+        val run = StringBuilder()
+        fun flush() {
+            if (run.isNotEmpty()) text.append(compose(run.toString())?.text ?: run)
+            run.clear()
+        }
+        for (key in keys) {
+            if (key.isLetter()) run.append(key) else { flush(); text.append(key) }
+        }
+        flush()
+        return text.toString()
+    }
+
     fun compose(jamos: List<Char>): Result {
         val units = ArrayList<Unit>()
         var cho: Char? = null

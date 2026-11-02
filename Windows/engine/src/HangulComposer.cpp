@@ -56,6 +56,39 @@ std::optional<Result> HangulComposer::compose(const std::u16string& keys) {
     return composeJamo(jamos);
 }
 
+std::optional<std::vector<Result>> HangulComposer::composeEachRun(const std::u16string& keys) {
+    if (auto whole = compose(keys)) return std::vector<Result>{*whole};
+    if (isSebeolsik()) return std::nullopt;
+    std::vector<Result> results;
+    std::u16string run;
+    for (size_t i = 0; i <= keys.size(); i++) {
+        if (i < keys.size() && isLetter(keys[i])) { run += keys[i]; continue; }
+        if (run.empty()) continue;
+        auto result = compose(run);
+        if (!result) return std::nullopt;
+        results.push_back(*result);
+        run.clear();
+    }
+    if (results.empty()) return std::nullopt;
+    return results;
+}
+
+std::u16string HangulComposer::composeRuns(const std::u16string& keys) {
+    std::u16string text, run;
+    auto flush = [&] {
+        if (run.empty()) return;
+        auto composed = compose(run);
+        text += composed ? composed->text() : run;
+        run.clear();
+    };
+    for (char16_t key : keys) {
+        if (isLetter(key)) run += key;
+        else { flush(); text += key; }
+    }
+    flush();
+    return text;
+}
+
 Result HangulComposer::composeJamo(const std::u16string& jamos) {
     std::vector<Unit> units;
     units.reserve(jamos.size());

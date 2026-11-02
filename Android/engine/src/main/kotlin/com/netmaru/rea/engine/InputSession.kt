@@ -373,6 +373,11 @@ class InputSession(
                     updatePreview(client)
                     return true
                 }
+                if (!endsInURL && keepsInWord(ch)) {
+                    keys += ch // k8s, utf-8, 안녕1: one word, read piece by piece (SplittingEngine.decideJoined)
+                    updatePreview(client)
+                    return true
+                }
                 if (ch == ' ' && currentLanguage() == Language.JAPANESE && converter != null) {
                     startConversion(client)
                     return true
@@ -613,6 +618,22 @@ class InputSession(
      *  word already read as Japanese ("hello." and "dho?" = 왜? stay what they were).
      *  The in-word marks ー and ' may also turn an English-looking start into Japanese
      *  ("ra" → "ra-" → らー), but never take a word away from Korean. */
+    /** A digit, `-` or `_` typed into a word shown as English or Korean stays in it rather than
+     *  committing it, so k8s, utf-8 and 안녕1 are one word to the switch key (ㅕㅅㄹ-8 goes back to
+     *  utf-8 whole). So does a single letter shown as a jamo (h2o, l10n: not ㅗ2お). Not in Japanese,
+     *  whose marks are its own ([belongsToJapanesePhrase]). */
+    private fun keepsInWord(ch: Char): Boolean {
+        if (!SplittingEngine.joinsWord(ch) || keys.firstOrNull()?.isLetter() != true) return false
+        if (keys.length == 1 && forced == null) return true
+        return when (forced ?: pinned ?: previewLanguage) {
+            Language.ENGLISH, Language.KOREAN, Language.MIXED -> true
+            // Kana with a letter still waiting for its vowel (env: えんv) is no Japanese phrase to keep
+            // the mark in ([belongsToJapanesePhrase] took those), so the word goes on too.
+            Language.JAPANESE -> forced == null && RomajiComposer.compose(keys, partial = true).pending.lowercase() !in listOf("", "n")
+            null -> false
+        }
+    }
+
     private fun belongsToJapanesePhrase(ch: Char): Boolean {
         if (ch.isAsciiDigit) {
             if (!digitsFullWidth) return false
@@ -1157,7 +1178,7 @@ class InputSession(
             previewLanguage = forcedOrPinned
             show(when (forcedOrPinned) {
                 Language.JAPANESE -> japaneseDisplay()
-                Language.KOREAN -> hangul() ?: keys
+                Language.KOREAN -> hangul() ?: HangulComposer.composeRuns(keys)
                 else -> engine.render(keys, forcedOrPinned)
             }, client)
         } else {
@@ -1281,7 +1302,7 @@ class InputSession(
     /** The word so far rendered in [language], or null when it has no such reading. */
     private fun preview(language: Language): String? = when (language) {
         Language.ENGLISH -> keys
-        Language.KOREAN -> hangul()
+        Language.KOREAN -> hangul() ?: (if (keys.any(SplittingEngine::joinsWord)) HangulComposer.composeRuns(keys) else null)
         Language.MIXED -> engine.render(keys, Language.MIXED).takeIf { it != keys }
         // Only っ and letters (ss: っs) is no Japanese word, so it isn't a reading to hold on to.
         Language.JAPANESE -> if (!japaneseEnabled || RomajiComposer.compose(keys, partial = true).isOnlySokuon) null

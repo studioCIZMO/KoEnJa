@@ -40,7 +40,7 @@ Language nextLanguage(Language language, const std::u16string& keys, bool japane
         switch (l) {
             case Language::ENGLISH: ok = true; break;
             case Language::MIXED: ok = splits ? *splits : MixedWord::split(keys).has_value(); break;
-            case Language::KOREAN: ok = HangulComposer::compose(keys).has_value(); break;
+            case Language::KOREAN: ok = HangulComposer::composeEachRun(keys).has_value(); break;
             case Language::JAPANESE: ok = japanese; break;
         }
         if (ok) available.push_back(l);
@@ -49,8 +49,8 @@ Language nextLanguage(Language language, const std::u16string& keys, bool japane
     for (auto l : available) {
         bool ok = true;
         if (l == Language::KOREAN) {
-            auto composed = HangulComposer::compose(keys);
-            ok = composed && (composed->strayJamo().empty() || composed->isJamoAbbreviation());
+            auto runs = HangulComposer::composeEachRun(keys);
+            ok = runs && std::all_of(runs->begin(), runs->end(), [](auto& r) { return r.strayJamo().empty() || r.isJamoAbbreviation(); });
         } else if (l == Language::JAPANESE) {
             ok = RomajiComposer::compose(keys).strayLetters == 0;
         }
@@ -72,7 +72,7 @@ std::u16string DecisionEngine::render(const std::u16string& keys, Language langu
         case Language::ENGLISH: return keys;
         case Language::KOREAN: {
             auto composed = HangulComposer::compose(keys);
-            return composed ? composed->text() : keys;
+            return composed ? composed->text() : HangulComposer::composeRuns(keys);
         }
         case Language::MIXED: {
             // The engine's own split (hello월드, github에); the particle split for engines without one.
@@ -94,10 +94,19 @@ Decision HeuristicEngine::decide(const std::u16string& keys, const DecisionConte
     // A number is a number.
     if (!keys.empty() && all(keys, isNumber)) return Decision{Language::ENGLISH, 0.99, keys, u"a number"};
     // Shift on a key that has no shifted jamo (e.g. "Hello", "API") is only ever English,
-    // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를):
-    // then the scores decide.
+    // unless it lingers from a Korean shift key onto the next key (djEJs 어떤, dPFmf 예를) or
+    // is held from one over whole Hangul (RKFRMAgkek 깔끔하다): then the scores decide.
     if (DubeolsikLayout::hasEnglishOnlyCapital(keys)) {
         return Decision{Language::ENGLISH, 0.99, keys, u"uppercase outside QWERTOP"};
+    }
+    // Held Shift reads as Korean over whole Hangul only. A consonant left over is the next
+    // syllable on its way while typing (깔끔ㅎ of 깔끔하다), but a word that ends on one was
+    // English: Colemak's GMTs (쓸ㅇ), WYSIWYGs.
+    if (!context.partial && DubeolsikLayout::hasHeldOverCapital(keys)) {
+        auto composed = HangulComposer::compose(keys);
+        if (composed && composed->endsWithPendingConsonant()) {
+            return Decision{Language::ENGLISH, 0.99, keys, u"held Shift over a stray consonant"};
+        }
     }
 
     double e = english.averageLogProbability(filter(keys, isLetter));

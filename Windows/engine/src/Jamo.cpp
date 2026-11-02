@@ -1,5 +1,8 @@
 #include "Jamo.h"
 
+#include <vector>
+
+#include "HangulComposer.h"
 #include "Sebeolsik.h"
 
 namespace rea {
@@ -90,15 +93,70 @@ static bool lingers(char16_t shiftKey, std::optional<char16_t> twoBack, char16_t
     }
 }
 
-bool DubeolsikLayout::hasEnglishOnlyCapital(const std::u16string& keys) {
-    if (isSebeolsik()) return Sebeolsik::hasEnglishOnlyCapital(keys);
-    bool hasLowercase = any(keys, isLowerCase);
-    for (size_t i = 0; i < keys.size(); i++) {
-        if (!isUpperCase(keys[i]) || shifted().count(keys[i])) continue;
-        if (hasLowercase && i >= 1 && lingers(keys[i - 1], i >= 2 ? std::optional(keys[i - 2]) : std::nullopt, keys[i])) continue;
-        return true;
+/** The runs of consecutive capitals, as [start, end) positions. */
+static std::vector<std::pair<size_t, size_t>> capitalRuns(const std::u16string& keys) {
+    std::vector<std::pair<size_t, size_t>> runs;
+    size_t i = 0;
+    while (i < keys.size()) {
+        if (!isUpperCase(keys[i])) { i++; continue; }
+        size_t start = i;
+        while (i < keys.size() && isUpperCase(keys[i])) i++;
+        runs.push_back({start, i});
+    }
+    return runs;
+}
+
+/** Shift held down from a Korean shift key over the keys after it, since Shift doesn't change
+ *  them: 깔끔하다 as RKFRMAgkek (held from ㄲ to ㄲ and on through 끔), 빨리 as QKFfl. The run of
+ *  capitals has to start on a Korean shift key, end before the word does (a word in capitals
+ *  throughout is an acronym: RKFRMA, QUICK), and the keys have to spell whole Hangul, so
+ *  TFxla, PCqkd and OAuth stay English. */
+static bool heldOver(size_t i, const std::u16string& keys) {
+    for (auto [start, end] : capitalRuns(keys)) {
+        if (i < start || i >= end) continue;
+        if (!DubeolsikLayout::isKoreanShiftKey(keys[start]) || end >= keys.size() || !isLowerCase(keys[end])) return false;
+        auto composed = HangulComposer::compose(keys);
+        return composed && !composed->isBroken();
     }
     return false;
+}
+
+/** Why a capital with no shifted jamo is there: Shift lingering for the one key after a Korean
+ *  shift key, Shift held on over it (`heldOver`), or neither, English. */
+enum class UnshiftedCapital { Lingering, Held, English };
+
+static std::vector<UnshiftedCapital> unshiftedCapitals(const std::u16string& keys) {
+    bool hasLowercase = any(keys, isLowerCase);
+    std::vector<UnshiftedCapital> kinds;
+    for (size_t i = 0; i < keys.size(); i++) {
+        if (!isUpperCase(keys[i]) || shifted().count(keys[i])) continue;
+        if (hasLowercase && i >= 1 && lingers(keys[i - 1], i >= 2 ? std::optional(keys[i - 2]) : std::nullopt, keys[i])) {
+            kinds.push_back(UnshiftedCapital::Lingering);
+        } else {
+            kinds.push_back(heldOver(i, keys) ? UnshiftedCapital::Held : UnshiftedCapital::English);
+        }
+    }
+    return kinds;
+}
+
+static bool hasKind(const std::vector<UnshiftedCapital>& kinds, UnshiftedCapital kind) {
+    return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
+}
+
+bool DubeolsikLayout::hasEnglishOnlyCapital(const std::u16string& keys) {
+    if (isSebeolsik()) return Sebeolsik::hasEnglishOnlyCapital(keys);
+    return hasKind(unshiftedCapitals(keys), UnshiftedCapital::English);
+}
+
+bool DubeolsikLayout::hasHeldOverCapital(const std::u16string& keys) {
+    if (isSebeolsik()) return false;
+    auto kinds = unshiftedCapitals(keys);
+    return hasKind(kinds, UnshiftedCapital::Held) && !hasKind(kinds, UnshiftedCapital::English);
+}
+
+bool DubeolsikLayout::capitalRunsStartOnShiftKeys(const std::u16string& keys) {
+    for (auto [start, end] : capitalRuns(keys)) if (!isKoreanShiftKey(keys[start])) return false;
+    return true;
 }
 
 std::optional<char16_t> DubeolsikLayout::jamo(char16_t key) {

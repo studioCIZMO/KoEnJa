@@ -117,6 +117,7 @@ class SplittingEngine(
     val particles = ParticleSplitter(english, korean, japanese?.japanese)
 
     override fun decide(keys: String, context: DecisionContext): Decision {
+        decideJoined(keys, context)?.let { return it }
         // English word + particle, Korean (github에) or with Japanese on Japanese (githubで),
         // when that reading beats the whole token in one language. Before English + Korean
         // word: beautywo is beauty + を, not beau + 쇼재.
@@ -134,7 +135,122 @@ class SplittingEngine(
         return base.decide(keys, context)
     }
 
+    /** A word that kept the digits and `-`/`_` typed into it ([InputSession]: k8s, utf-8, 안녕1),
+     *  read piece by piece between them, each English unless it reads as Korean by enough
+     *  ([readsAsKoreanPiece]: 옵션1, 보고서_최종, 제1장; not cmd0, en_s2c, src_dir) or is a particle
+     *  after the last of them (mp3를, k8s에); not a Japanese phrase, clean romaji throughout
+     *  (ra-men, kyou3ji). */
+    fun decideJoined(keys: String, context: DecisionContext): Decision? {
+        if (keys.firstOrNull()?.isLetter() != true || !keys.any(::joinsWord)) return null
+        val base = base.decide(keys, context)
+        // An English word before the mark keeps it English, as it did before the mark joined it
+        // (five-o, woo-hoo), and so do English words throughout (to-do, co-op); a two-letter
+        // front that is also romaji (pa-tigakita, ra-men) doesn't.
+        val segments = keys.split('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '-', '_').filter(String::isNotEmpty)
+        if (base.language == Language.JAPANESE && RomajiComposer.compose(keys).strayLetters == 0 &&
+            !(segments.firstOrNull()?.let { it.length >= 3 && english.isKnownWord(it) } ?: false) &&
+            !segments.all(english::isKnownWord)) return base
+
+        val pieces = ArrayList<Pair<StringBuilder, Boolean>>() // text, letters
+        for (ch in keys) {
+            val letters = !joinsWord(ch)
+            val last = pieces.lastOrNull()
+            if (last != null && last.second == letters) last.first.append(ch) else pieces.add(StringBuilder().append(ch) to letters)
+        }
+        val output = StringBuilder()
+        val languages = HashSet<Language>()
+        var confidence = CONFIDENCE
+        var previous: Language? = null // how the last letters before this piece went in
+        for ((index, piece) in pieces.withIndex()) {
+            val text = piece.first.toString()
+            if (!piece.second) { output.append(text); continue }
+            val beforeDigit = index + 1 < pieces.size && pieces[index + 1].first.first().isNumber
+            val afterDigit = index > 0 && pieces[index - 1].first.last().isNumber
+            val particle = if (index > 0 && index == pieces.size - 1) particle(after = text) else null
+            if (readsAsKoreanPiece(text, beforeDigit, afterDigit, afterEnglish = previous == Language.ENGLISH,
+                                   atEnd = index == pieces.size - 1)) {
+                output.append(HangulComposer.composeRuns(text))
+                languages.add(Language.KOREAN)
+                previous = Language.KOREAN
+                // Only as sure as the letters alone are (as the word without the digit would go in),
+                // so a Strict app keeps an unsure one English.
+                if (index == 0) confidence = minOf(confidence, this.base.decide(text, context).confidence)
+            } else if (particle != null) {
+                // A particle ending the word after the last digit or mark, or one letter on (mp3 + 를,
+                // k8s + 에: sdp; not mp3fmf-1); not an English word there (merry-go: not 해, heh-heh: not
+                // 도), nor more of one (mani-pedi).
+                output.append(particle.first).append(particle.second)
+                languages.add(Language.KOREAN)
+                if (particle.first.isNotEmpty()) languages.add(Language.ENGLISH)
+            } else {
+                output.append(text)
+                languages.add(Language.ENGLISH)
+                previous = Language.ENGLISH
+            }
+        }
+        val language = if (languages.size > 1) Language.MIXED else languages.firstOrNull() ?: Language.ENGLISH
+        return Decision(language, confidence, output.toString(), "joined $output")
+    }
+
+    /** Letters next to a digit, `-` or `_` are code more often than the same letters alone: Korean
+     *  only when the whole piece's Korean score leads its English score by `identifierCost`
+     *  (옵션1, 보고서_최종, 안녕1하세요; not en_s2c as 두_s2c), and a single syllable, rarely a word
+     *  in code, by `oneSyllableInIdentifier` more (not cmd0 as 층0, src_dir as src_약), unless it is
+     *  counted after a number (제1장, 3월5일) or one written before one (제1, 주3회, 표1). */
+    fun readsAsKoreanPiece(keys: String, beforeDigit: Boolean, afterDigit: Boolean, afterEnglish: Boolean, atEnd: Boolean): Boolean {
+        val lead = koreanLead(keys) ?: return false
+        val composed = HangulComposer.compose(keys) ?: return false
+        // After English a particle is the English word's, at the word's end only (mp3를, mp3에서; not
+        // mp3를-1, mp3에서-1); after Korean the same syllables are words of their own (해서_1, 같은_것).
+        val particle = afterEnglish && composed.text in MixedWord.suffixes
+        if (particle && !atEnd) return false
+        val w = particles.weights
+        val counted = afterDigit && !particle || beforeDigit && composed.text in NUMBER_WORDS
+        return lead > w.identifierCost + (if (composed.syllables.size < 2 && !counted) w.oneSyllableInIdentifier else 0.0)
+    }
+
+    /** The piece's Korean score less its English one, over all its keys (null when it isn't clean
+     *  Hangul): [ParticleSplitter]'s readings, a vocabulary word floored, English as a known word
+     *  or spelled. */
+    fun koreanLead(keys: String): Double? {
+        if (keys.firstOrNull()?.let(DubeolsikLayout::startsSyllable) != true) return null
+        if (HangulComposer.compose(keys)?.strayJamo?.isEmpty() != true) return null
+        val w = particles.weights
+        val korean = particles.koreanScore(keys) * keys.length
+        if (!korean.isFinite()) return null
+        val lower = keys.lowercase()
+        val spelling = english.averageLogProbability(lower) * keys.length
+        val level = english.level(lower)
+        val englishScore = when {
+            level != null && level <= EnglishModel.KNOWN_LEVEL -> maxOf(spelling, w.knownBase - w.perLevel * level)
+            keys.uppercase() in EnglishModel.acronyms -> maxOf(spelling, w.acronym)
+            else -> spelling - w.unknownWord
+        }
+        return korean - englishScore
+    }
+
+    /** A particle making up [keys] or starting one letter into it (fmf: 를, sdp: s + 에), unless
+     *  [keys] is an English word. */
+    private fun particle(after: String): Pair<String, String>? {
+        if (english.isKnownWord(after)) return null
+        for (start in 0 until minOf(2, after.length)) {
+            val suffix = after.substring(start)
+            if (!DubeolsikLayout.startsSyllable(suffix[0])) continue
+            val composed = HangulComposer.compose(suffix) ?: continue
+            if (composed.strayJamo.isNotEmpty() || composed.text !in MixedWord.suffixes) continue
+            return after.substring(0, start) to composed.text
+        }
+        return null
+    }
+
     companion object {
+        /** Syllables written right before a number (제1장, 주3회, 표1): Tatoeba's Korean has 제 and 주
+         *  there, and documents number 표, 장, 절, 항, 조 and 호. */
+        val NUMBER_WORDS = setOf("제", "주", "표", "장", "절", "항", "조", "호")
+
+        /** What an English word keeps while it is typed: digits, `-` and `_`. */
+        fun joinsWord(ch: Char) = ch.isAscii && (ch.isNumber || ch == '-' || ch == '_')
+
         /** How sure a split is: above Strict ([AppPolicy.STRICT_THRESHOLD]), since each rule already
          *  asks for an English front it can stand on, so github에 splits in a terminal too. */
         const val CONFIDENCE = 0.98

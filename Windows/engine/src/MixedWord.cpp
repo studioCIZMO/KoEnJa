@@ -1,5 +1,8 @@
 #include "MixedWord.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "HangulComposer.h"
 #include "Jamo.h"
 #include "JapaneseSegmenter.h"
@@ -107,6 +110,7 @@ SplittingEngine::SplittingEngine(std::shared_ptr<DecisionEngine> base, const Eng
       particles(std::make_shared<ParticleSplitter>(english, this->korean, this->japanese ? &this->japanese->japanese : nullptr)) {}
 
 Decision SplittingEngine::decide(const std::u16string& keys, const DecisionContext& context) {
+    if (auto decision = decideJoined(keys, context)) return *decision;
     // English word + particle, Korean (github에) or with Japanese on Japanese (githubで),
     // when that reading beats the whole token in one language. Before English + Korean
     // word: beautywo is beauty + を, not beau + 쇼재.
@@ -122,6 +126,114 @@ Decision SplittingEngine::decide(const std::u16string& keys, const DecisionConte
         return Decision{Language::MIXED, CONFIDENCE, single->text(), u"split " + single->english + u"+" + single->korean};
     }
     return base->decide(keys, context);
+}
+
+std::optional<Decision> SplittingEngine::decideJoined(const std::u16string& keys, const DecisionContext& context) {
+    if (isSebeolsik() || keys.empty() || !isLetter(keys[0]) || !any(keys, joinsWord)) return std::nullopt;
+    auto baseDecision = base->decide(keys, context);
+    // An English word before the mark keeps it English, as it did before the mark joined it
+    // (five-o, woo-hoo), and so do English words throughout (to-do, co-op); a two-letter
+    // front that is also romaji (pa-tigakita, ra-men) doesn't.
+    std::vector<std::u16string> segments;
+    for (size_t i = 0, start = 0; i <= keys.size(); i++) {
+        if (i < keys.size() && !joinsWord(keys[i])) continue;
+        if (i > start) segments.push_back(keys.substr(start, i - start));
+        start = i + 1;
+    }
+    auto known = [&](const std::u16string& s) { return english.isKnownWord(s); };
+    if (baseDecision.language == Language::JAPANESE && RomajiComposer::compose(keys).strayLetters == 0 &&
+        !(!segments.empty() && segments[0].size() >= 3 && known(segments[0])) &&
+        !std::all_of(segments.begin(), segments.end(), known)) return baseDecision;
+
+    struct Piece { std::u16string text; bool letters; };
+    std::vector<Piece> pieces;
+    for (char16_t ch : keys) {
+        bool letters = !joinsWord(ch);
+        if (!pieces.empty() && pieces.back().letters == letters) pieces.back().text += ch;
+        else pieces.push_back({std::u16string(1, ch), letters});
+    }
+    std::u16string output;
+    bool hasEnglish = false, hasKorean = false;
+    double confidence = CONFIDENCE;
+    std::optional<Language> previous; // how the last letters before this piece went in
+    for (size_t index = 0; index < pieces.size(); index++) {
+        auto& piece = pieces[index];
+        if (!piece.letters) { output += piece.text; continue; }
+        bool beforeDigit = index + 1 < pieces.size() && isNumber(pieces[index + 1].text.front());
+        bool afterDigit = index > 0 && isNumber(pieces[index - 1].text.back());
+        if (readsAsKoreanPiece(piece.text, beforeDigit, afterDigit, previous == Language::ENGLISH, index == pieces.size() - 1)) {
+            output += HangulComposer::composeRuns(piece.text);
+            hasKorean = true;
+            previous = Language::KOREAN;
+            // Only as sure as the letters alone are (as the word without the digit would go in),
+            // so a Strict app keeps an unsure one English.
+            if (index == 0) confidence = std::min(confidence, base->decide(piece.text, context).confidence);
+        } else if (auto split = index > 0 && index == pieces.size() - 1 ? particleAfter(piece.text) : std::nullopt) {
+            // A particle ending the word after the last digit or mark, or one letter on (mp3 + 를,
+            // k8s + 에: sdp; not mp3fmf-1); not an English word there (merry-go: not 해, heh-heh: not
+            // 도), nor more of one (mani-pedi).
+            output += split->first + split->second;
+            hasKorean = true;
+            if (!split->first.empty()) hasEnglish = true;
+        } else {
+            output += piece.text;
+            hasEnglish = true;
+            previous = Language::ENGLISH;
+        }
+    }
+    Language language = hasEnglish && hasKorean ? Language::MIXED : hasKorean ? Language::KOREAN : Language::ENGLISH;
+    return Decision{language, confidence, output, u"joined " + output};
+}
+
+bool SplittingEngine::readsAsKoreanPiece(const std::u16string& keys, bool beforeDigit, bool afterDigit, bool afterEnglish,
+                                         bool atEnd) const {
+    auto lead = koreanLead(keys);
+    auto composed = HangulComposer::compose(keys);
+    if (!lead || !composed) return false;
+    auto text = composed->text();
+    // After English a particle is the English word's, at the word's end only (mp3를, mp3에서; not
+    // mp3를-1, mp3에서-1); after Korean the same syllables are words of their own (해서_1, 같은_것).
+    bool particle = afterEnglish && MixedWord::suffixes().count(text);
+    if (particle && !atEnd) return false;
+    auto& w = particles->weights;
+    bool counted = (afterDigit && !particle) || (beforeDigit && numberWords().count(text));
+    return *lead > w.identifierCost + (composed->syllables().size() < 2 && !counted ? w.oneSyllableInIdentifier : 0);
+}
+
+std::optional<double> SplittingEngine::koreanLead(const std::u16string& keys) const {
+    if (keys.empty() || !DubeolsikLayout::startsSyllable(keys[0])) return std::nullopt;
+    auto composed = HangulComposer::compose(keys);
+    if (!composed || !composed->strayJamo().empty()) return std::nullopt;
+    auto& w = particles->weights;
+    double korean = particles->koreanScore(keys) * double(keys.size());
+    if (!std::isfinite(korean)) return std::nullopt;
+    auto lower = lowercase(keys);
+    double spelling = english.averageLogProbability(lower) * double(keys.size());
+    auto upper = keys;
+    for (auto& c : upper) if (isLowerCase(c)) c -= 0x20;
+    double englishScore;
+    auto level = english.level(lower);
+    if (level && *level <= EnglishModel::KNOWN_LEVEL) englishScore = std::max(spelling, w.knownBase - w.perLevel * double(*level));
+    else if (EnglishModel::acronyms().count(upper)) englishScore = std::max(spelling, w.acronym);
+    else englishScore = spelling - w.unknownWord;
+    return korean - englishScore;
+}
+
+const std::unordered_set<std::u16string>& SplittingEngine::numberWords() {
+    static const std::unordered_set<std::u16string> set = {u"제", u"주", u"표", u"장", u"절", u"항", u"조", u"호"};
+    return set;
+}
+
+std::optional<std::pair<std::u16string, std::u16string>> SplittingEngine::particleAfter(const std::u16string& keys) const {
+    if (english.isKnownWord(keys)) return std::nullopt;
+    for (size_t start = 0; start < std::min<size_t>(2, keys.size()); start++) {
+        auto suffix = keys.substr(start);
+        if (!DubeolsikLayout::startsSyllable(suffix[0])) continue;
+        auto composed = HangulComposer::compose(suffix);
+        if (!composed || !composed->strayJamo().empty() || !MixedWord::suffixes().count(composed->text())) continue;
+        return std::pair(keys.substr(0, start), composed->text());
+    }
+    return std::nullopt;
 }
 
 bool SplittingEngine::hasEnglishOnlyCapital(const std::u16string& front) { return DubeolsikLayout::hasEnglishOnlyCapital(front); }

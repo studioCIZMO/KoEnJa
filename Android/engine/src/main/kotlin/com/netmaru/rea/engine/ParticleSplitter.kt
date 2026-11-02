@@ -55,6 +55,12 @@ class ParticleSplitter(
         var japaneseOffset: Double = 1.4,
         /** How far (per key) the split has to lead the best whole-token reading. */
         var margin: Double = 0.3,
+        /** How far a piece of a word with digits, `-` or `_` in it ([SplittingEngine.decideJoined])
+         *  has to lead as Korean over English, over all its keys, and how much more a single
+         *  syllable: tuned on identifiers and words before digits made from en_50k, common
+         *  abbreviations and ko_50k (src_dir, cmd0, 보고서_최종, 옵션1), as in #39. */
+        var identifierCost: Double = 2.5,
+        var oneSyllableInIdentifier: Double = 20.0,
     )
 
     sealed interface Split {
@@ -76,6 +82,9 @@ class ParticleSplitter(
         if (n < 3 || english.isKnownWord(keys)) return null
         var best: Split? = null
         var bestScore = 0.0
+        // An acronym before the particle, in capitals Shift held on would explain too (RNA까지 as
+        // RNARkwl, 꿈까지): the keys aren't read as Korean throughout.
+        var acronymFront = false
         fun offer(split: Split, front: String, particle: Double, korean: String? = null) {
             val w = frontScore(front) ?: return
             var particle = particle
@@ -92,6 +101,7 @@ class ParticleSplitter(
             val composed = HangulComposer.compose(tail) ?: continue
             if (composed.strayJamo.isNotEmpty() || composed.text !in MixedWord.suffixes) continue
             val front = keys.substring(0, start)
+            if (isHeldShiftAcronym(front, tail, composed.text, keys)) acronymFront = true
             offer(Split.Korean(MixedWord(front, tail, composed.text)), front,
                   if (composed.text in coreKorean) weights.coreParticle else weights.otherParticle, composed.text)
         }
@@ -106,7 +116,7 @@ class ParticleSplitter(
         }
         val (w, word) = englishThenKoreanWord(keys)
         if (best == null && word == null) return null
-        val k = koreanScore(keys)
+        val k = if (acronymFront) Double.NEGATIVE_INFINITY else koreanScore(keys)
         val e = english.averageLogProbability(keys) - weights.unknownWord / n
         val j = if (japaneseOn) japaneseScore(keys) else Double.NEGATIVE_INFINITY
         val whole = maxOf(k, e, j)
@@ -155,6 +165,19 @@ class ParticleSplitter(
         return best to split
     }
 
+    /** An acronym people write ([EnglishModel.acronyms]: RNA, GMT, not EKF of 딸한테) before a
+     *  Korean particle, where nothing but Shift held on ([DubeolsikLayout.hasHeldOverCapital])
+     *  would make the keys Korean throughout: RNARkwl is RNA까지, not 꿈까지. The acronym has to
+     *  be the whole run of capitals (EHSms stays 또는; the particle's own shift keys aside, the R
+     *  of 까지), and where it spells Hangul people use (RNA, 꿈), the particle has to be the form
+     *  the acronym takes: RNA를, but RNAdmf is 꿈을. */
+    private fun isHeldShiftAcronym(front: String, tail: String, particle: String, keys: String): Boolean {
+        if (front !in EnglishModel.acronyms || !DubeolsikLayout.hasHeldOverCapital(keys) ||
+            !tail.all { !it.isUpperCase() || DubeolsikLayout.isKoreanShiftKey(it) }) return false
+        return !readsAsKorean(front)
+            || MixedWord.particleAgrees(particle, MixedWord.finalSoundOfAcronym(front)) != false
+    }
+
     /** Whether an acronym or name may be the front of a split, not only compete with one: when
      *  a capital no lingering Shift explains is in the keys, or a known Korean word follows and
      *  its own keys spell a syllable no list or corpus has (EU as ㄸ+ㅕ: 뗘). Korean typed fast
@@ -184,10 +207,17 @@ class ParticleSplitter(
     fun frontReading(front: String): Pair<Double, Boolean>? {
         if (front.length < 2 || !front.all { it.isAsciiLetter }) return null
         // Capitals that are all shifted jamo in keys that spell clean Hangul are Korean typed
-        // with shift (akffkRod: 말라깽, tkrlRns: 사기꾼), not an acronym or a name.
-        val korean = front.all { !it.isUpperCase() || DubeolsikLayout.isKoreanShiftKey(it) }
-            && HangulComposer.compose(front)?.strayJamo?.isEmpty() == true
-        if (!korean && isAcronym(front)) return weights.acronym to true
+        // with shift (akffkRod: 말라깽, tkrlRns: 사기꾼), not an acronym or a name. So are capitals
+        // in runs that each start on a Korean shift key, in two syllables or more people use:
+        // Shift held on (RKFRMA, 깔끔 of 깔끔하다; rjtQNS, 것뿐). One syllable is still an acronym
+        // (RNA, not 꿈), and so is one whose syllables nobody writes (TOEIC, not 썌땿).
+        val composed = HangulComposer.compose(front)
+        val held = DubeolsikLayout.capitalRunsStartOnShiftKeys(front) && (composed?.syllables?.size ?: 0) >= 2
+            && readsAsKorean(front)
+        val korean = (held || front.all { !it.isUpperCase() || DubeolsikLayout.isKoreanShiftKey(it) })
+            && composed?.strayJamo?.isEmpty() == true
+        // A listed acronym is one at any length (WYSIWYG, FORTRAN), not only of 2 to 6 capitals.
+        if (!korean && (isAcronym(front) || front in EnglishModel.acronyms)) return weights.acronym to true
         // A name scores lower the rarer its last part: macOS + 문서에서, not macOSans (Sans) + 서에서.
         if (!korean) nameLevel(front)?.let { return weights.name - weights.perLevel * max(0, it - 10) to true }
         // Lowercase (or a capital at the start: a name, or the start of a sentence) needs

@@ -62,6 +62,12 @@ public:
         double japaneseOffset = 1.4;
         /** How far (per key) the split has to lead the best whole-token reading. */
         double margin = 0.3;
+        /** How far a piece of a word with digits, `-` or `_` in it (`SplittingEngine::decideJoined`)
+         *  has to lead as Korean over English, over all its keys, and how much more a single
+         *  syllable: tuned on identifiers and words before digits made from en_50k, common
+         *  abbreviations and ko_50k (src_dir, cmd0, 보고서_최종, 옵션1), as in #39. */
+        double identifierCost = 2.5;
+        double oneSyllableInIdentifier = 20.0;
     };
 
     struct Korean { MixedWord mixed; };
@@ -145,6 +151,15 @@ public:
     static bool isAcronym(const std::u16string& front);
 
 private:
+    /** An acronym people write (`EnglishModel::acronyms`: RNA, GMT, not EKF of 딸한테) before a
+     *  Korean particle, where nothing but Shift held on (`DubeolsikLayout::hasHeldOverCapital`)
+     *  would make the keys Korean throughout: RNARkwl is RNA까지, not 꿈까지. The acronym has to
+     *  be the whole run of capitals (EHSms stays 또는; the particle's own shift keys aside, the R
+     *  of 까지), and where it spells Hangul people use (RNA, 꿈), the particle has to be the form
+     *  the acronym takes: RNA를, but RNAdmf is 꿈을. */
+    bool isHeldShiftAcronym(const std::u16string& front, const std::u16string& tail, const std::u16string& particle,
+                            const std::u16string& keys) const;
+
     /** Whether an acronym or name may be the front of a split, not only compete with one: when
      *  a capital no lingering Shift explains is in the keys, or a known Korean word follows and
      *  its own keys spell a syllable no list or corpus has (EU as ㄸ+ㅕ: 뗘). Korean typed fast

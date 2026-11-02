@@ -1,7 +1,8 @@
 // Session checks: Japanese with a fake converter (Delete on a conversion and in live conversion,
 // Space after a letter waiting for its vowel, the switch key on a live phrase shown as kana, and
 // words that go in through a conversion counting as typed): the C++ twin of a few of Swift's
-// JapaneseSessionTests. And Korean on 3-set, SebeolsikTests.swift's.
+// JapaneseSessionTests. And Korean on 3-set, SebeolsikTests.swift's, and on 2-set Araso 0.4.5's
+// words (Shift held on, an acronym before a particle, digits, - and _ kept in a word).
 //
 // Usage: session_test <data dir>
 
@@ -435,6 +436,38 @@ int main(int argc, char** argv) {
         session->handle(DELETE, field);
         CHECK(field.value == u"가");
         currentKoreanLayout = KoreanLayout::DUBEOLSIK;
+    }
+
+    { // 2-set, Araso 0.4.5: JoinedWordTests, FixingTests and MixedAndPolicyTests.
+        auto type = [](const std::u16string& text) {
+            Field field;
+            auto session = Engines::makeSession({Language::KOREAN, Language::ENGLISH, Language::JAPANESE}, nullptr);
+            session->activate();
+            for (char16_t ch : text) {
+                Key key = ch == u'⎋' ? CYCLE : isLetter(ch) ? Key::letter(ch) : Key::printable(ch);
+                if (!session->handle(key, field) && ch != u'⎋') field.insertText(std::u16string(1, ch), std::nullopt);
+            }
+            return field.value;
+        };
+        // An acronym keeps its particle; Shift held on over whole Hangul is Korean.
+        CHECK(type(u"RNARkwl ") == u"RNA까지 ");
+        CHECK(type(u"RNAdmf ") == u"꿈을 ");
+        CHECK(type(u"WYSIWYGdl ") == u"WYSIWYG이 ");
+        CHECK(type(u"RKFRMAgkek ") == u"깔끔하다 ");
+        CHECK(type(u"QKFfl ") == u"빨리 ");
+        CHECK(type(u"EHSms ") == u"또는 ");
+        // digitsStayInTheWordBeingTyped, theSwitchKeyChangesTheWholeWord
+        CHECK(type(u"k8s ") == u"k8s ");
+        CHECK(type(u"k8s ⎋") == u"ㅏ8ㄴ ");
+        CHECK(type(u"utf-8⎋") == u"ㅕㅅㄹ-8");
+        // aKoreanWordKeepsItsDigits, and code stays English
+        CHECK(type(u"dhqtus1 ") == u"옵션1 ");
+        CHECK(type(u"dkssud-1 ⎋") == u"dkssud-1 ");
+        CHECK(type(u"vy1 wn3ghl ") == u"표1 주3회 ");
+        CHECK(type(u"cmd0 en_s2c src_dir ") == u"cmd0 en_s2c src_dir ");
+        CHECK(type(u"co-op ") == u"co-op ");
+        // aKoreanParticleAfterTheDigitsSplits
+        CHECK(type(u"mp3fmf utf-8dmf mp3fmf-1 ") == u"mp3를 utf-8을 mp3fmf-1 ");
     }
 
     printf("session: %d/%d\n", checks - failures, checks);

@@ -232,6 +232,11 @@ bool InputSession::handle(Key key, TextClient& client) {
                 updatePreview(client);
                 return true;
             }
+            if (!endsInURL && keepsInWord(ch)) {
+                keys += ch; // k8s, utf-8, 안녕1: one word, read piece by piece (`SplittingEngine::decideJoined`)
+                updatePreview(client);
+                return true;
+            }
             if (ch == u' ' && currentLanguage() == Language::JAPANESE && converter) {
                 startConversion(client);
                 return true;
@@ -505,6 +510,22 @@ void InputSession::noteBrackets(const std::u16string& text) {
             openBrackets.pop_back();
         }
     }
+}
+
+/** A digit, `-` or `_` typed into a word shown as English or Korean stays in it rather than
+ *  committing it, so k8s, utf-8 and 안녕1 are one word to the switch key (ㅕㅅㄹ-8 goes back to
+ *  utf-8 whole). So does a single letter shown as a jamo (h2o, l10n: not ㅗ2お). Not in Japanese,
+ *  whose marks are its own (`belongsToJapanesePhrase`), nor on 3-set, whose digit keys are jamo. */
+bool InputSession::keepsInWord(char16_t ch) {
+    if (!SplittingEngine::joinsWord(ch) || isSebeolsik() || keys.empty() || !isLetter(keys[0])) return false;
+    if (keys.size() == 1 && !forced) return true;
+    auto shown = forced ? forced : pinned ? pinned : previewLanguage;
+    if (!shown) return false;
+    if (*shown != Language::JAPANESE) return true;
+    // Kana with a letter still waiting for its vowel (env: えんv) is no Japanese phrase to keep
+    // the mark in (`belongsToJapanesePhrase` took those), so the word goes on too.
+    auto pending = lowercase(RomajiComposer::compose(keys, true).pending);
+    return !forced && !pending.empty() && pending != u"n";
 }
 
 /** Whether a symbol typed after the current word continues a Japanese phrase.
@@ -1091,7 +1112,7 @@ void InputSession::updatePreview(TextClient& client) {
         previewLanguage = forcedOrPinned;
         std::u16string text;
         if (*forcedOrPinned == Language::JAPANESE) text = japaneseDisplay();
-        else if (*forcedOrPinned == Language::KOREAN) text = hangul().value_or(keys);
+        else if (*forcedOrPinned == Language::KOREAN) { auto h = hangul(); text = h ? *h : HangulComposer::composeRuns(keys); }
         else text = engine->render(keys, *forcedOrPinned);
         show(text, client);
     } else {
@@ -1223,7 +1244,11 @@ void InputSession::splitOffJapaneseBeforeKorean(TextClient& client) {
 std::optional<std::u16string> InputSession::preview(Language language) {
     switch (language) {
         case Language::ENGLISH: return keys;
-        case Language::KOREAN: return hangul();
+        case Language::KOREAN: {
+            if (auto h = hangul()) return h;
+            if (any(keys, SplittingEngine::joinsWord)) return HangulComposer::composeRuns(keys);
+            return std::nullopt;
+        }
         case Language::MIXED: {
             auto mixed = engine->render(keys, Language::MIXED);
             if (mixed == keys) return std::nullopt;
