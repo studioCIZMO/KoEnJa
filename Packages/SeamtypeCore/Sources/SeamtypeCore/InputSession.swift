@@ -28,7 +28,7 @@ public protocol TextClient: AnyObject {
     var insertsRightAfterAnInsert: Bool { get }
     /// An empty insert, to delete a range, never reaches the field (macOS: `startSymbol`, Notes): a fix
     /// at the field's start has the caret put there with a zero-width space (`Fixing.placeholder`).
-    /// Elsewhere the field's first word is switched in place (`switchInPlace`), as before.
+    /// Elsewhere (fcitx5) an empty insert takes the word away and leaves the caret there.
     var dropsEmptyInserts: Bool { get }
 }
 
@@ -573,17 +573,18 @@ public final class InputSession {
             if startFixingCommitted(pending, client) { return handleFixing(key, client: client) }
             if key == .left, deferFixing(pending, client) { return false } // the app moves the caret first
         }
-        // More symbols or a space right after a word a symbol ended (`world. `, `world?! `): the window
-        // stays open over them, so a switch key still changes the word, as after `world `. Up to the
-        // first space. Not where the key is the input method's own (Japanese symbols and full-width
-        // space after Japanese, a closing bracket, a URL), which goes on as after any word.
-        if case .printable(let ch) = key, ch == " " || Self.isBoundarySymbol(ch), keys.isEmpty, let pending,
+        // More symbols, digits or a space right after a word a symbol or digit ended (`world. `,
+        // `world?! `, `utf-8`, `dkssud12`): the window stays open over them, so a switch key still
+        // changes the word, as after `world `. Up to the first space. Not where the key is the input
+        // method's own (Japanese symbols, digits and full-width space after Japanese, a closing
+        // bracket, a URL), which goes on as after any word.
+        if case .printable(let ch) = key, ch == " " || ch.isNumber || Self.isBoundarySymbol(ch), keys.isEmpty, let pending,
            pending.inLine == nil, let end = pending.boundary.last, !end.isWhitespace,
            !Self.hasURLMarker(run(client) + String(ch)), !closesFullWidth(ch),
            previousLanguage != .japanese || (ch == " " && !(fullWidthSpace && japaneseEnabled && policy.fullWidth)) {
             lastCommit = pending.followed(by: ch)
             passedRun = nil
-            afterDigit = false
+            afterDigit = ch.isNumber
             afterKoreanSymbol = inKoreanSymbols && ch != " "
             noteRun(String(ch))
             return false // the app types it
@@ -739,6 +740,11 @@ public final class InputSession {
                 keys.append(ch)
                 // Digits don't read as anything: the phrase stays Japanese, as it was shown.
                 if ch.isNumber, forced == nil { forced = .japanese; forcedByUser = false }
+                updatePreview(client)
+                return true
+            }
+            if !endsInURL, keepsInWord(ch) {
+                keys.append(ch) // k8s, utf-8, 안녕1: one word, read piece by piece (`SplittingEngine.decideJoined`)
                 updatePreview(client)
                 return true
             }
@@ -1169,7 +1175,6 @@ public final class InputSession {
         let markEnd = entry.location + utf16(fixing.markOriginal)
         closeFlipWindow()
         if client.marksFromCaret, at != entry.location {
-            guard canTakeAway(entry.location, client) else { return false } // switched in place instead
             // Marked text goes at the caret here, whatever range is named, while an insert that starts
             // or ends at the caret goes where it says. So: the rest of the word over itself (the caret
             // at its end), then the word gone with the character before it put back (the caret at the
@@ -1189,11 +1194,14 @@ public final class InputSession {
     /// The fix's text from its start to `end`, the caret, taken away with the caret left at its start,
     /// where marked text then goes in a macOS text view: the character before it put back over it (an
     /// insert ending at the caret goes where it says). At the field's start, with no character before,
-    /// a zero-width space instead (`Fixing.placeholder`), since an empty insert is dropped on the way
-    /// to the app (Notes: the word stayed, and the marked text went in after it).
+    /// an empty insert where it reaches the field (fcitx5's deletion), else a zero-width space
+    /// (`Fixing.placeholder`), since an empty insert is dropped on the way to a macOS text view (Notes:
+    /// the word stayed, and the marked text went in after it).
     private func takeAway(_ fixing: inout Fixing, to end: Int, _ client: TextClient) {
         if let before = characterBefore(fixing.start, client) {
             client.insertText(before.text, replacing: NSRange(location: before.range.location, length: end - before.range.location))
+        } else if !client.dropsEmptyInserts {
+            client.insertText("", replacing: NSRange(location: fixing.start, length: end - fixing.start))
         } else {
             client.insertText(Self.placeholder, replacing: NSRange(location: fixing.start, length: end - fixing.start))
             fixing.placeholder = true
@@ -1203,11 +1211,6 @@ public final class InputSession {
     }
 
     private static let placeholder = "\u{200B}"
-
-    /// Whether `takeAway` can leave the caret at `location`.
-    private func canTakeAway(_ location: Int, _ client: TextClient) -> Bool {
-        client.dropsEmptyInserts || characterBefore(location, client) != nil
-    }
 
     /// The fix's zero-width space taken away once the fix is in or put back: the text from it to the
     /// caret put back without it, an insert ending at the caret going where it says. Left where the
@@ -1286,14 +1289,15 @@ public final class InputSession {
     private static let trailingLimit = 4096
 
     /// The word being typed, for ⇧← or an arrow after a switch: it becomes the fix, marked as
-    /// it is, and stops being typed (Return or a key puts it in, as a fix). Not a held word, Japanese
-    /// (its kana and conversion are the candidate window's), or one typed with Caps Lock (the fix
-    /// writes to the field as it is).
+    /// it is, and stops being typed (Return or a key puts it in, as a fix). Japanese too, as kana (a
+    /// live candidate goes back to its kana): Space on it whole converts, as on the word just
+    /// committed. Not a word in kanji conversion (the candidate window's), a held word, or one typed
+    /// with Caps Lock (the fix writes to the field as it is).
     private func startFixingTyped(_ client: TextClient) -> Bool {
         guard keys.count > 1, conversion == nil, heldBoundary == nil, !capsWord, client.marksAnywhere else { return false }
         let shown = forced ?? pinned ?? previewLanguage ?? decide(partial: true).language
         let marked = client.markedRange()
-        guard shown != .japanese, marked.location != NSNotFound, marked.length > 0,
+        guard marked.location != NSNotFound, marked.length > 0,
               let original = client.text(in: marked) else { return false }
         let piece = Fixing.Piece(keys: keys, decided: committedLanguage(), language: shown, text: original,
                                  boundary: "", typedBoundary: nil, learns: !inURLRun, typed: true)
@@ -1319,8 +1323,8 @@ public final class InputSession {
     /// is confirmed, as that word is. Its space or symbol is marked with it (`lastBoundaryMarked`): the
     /// caret is after them, and what is taken away has to end at the caret, where an insert in a macOS
     /// text view goes where it says (`marksFromCaret`). There the word and its boundary go, the
-    /// character before them put back (the caret at the word's start), and the marked text goes in at
-    /// the caret; at the field's start, with no character before, the arrow goes to the app as before.
+    /// character before them put back (the caret at the word's start, or at the field's start as
+    /// `takeAway` puts it there), and the marked text goes in at the caret.
     /// The line after it isn't read: the caret was typing there, and goes back there once the fix is in
     /// (Notes gives nothing for the empty range at the text's end, which `readTrailing` takes for an end
     /// not known). Not a word switched in place, or one typed with Caps Lock.
@@ -1332,7 +1336,6 @@ public final class InputSession {
               client.insertsRightAfterAnInsert || afterCaretMove,
               caret.location == NSMaxRange(range), caret.length == 0, client.text(in: range) == commit.text
         else { return false }
-        if client.marksFromCaret, !canTakeAway(commit.location, client) { return false }
         let piece = Fixing.Piece(keys: commit.keys, decided: commit.decided, language: commit.language,
                                  text: String(commit.text.dropLast(commit.boundary.count)), boundary: commit.boundary,
                                  typedBoundary: commit.typedBoundary, learns: commit.learns, typed: true)
@@ -1436,7 +1439,6 @@ public final class InputSession {
             let end = commit.location + utf16(commit.text)
             if keys.isEmpty, fixing == nil, recent.last?.location == commit.location, let at,
                caret.length == 0, caret.location > at, caret.location < end,
-               !Self.uncased(cased).marksFromCaret || canTakeAway(commit.location, Self.uncased(cased)),
                Self.uncased(cased).text(in: NSRange(location: commit.location, length: end - commit.location)) == commit.text {
                 let rest = NSRange(location: caret.location, length: end - caret.location)
                 Self.uncased(cased).insertText((commit.text as NSString).substring(from: rest.location - commit.location),
@@ -1994,6 +1996,22 @@ public final class InputSession {
     /// word already read as Japanese ("hello." and "dho?" = 왜? stay what they were).
     /// The in-word marks ー and ' may also turn an English-looking start into Japanese
     /// ("ra" → "ra-" → らー), but never take a word away from Korean.
+    /// A digit, `-` or `_` typed into a word shown as English or Korean stays in it rather than
+    /// committing it, so k8s, utf-8 and 안녕1 are one word to the switch key (ㅕㅅㄹ-8 goes back to
+    /// utf-8 whole). So does a single letter shown as a jamo (h2o, l10n: not ㅗ2お). Not in Japanese,
+    /// whose marks are its own (`belongsToJapanesePhrase`), nor on 3-set, whose digit keys are jamo.
+    private func keepsInWord(_ ch: Character) -> Bool {
+        guard SplittingEngine.joinsWord(ch), !KoreanLayout.current.isSebeolsik, keys.first?.isLetter == true else { return false }
+        if keys.count == 1, forced == nil { return true }
+        switch forced ?? pinned ?? previewLanguage {
+        case .english?, .korean?, .mixed?: return true
+        // Kana with a letter still waiting for its vowel (env: えんv) is no Japanese phrase to keep
+        // the mark in (`belongsToJapanesePhrase` took those), so the word goes on too.
+        case .japanese?: return forced == nil && !["", "n"].contains(RomajiComposer.compose(keys, partial: true).pending.lowercased())
+        case nil: return false
+        }
+    }
+
     private func belongsToJapanesePhrase(_ ch: Character) -> Bool {
         if ch.isASCII, ch.isNumber {
             guard digitsFullWidth else { return false }
@@ -2695,7 +2713,7 @@ public final class InputSession {
     private func rendering(as language: Language) -> String {
         switch language {
         case .japanese: return japaneseDisplay()
-        case .korean: return hangul() ?? keys
+        case .korean: return hangul() ?? HangulComposer.composeRuns(keys)
         default: return engine.render(keys, as: language)
         }
     }
@@ -2834,7 +2852,7 @@ public final class InputSession {
     private func preview(as language: Language) -> String? {
         switch language {
         case .english: return keys
-        case .korean: return hangul()
+        case .korean: return hangul() ?? (keys.contains(where: SplittingEngine.joinsWord) ? HangulComposer.composeRuns(keys) : nil)
         case .mixed:
             let text = engine.render(keys, as: .mixed)
             return text == keys ? nil : text
