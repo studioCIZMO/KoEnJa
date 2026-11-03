@@ -47,7 +47,7 @@ kinouemailwookutta⏎                                       →  きのうemail�
 - **One key when it's wrong**: the switch key (the `한あA` key on iOS) puts the word in its next language. It also works right after Space committed it (`go` → `해`).
 - **Language priority**: choose whether an ambiguous word goes Korean or Japanese, 한국어 우선 or 日本語優先.
 - **Kanji conversion**: on Windows it works like Microsoft IME, with Space and 変換, F6–F10, and segments with Shift+←/→.
-- **Three platforms, the same decisions**: the Swift (iOS), Kotlin (Android) and C++ (Windows) engines pass the same 1,884-line golden test without a single line different.
+- **Three platforms, the same decisions**: the Swift (iOS), Kotlin (Android) and C++ (Windows) engines pass the same 1,916-line golden test without a single line different.
 - **On the device only**: nothing you type leaves it.
 - **99.4% accurate**: measured with Araso's own evaluation tools on 5,998 held-out words and phrases, Japanese on ([evaluation](#evaluation)).
 
@@ -110,7 +110,7 @@ that folder if you don't need them.
 
 ### iOS
 
-In App Store review. We'll announce it here and on the [website](https://cizmo.net/KoEnJa/en).
+Get it on the [App Store](https://apps.apple.com/app/id6824875642) (iOS 16 or later, free).
 After installing, choose your languages and their order in the app, then add the KoEnJa keyboard in Settings →
 General → Keyboard. **Allow Full Access** lets the keyboard read the language order and settings chosen in the app
 and use haptics ([Privacy](#privacy)).
@@ -149,6 +149,7 @@ Shift+Space or Ctrl+Space instead. For Ctrl+Shift, turn off Windows' Ctrl+Shift 
 - **The `한あA` key** puts the current word in its next language. Right after Space, it changes the word just committed.
 - You choose your languages and their order in the app. The first one takes an ambiguous word.
 - While you type Japanese, the candidate bar shows conversions; after a commit it shows what usually comes next.
+- **Suggestions & Correction** (in the app's settings): turn off suggestions, autocorrect, edge-touch correction or next-word prediction one by one. A feature that is off isn't computed, so typing gets lighter.
 
 ## How it decides
 
@@ -219,17 +220,17 @@ they likely come from Tatoeba data downloaded on the day and from engine changes
 
 | Engine | Result |
 | --- | --- |
-| Swift (iOS) | `golden.tsv` regenerated: all 1,884 lines identical |
-| Kotlin (Android) | 1884/1884 |
-| C++, clang (macOS) | 1884/1884, 9.3 µs per key (Apple M4) |
-| C++, MSVC (CI, GitHub windows-2022) | 1884/1884, 25.7–26.1 µs per key (last three runs) |
+| Swift (iOS) | `golden.tsv` regenerated: all 1,916 lines identical |
+| Kotlin (Android) | 1916/1916 |
+| C++, clang (macOS) | 1916/1916, 9.3 µs per key (Apple M4) |
+| C++, MSVC (CI, GitHub windows-2022) | 1916/1916, 25.7–26.1 µs per key (last three runs) |
 
 The MSVC golden test runs in [CI](.github/workflows/windows.yml) on every push to `main`.
 
 ## Known limitations
 
 - Windows 0.1.0 is not code-signed ([Code signing policy](#code-signing-policy)). It's x64 only; ARM64 Windows isn't supported.
-- iOS is in App Store review; Android isn't on Google Play yet, only as an APK. The Android app's screens are in Korean only for now.
+- Android isn't on Google Play yet, only as an APK. The Android app's screens are in Korean only for now.
 - Keys that are words in two languages (`go`/해, `so`/내) can come out wrong; fix them with the switch key.
 - An English word with a Japanese particle can be read as Japanese (`sitede` → `してで`, `tokenwo` → `とけんを`).
 - The top kanji candidate matches the original in about 4 of 5 phrases and 2 of 3 sentences (the iOS path); pick the others from the list.
@@ -266,7 +267,7 @@ KoEnJa uses the **engine** of [Araso](https://github.com/nyttastudio/araso) (© 
 
 | Part | Where it comes from |
 |---|---|
-| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.4.1), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
+| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.4.5), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
 | Language engine, Android (`Android/engine`, Kotlin) and Windows (`Windows/engine`, C++20) | Written for KoEnJa to follow Araso's engine, then checked against it. The Swift, Kotlin and C++ engines replay the same golden file (`Android/engine/src/test/resources/golden.tsv`) and must match line for line. |
 | Mac input method (`Mac/`) | Araso's macOS input method (`Sources/Araso`, 0.4.1), taken under the MIT License and connected to KoEnJa's engine, with its name, bundle ID, storage folder, update check and menu icon changed (listed in `Mac/UPSTREAM`). |
 | iOS keyboard and app (`iOS/`) | Written for KoEnJa: the key layout, candidate bar, switch key and settings. |
