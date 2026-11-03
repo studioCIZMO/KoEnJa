@@ -22,9 +22,17 @@ struct LanguagePreferences: Equatable {
     var fullWidthDigits = false
     var fullWidthSpace = false
     var liveConversion = false
+    /// The keyboard's own helpers, each work on the main thread between keys; off = not computed
+    /// at all (the spell checker isn't even loaded when suggestions and autocorrect are both off).
+    var suggestions = true
+    var autocorrect = true
+    var touchCorrection = true
+    var nextWords = true
     private static let options: [(String, WritableKeyPath<Self, Bool>)] = [
         ("returnConfirmsOnly", \.returnConfirmsOnly), ("fullWidthDigits", \.fullWidthDigits),
         ("fullWidthSpace", \.fullWidthSpace), ("liveConversion", \.liveConversion),
+        ("suggestions", \.suggestions), ("autocorrect", \.autocorrect),
+        ("touchCorrection", \.touchCorrection), ("nextWords", \.nextWords),
     ]
 
     /// The usual setups: who you talk to decides the pair.

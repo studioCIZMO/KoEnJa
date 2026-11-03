@@ -474,9 +474,12 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         guard entry == nil else { return }
+        guard Self.preferences?.autocorrect != false else { return }
         // Kana with romaji left over (てh) goes in as English: its typo fix too.
         let leftover = session.lastTrace?.decision.language == .japanese && word.contains(where: \.isASCII)
-        if let fix = suggestions.autocorrect ?? (leftover ? Suggestions.english(word: session.keys, model: heuristic.english).autocorrect : nil) {
+        // With the bar's suggestions off, the fix is looked up only here, on Space.
+        let current = Self.preferences?.suggestions == false ? wordSuggestions()?.suggestions : suggestions
+        if let fix = current?.autocorrect ?? (leftover ? Suggestions.english(word: session.keys, model: heuristic.english).autocorrect : nil) {
             TraceLog.write("AUTOCORRECT \(word) → \(fix)")
             replaceWord(with: fix)
         }
@@ -486,7 +489,7 @@ final class KeyboardViewController: UIInputViewController {
     /// much more likely (fgem → fhem, 로드). Mozc and azooKey also correct by touch position.
     /// ponytail: one key at a time, a fixed band and margin; tune them with traces.
     private func corrected(_ letter: Character) -> Character {
-        guard !numbers, !session.keys.isEmpty, let keyStack, let point = keyStack.lastTouch,
+        guard Self.preferences?.touchCorrection != false, !numbers, !session.keys.isEmpty, let keyStack, let point = keyStack.lastTouch,
               let typed = letterKeys.first(where: { $0.letter == letter }) else { return letter }
         let neighbor = letterKeys.filter { $0.letter != letter }
             .map { (letter: $0.letter, distance: keyStack.distance(point, $0.button)) }
@@ -532,17 +535,8 @@ final class KeyboardViewController: UIInputViewController {
             }
         }
         suggestions = Suggestions()
-        let word = client.marked
-        if candidates.isEmpty, !word.isEmpty, let trace = session.lastTrace, trace.keys == session.keys {
-            var typed = word
-            switch trace.decision.language {
-            // The word in the language decided (the preview may still show another: てh for teh).
-            case .korean: typed = HangulComposer.compose(keys: session.keys)?.text ?? word
-                suggestions = .korean(word: typed, keys: session.keys, model: heuristic.korean)
-            case .english: typed = session.keys
-                suggestions = .english(word: typed, model: heuristic.english)
-            default: break
-            }
+        if candidates.isEmpty, Self.preferences?.suggestions != false, let (typed, found) = wordSuggestions() {
+            suggestions = found
             if !suggestions.words.isEmpty {
                 // The word as typed, then the suggestions; a tap puts the word in with a space.
                 addCandidate("“\(typed)”", selected: false) { [unowned self] in
@@ -557,7 +551,8 @@ final class KeyboardViewController: UIInputViewController {
                 }
             }
         }
-        if candidates.isEmpty, session.keys.isEmpty, let azooKey = converter as? AzooKeyConverter {
+        if candidates.isEmpty, session.keys.isEmpty, Self.preferences?.nextWords != false,
+           let azooKey = converter as? AzooKeyConverter {
             // ponytail: one step; azooKey chains predictions (learning each pick with the last).
             for word in azooKey.nextWords().prefix(30) {
                 addCandidate(word, selected: false) { [unowned self] in
@@ -570,6 +565,23 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var suggestions = Suggestions()
+
+    /// Fixes and completions for the word being typed, in the language decided (the preview may
+    /// still show another: てh for teh), with the word as typed in that language.
+    private func wordSuggestions() -> (typed: String, suggestions: Suggestions)? {
+        let word = client.marked
+        guard !word.isEmpty, let trace = session.lastTrace, trace.keys == session.keys else { return nil }
+        switch trace.decision.language {
+        case .korean:
+            let typed = HangulComposer.compose(keys: session.keys)?.text ?? word
+            return (typed, .korean(word: typed, keys: session.keys, model: heuristic.korean))
+        case .english:
+            return (session.keys, .english(word: session.keys, model: heuristic.english,
+                                           complete: Self.preferences?.suggestions != false,
+                                           correct: Self.preferences?.autocorrect != false))
+        default: return nil
+        }
+    }
 
     /// Finish the session, replacing only the differing end of the displayed word.
     private func replaceWord(with text: String) {

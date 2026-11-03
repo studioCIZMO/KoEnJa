@@ -108,7 +108,8 @@ struct Suggestions: Equatable {
         "shes": "she's", "hes": "he's", "itll": "it'll", "weve": "we've",
     ]
 
-    static func english(word: String, model: EnglishModel) -> Suggestions {
+    /// `complete`: offer completions of a correct word; `correct`: look for the autocorrect fix.
+    static func english(word: String, model: EnglishModel, complete: Bool = true, correct: Bool = true) -> Suggestions {
         if let fix = apostrophes[word.lowercased()], word != fix {
             // Capitalized as typed (Dont → Don't); I stays I.
             let cased = word.first?.isUppercase == true ? fix.prefix(1).uppercased() + fix.dropFirst() : fix
@@ -117,9 +118,10 @@ struct Suggestions: Equatable {
         let range = NSRange(location: 0, length: (word as NSString).length)
         let typo = word.count >= 2 && !model.isKnownWord(word.lowercased())
             && checker.rangeOfMisspelledWord(in: word, range: range, startingAt: 0, wrap: false, language: "en_US").location != NSNotFound
-        guard typo else { return Suggestions(words: complete(word, language: "en_US")) }
+        guard typo else { return Suggestions(words: complete ? completions(word, language: "en_US") : []) }
         let guesses = (checker.guesses(forWordRange: range, in: word, language: "en_US") ?? [])
             .filter { !$0.contains(" ") && !$0.contains("-") }
+        guard correct else { return Suggestions(words: Array(guesses.prefix(2))) }
         // Only a guess one slip away is trusted for autocorrect; others are just offered.
         let slips = Set(oneSlip(word.lowercased(), missing: true))
         // Among those the most common word (SCOWL's level; teh is the, not tech), then one that
@@ -145,7 +147,7 @@ struct Suggestions: Equatable {
         return true
     }
 
-    private static func complete(_ word: String, language: String) -> [String] {
+    private static func completions(_ word: String, language: String) -> [String] {
         let range = NSRange(location: 0, length: (word as NSString).length)
         return (checker.completions(forPartialWordRange: range, in: word, language: language) ?? [])
             .filter { $0 != word }.prefix(2).map { $0 }

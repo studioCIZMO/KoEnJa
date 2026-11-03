@@ -53,6 +53,17 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("추천 단어", isOn: $preferences.suggestions)
+                    Toggle("자동 고침", isOn: $preferences.autocorrect)
+                    Toggle("가장자리 터치 보정", isOn: $preferences.touchCorrection)
+                    Toggle("다음 단어 예측 (일본어)", isOn: $preferences.nextWords)
+                } header: {
+                    Text("추천과 교정")
+                } footer: {
+                    Text("키를 칠 때마다 계산합니다. 입력이 느리게 느껴지면 꺼 보세요. 끈 기능은 계산하지 않고, 추천 단어와 자동 고침을 둘 다 끄면 맞춤법 사전도 읽지 않습니다.")
+                }
+
+                Section {
                     Toggle("키 소리", isOn: $sound)
                     Toggle("햅틱", isOn: $haptics)
                 } header: {
