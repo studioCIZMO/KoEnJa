@@ -20,6 +20,16 @@ struct SettingsView: View {
         NavigationStack {
             Form {
                 if Self.screenshot { trySection }
+                Section("키보드 켜기") {
+                    Button("설정 열기") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
+                        .accessibilityIdentifier("openSettings")
+                    DisclosureGroup("설정 방법", isExpanded: $showingSteps) {
+                        step("1. 위의 「설정 열기」를 누르고 「키보드」로 들어갑니다.", image: 1)
+                        step("2. 한영일과 전체 접근 허용을 켭니다.", image: 2)
+                        step("3. 확인 창에서 허용을 누릅니다. 전체 접근 허용은 이 앱의 언어 설정을 키보드가 읽는 데 필요하고, 입력한 내용은 어디로도 보내지 않습니다.")
+                        Text("4. 아무 입력 칸에서 🌐 키를 길게 눌러 한영일을 고릅니다.")
+                    }
+                }
                 Section {
                     ForEach(Array(preferences.order.enumerated()), id: \.element) { rank, language in
                         HStack {
@@ -72,16 +82,6 @@ struct SettingsView: View {
                     Text("소리는 무음 모드에서 나지 않습니다. 햅틱은 전체 접근 허용이 필요합니다.")
                 }
 
-                Section("키보드 켜기") {
-                    Button("설정 열기") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
-                        .accessibilityIdentifier("openSettings")
-                    DisclosureGroup("설정 방법", isExpanded: $showingSteps) {
-                        step("1. 위의 「설정 열기」를 누르고 「키보드」로 들어갑니다.", image: 1)
-                        step("2. 한영일과 전체 접근 허용을 켭니다.", image: 2)
-                        step("3. 확인 창에서 허용을 누릅니다. 전체 접근 허용은 이 앱의 언어 설정을 키보드가 읽는 데 필요하고, 입력한 내용은 어디로도 보내지 않습니다.", image: 3)
-                        Text("4. 아무 입력 칸에서 🌐 키를 길게 눌러 한영일을 고릅니다.")
-                    }
-                }
                 if !Self.screenshot { trySection }
                 Section {
                     NavigationLink("오픈소스 라이선스") {
@@ -104,11 +104,11 @@ struct SettingsView: View {
         .contains { $0.hasPrefix("com.cizmo.koenja.keyboard") } ?? false)
 
     /// A step with the system's screen for it, captured in the app's language (UITests/SetupShots).
-    private func step(_ text: LocalizedStringKey, image: Int) -> some View {
+    private func step(_ text: LocalizedStringKey, image: Int? = nil) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(text)
             let language = Bundle.main.preferredLocalizations.first ?? "en"
-            if let shot = UIImage(named: "setup_\(image)_\(language)") ?? UIImage(named: "setup_\(image)_en") {
+            if let image, let shot = UIImage(named: "setup_\(image)_\(language)") ?? UIImage(named: "setup_\(image)_en") {
                 Image(uiImage: shot).resizable().scaledToFit().frame(maxWidth: 260)
                     .clipShape(RoundedRectangle(cornerRadius: 12))
             }

@@ -24,7 +24,7 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: KoEnJa
-        CFBundleShortVersionString: "1.0.1"
+        CFBundleShortVersionString: "1.0.2"
         CFBundleVersion: "9"
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
@@ -53,7 +53,7 @@ targets:
       path: Keyboard/Info.plist
       properties:
         CFBundleDisplayName: KoEnJa
-        CFBundleShortVersionString: "1.0.1"
+        CFBundleShortVersionString: "1.0.2"
         CFBundleVersion: "9"
         ITSAppUsesNonExemptEncryption: false
         NSExtension:
