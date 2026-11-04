@@ -100,6 +100,9 @@ class KoreanModel {
     }
 
     companion object {
+        /** REA: reads the vocabulary now (off the UI thread), not on the first key that needs it. */
+        fun warmUp() { lists }
+
         private const val SYLLABLES = 11172
         const val TIER1_LOG_P = -5.0
         const val TIER2_LOG_P = -6.5

@@ -61,9 +61,10 @@ class ConnectionClient(private val connection: () -> InputConnection?) : TextCli
 
     /** After the app says the selection changed: whether the word being composed is no longer
      *  right before the cursor (the user moved it, an undo, autofill). Then it's forgotten as typed.
+     *  Text selected counts as moved: typing would replace the selection, not the word.
      *  ponytail: a suffix check; the cursor moved to right after the same text isn't noticed. */
-    fun resetIfMovedAway(): Boolean {
-        if (marked.isEmpty() || before()?.endsWith(marked) != false) return false
+    fun resetIfMovedAway(selecting: Boolean = false): Boolean {
+        if (marked.isEmpty() || (!selecting && before()?.endsWith(marked) != false)) return false
         marked = ""
         return true
     }
@@ -76,7 +77,9 @@ class ConnectionClient(private val connection: () -> InputConnection?) : TextCli
         val word = marked
         marked = ""
         if (ic == null) return
-        if (word.isEmpty() || before()?.endsWith(word) != true) {
+        // Context unavailable (null): the word is still taken to be there, as in resetIfMovedAway;
+        // typing the new text on top of it put the word in twice.
+        if (word.isEmpty() || before()?.endsWith(word) == false) {
             if (text.isNotEmpty() && (word.isEmpty() || typingOn)) ic.commitText(text, 1)
             return
         }

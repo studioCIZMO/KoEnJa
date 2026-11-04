@@ -5,6 +5,9 @@ import android.content.SharedPreferences
 import com.netmaru.rea.engine.Language
 
 val Language.label get() = mapOf(Language.KOREAN to "한국어", Language.JAPANESE to "日本語").getOrElse(this) { "English" }
+
+/** The app's text in the phone's language: Korean, Japanese, else English. */
+fun tr(ko: String, ja: String, en: String) = when (java.util.Locale.getDefault().language) { "ko" -> ko; "ja" -> ja; else -> en }
 val Language.mark get() = mapOf(Language.KOREAN to "한", Language.JAPANESE to "あ").getOrElse(this) { "A" }
 
 /** The settings the app writes and the keyboard reads (the iOS app's keys and defaults). */
@@ -33,11 +36,11 @@ object Prefs {
     fun switchLabel(p: SharedPreferences) = order(p).joinToString("") { it.mark }
 
     /** Seamtype's input options (Typist reads them in this order), then key feedback: key, label, default. */
-    val options = listOf(
-        Triple("returnConfirmsOnly", "Return은 입력 중인 단어만 확정", true),
-        Triple("fullWidthDigits", "일본어 뒤 숫자를 전각으로 (１２３)", false),
-        Triple("fullWidthSpace", "일본어 뒤 스페이스를 전각으로", false),
-        Triple("liveConversion", "일본어 라이브 변환", false),
+    val options get() = listOf(
+        Triple("returnConfirmsOnly", tr("Return은 입력 중인 단어만 확정", "Return は入力中の単語だけを確定", "Return only confirms the word being typed"), true),
+        Triple("fullWidthDigits", tr("일본어 뒤 숫자를 전각으로 (１２３)", "日本語のあとの数字を全角に（１２３）", "Full-width digits after Japanese (１２３)"), false),
+        Triple("fullWidthSpace", tr("일본어 뒤 스페이스를 전각으로", "日本語のあとのスペースを全角に", "Full-width space after Japanese"), false),
+        Triple("liveConversion", tr("일본어 라이브 변환", "日本語ライブ変換", "Japanese live conversion"), false),
     )
-    val feedback = listOf(Triple("keySound", "키 소리", true), Triple("keyHaptics", "햅틱", true))
+    val feedback get() = listOf(Triple("keySound", tr("키 소리", "キー音", "Key sound"), true), Triple("keyHaptics", tr("햅틱", "触覚フィードバック", "Haptics"), true))
 }

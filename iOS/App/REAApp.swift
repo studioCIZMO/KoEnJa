@@ -73,9 +73,14 @@ struct SettingsView: View {
                 }
 
                 Section("키보드 켜기") {
-                    Text("설정 → 일반 → 키보드 → 키보드 → 새로운 키보드 추가… → 한영일")
-                    Text("한영일 → 전체 접근 허용: 위 언어 설정을 키보드가 읽으려면 필요합니다. 입력한 내용은 어디로도 보내지 않습니다.")
                     Button("설정 열기") { UIApplication.shared.open(URL(string: UIApplication.openSettingsURLString)!) }
+                        .accessibilityIdentifier("openSettings")
+                    DisclosureGroup("설정 방법", isExpanded: $showingSteps) {
+                        step("1. 위의 「설정 열기」를 누르고 「키보드」로 들어갑니다.", image: 1)
+                        step("2. 한영일과 전체 접근 허용을 켭니다.", image: 2)
+                        step("3. 확인 창에서 허용을 누릅니다. 전체 접근 허용은 이 앱의 언어 설정을 키보드가 읽는 데 필요하고, 입력한 내용은 어디로도 보내지 않습니다.", image: 3)
+                        Text("4. 아무 입력 칸에서 🌐 키를 길게 눌러 한영일을 고릅니다.")
+                    }
                 }
                 if !Self.screenshot { trySection }
                 Section {
@@ -92,6 +97,23 @@ struct SettingsView: View {
             .sheet(isPresented: $choosingSetup) { setupSheet }
             .onAppear { trying = Self.screenshot }
         }
+    }
+
+    /// The steps start open until the keyboard is added (iOS lists added keyboards in AppleKeyboards).
+    @State private var showingSteps = !((UserDefaults.standard.array(forKey: "AppleKeyboards") as? [String])?
+        .contains { $0.hasPrefix("com.cizmo.koenja.keyboard") } ?? false)
+
+    /// A step with the system's screen for it, captured in the app's language (UITests/SetupShots).
+    private func step(_ text: LocalizedStringKey, image: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(text)
+            let language = Bundle.main.preferredLocalizations.first ?? "en"
+            if let shot = UIImage(named: "setup_\(image)_\(language)") ?? UIImage(named: "setup_\(image)_en") {
+                Image(uiImage: shot).resizable().scaledToFit().frame(maxWidth: 260)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     private static let licenses = Bundle.main.url(forResource: "Licenses", withExtension: "txt")

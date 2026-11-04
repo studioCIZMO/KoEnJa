@@ -158,6 +158,7 @@ final class KeyboardViewController: UIInputViewController {
             if current.japanese, Self.converter == nil { Self.converter = AzooKeyConverter() }
             Self.heuristic = Self.makeHeuristic(preferences: current)
             Self.session = Self.makeSession(converter: converter, preferences: current, heuristic: heuristic)
+            DispatchQueue.global(qos: .userInitiated).async { KoreanModel.warmUp() }
         }
         if keyStack == nil { buildKeys() }
         if Self.lexicon == nil { requestSupplementaryLexicon { Self.lexicon = $0.entries } }
@@ -522,7 +523,7 @@ final class KeyboardViewController: UIInputViewController {
     private func refreshCandidates() {
         pendingCandidates?.cancel()
         pendingCandidates = nil
-        candidateRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        entries = []
         let conversion = session.conversion
         let candidates = conversion?.candidates ?? Array(session.typingCandidates.prefix(30))
         for (index, candidate) in candidates.enumerated() {
@@ -561,6 +562,23 @@ final class KeyboardViewController: UIInputViewController {
                 }
             }
         }
+        showEntries()
+    }
+
+    /** The bar's buttons: (text, selected, what a tap does), and what they show now. */
+    private var entries: [(text: String, selected: Bool, action: () -> Void)] = []
+    private var shown: [String] = []
+    private var actions: [() -> Void] = []
+
+    /// Rebuilds the bar's buttons only when what they show changed (most keys leave it as is:
+    /// up to 30 buttons with their text and layout were made again after every key).
+    private func showEntries() {
+        actions = entries.map(\.action)
+        let now = entries.map { ($0.selected ? "1" : "0") + $0.text }
+        guard now != shown || candidateRow.arrangedSubviews.count != now.count else { return }
+        shown = now
+        candidateRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        for (index, entry) in entries.enumerated() { addButton(entry.text, selected: entry.selected, index: index) }
         (candidateRow.superview as? UIScrollView)?.contentOffset = .zero
     }
 
@@ -593,6 +611,10 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func addCandidate(_ text: String, selected: Bool, action: @escaping () -> Void) {
+        entries.append((text, selected, action))
+    }
+
+    private func addButton(_ text: String, selected: Bool, index: Int) {
         var config = selected ? UIButton.Configuration.filled() : UIButton.Configuration.plain()
         config.attributedTitle = AttributedString(text, attributes: .init([.font: UIFont.systemFont(ofSize: 20)]))
         config.baseForegroundColor = selected ? .systemBackground : .label
@@ -600,7 +622,7 @@ final class KeyboardViewController: UIInputViewController {
         let button = UIButton(configuration: config)
         button.addAction(UIAction { [unowned self] _ in
             guard pendingCandidates == nil else { return flushCandidates() }
-            action()
+            actions[index]()
             refreshCandidates()
         }, for: .touchUpInside)
         candidateRow.addArrangedSubview(button)

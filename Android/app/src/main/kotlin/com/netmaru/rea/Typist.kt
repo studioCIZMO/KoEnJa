@@ -9,6 +9,7 @@ import android.util.Log
 import com.netmaru.rea.engine.Engines
 import com.netmaru.rea.engine.HangulComposer
 import com.netmaru.rea.engine.InputSession
+import com.netmaru.rea.engine.KoreanModel
 import com.netmaru.rea.engine.SplittingEngine
 import com.netmaru.rea.japanese.MozcConverter
 import java.io.File
@@ -63,6 +64,7 @@ class Typist(private val service: InputMethodService) {
             } else null
             session = Engines.makeSession(order, converter, liveConversion = options[3], returnConfirmsOnly = options[0],
                 fullWidthDigits = options[1], fullWidthSpace = options[2], learningFile = File(service.filesDir, "learning.txt"))
+            thread { KoreanModel.warmUp() }
         }
         session.activate()
         refresh()
@@ -78,8 +80,8 @@ class Typist(private val service: InputMethodService) {
 
     /** The app moved the cursor (or the text changed under it): the next key starts afresh there.
      *  Whether that changed the candidates. */
-    fun selectionChanged(): Boolean {
-        if (built == null || !client.resetIfMovedAway()) return false
+    fun selectionChanged(selecting: Boolean = false): Boolean {
+        if (built == null || !client.resetIfMovedAway(selecting)) return false
         session.commitForNewContext(null)
         refresh()
         return true

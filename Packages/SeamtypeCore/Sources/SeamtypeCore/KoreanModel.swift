@@ -38,6 +38,9 @@ public struct KoreanModel: Sendable {
         case max
     }
 
+    // REA: reads the vocabulary now (off the main thread), not on the first key that needs it.
+    public static func warmUp() { _ = lists }
+
     public init(source: Source = .max) {
         var map: [Character: Double] = [:]
         if source != .corpus {

@@ -27,7 +27,7 @@ class ReaKeyboardService : InputMethodService() {
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
-        if (typist.selectionChanged()) keyboard?.refreshCandidates()
+        if (typist.selectionChanged(selecting = newSelStart != newSelEnd)) keyboard?.refreshCandidates()
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {
