@@ -117,7 +117,7 @@ Araso と一緒にインストールしても、設定と学習した単語は�
 
 ### Android
 
-Google Play での公開を準備中です。それまでは[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)から `KoEnJa-Android-0.2.1.apk`（Android 8.0 以上）をインストールできます。
+Google Play での公開を準備中です。それまでは[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)から `KoEnJa-Android-0.2.2.apk`（Android 8.0 以上）をインストールできます。
 インストール後、アプリの「키보드 설정 열기」で 한영일 をオンにし、「입력 방법 고르기」で選んでください（アプリの画面はまだ韓国語のみ）。
 Play 版は Google が署名するため、あとで Play 版に移るときは APK 版を削除してから Play でインストールしてください。ソースは `Android/` にあります。
 
