@@ -85,12 +85,12 @@ Or download `KoEnJa-Mac.zip` from the [release](https://github.com/studioCIZMO/K
 `KoEnJa.app` to `~/Library/Input Methods`. Then add it in System Settings → Keyboard → Input Sources → Edit… → + → Korean →
 **KoEnJa** (log out and back in once if it isn't listed). The app is signed with CIZMO's Developer ID and notarized by Apple.
 Installed beside Araso, it keeps its settings and learned words apart (`~/Library/Application Support/KoEnJa`).
-Uninstall from the settings window's About tab or with `… | sh -s -- --uninstall`. The source is in `Mac/`.
+Uninstall from the settings window's About tab or with `… | sh -s -- --uninstall`. If you mistype one letter of a Korean word, hold the switch key to see corrected guesses (Settings → Fix typos, off by default). The source is in `Mac/`.
 
 ### Windows
 
-1. Download `KoEnJa-Setup-0.1.0.exe` from [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) and run it.
-2. 0.1.0 isn't code-signed yet, so SmartScreen shows **Windows protected your PC**. Click **More info** →
+1. Download `KoEnJa-Setup-0.3.0.exe` from [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) and run it.
+2. 0.3.0 isn't code-signed yet, so SmartScreen shows **Windows protected your PC**. Click **More info** →
    **Run anyway**, then **Yes** at the administrator prompt.
 3. Leave **Open KoEnJa settings** checked on the last page and finish: pick your keyboard, your languages and the
    switch key. You can change them later in **KoEnJa 설정** in the Start menu.
@@ -117,7 +117,7 @@ and use haptics ([Privacy](#privacy)).
 
 ### Android
 
-Coming to Google Play. Until then, install `KoEnJa-Android-0.2.2.apk` (Android 8.0+) from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest).
+In Google Play review (0.2.2). Until then, install `KoEnJa-Android-0.2.2.apk` (Android 8.0+) from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest).
 After installing, turn on 한영일 with 키보드 설정 열기 (open keyboard settings) in the app and pick it with 입력 방법 고르기 (choose input method); the app's screens are in Korean only for now.
 The Play version is signed by Google, so to move to it later, uninstall the APK first. The source is in `Android/`.
 
@@ -229,8 +229,8 @@ The MSVC golden test runs in [CI](.github/workflows/windows.yml) on every push t
 
 ## Known limitations
 
-- Windows 0.1.0 is not code-signed ([Code signing policy](#code-signing-policy)). It's x64 only; ARM64 Windows isn't supported.
-- Android isn't on Google Play yet, only as an APK. The Android app's screens are in Korean only for now.
+- Windows 0.3.0 is not code-signed ([Code signing policy](#code-signing-policy)). It's x64 only; ARM64 Windows isn't supported.
+- Until the Google Play review finishes, Android is available only as an APK.
 - Keys that are words in two languages (`go`/해, `so`/내) can come out wrong; fix them with the switch key.
 - An English word with a Japanese particle can be read as Japanese (`sitede` → `してで`, `tokenwo` → `とけんを`).
 - The top kanji candidate matches the original in about 4 of 5 phrases and 2 of 3 sentences (the iOS path); pick the others from the list.
@@ -267,9 +267,9 @@ KoEnJa uses the **engine** of [Araso](https://github.com/nyttastudio/araso) (© 
 
 | Part | Where it comes from |
 |---|---|
-| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.4.5), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
+| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.5.1), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
 | Language engine, Android (`Android/engine`, Kotlin) and Windows (`Windows/engine`, C++20) | Written for KoEnJa to follow Araso's engine, then checked against it. The Swift, Kotlin and C++ engines replay the same golden file (`Android/engine/src/test/resources/golden.tsv`) and must match line for line. |
-| Mac input method (`Mac/`) | Araso's macOS input method (`Sources/Araso`, 0.4.1), taken under the MIT License and connected to KoEnJa's engine, with its name, bundle ID, storage folder, update check and menu icon changed (listed in `Mac/UPSTREAM`). |
+| Mac input method (`Mac/`) | Araso's macOS input method (`Sources/Araso`, 0.5.1), taken under the MIT License and connected to KoEnJa's engine, with its name, bundle ID, storage folder, update check and menu icon changed (listed in `Mac/UPSTREAM`). |
 | iOS keyboard and app (`iOS/`) | Written for KoEnJa: the key layout, candidate bar, switch key and settings. |
 | Android keyboard (`Android/app`, `Android/japanese`) | Written for KoEnJa, including a Japanese converter over the Mozc dictionary. |
 | Windows input method (`Windows/tip`, `Windows/japanese`, `Windows/installer`) | Written for KoEnJa: the TSF text service, MS-IME-style conversion over the Mozc dictionary, keyboard types, switch key, language priority, settings and installer. |
@@ -282,7 +282,7 @@ We are grateful to Araso's author for publishing the engine under the MIT Licens
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.1.0 is unsigned; signing starts once SignPath Foundation accepts the project.)
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.3.0 is unsigned; signing starts once SignPath Foundation accepts the project.)
 
 - Committers and reviewers: [studioCIZMO](https://github.com/studioCIZMO)
 - Approvers: [studioCIZMO](https://github.com/studioCIZMO)

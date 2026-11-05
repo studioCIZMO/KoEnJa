@@ -85,12 +85,12 @@ curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh 
 `~/Library/Input Methods`로 옮기세요. 그다음 시스템 설정 → 키보드 → 입력 소스 → 편집… → + → 한국어 → **한영일**을
 추가합니다(목록에 없으면 한 번 로그아웃했다 다시 로그인). 앱은 CIZMO의 Developer ID로 서명하고 Apple 공증을 받았습니다.
 Araso와 함께 설치해도 설정과 학습한 단어는 따로 둡니다(`~/Library/Application Support/KoEnJa`).
-제거는 설정 창의 정보 탭이나 `… | sh -s -- --uninstall`로 합니다. 소스는 `Mac/`에 있습니다.
+제거는 설정 창의 정보 탭이나 `… | sh -s -- --uninstall`로 합니다. 한국어 단어를 한 글자 잘못 쳤을 때 전환 키를 길게 누르면 고친 후보를 보여 줍니다(설정 → 오타 고치기, 기본은 꺼짐). 소스는 `Mac/`에 있습니다.
 
 ### Windows
 
-1. [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest)에서 `KoEnJa-Setup-0.1.0.exe`를 받아 실행하세요.
-2. 0.1.0은 아직 코드 서명이 없어 SmartScreen의 **Windows의 PC 보호** 화면이 나옵니다.
+1. [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest)에서 `KoEnJa-Setup-0.3.0.exe`를 받아 실행하세요.
+2. 0.3.0은 아직 코드 서명이 없어 SmartScreen의 **Windows의 PC 보호** 화면이 나옵니다.
    **추가 정보** → **실행**을 누르고, 이어지는 관리자 권한 확인에서 **예**를 누르세요.
 3. 마지막 화면에서 **KoEnJa 설정 열기**를 체크한 채 마치면 키보드 종류, 쓰는 언어, 전환 키를 고를 수 있습니다.
    나중에는 시작 메뉴의 **KoEnJa 설정**에서 바꿉니다.
@@ -115,7 +115,7 @@ Araso와 함께 설치해도 설정과 학습한 단어는 따로 둡니다(`~/L
 
 ### Android
 
-Google Play 출시를 준비하고 있습니다. 그전에 [릴리스](https://github.com/studioCIZMO/KoEnJa/releases/latest)에서 `KoEnJa-Android-0.2.2.apk`(Android 8.0 이상)를 받아 설치할 수 있습니다.
+Google Play 심사 중입니다(0.2.2). 그전에 [릴리스](https://github.com/studioCIZMO/KoEnJa/releases/latest)에서 `KoEnJa-Android-0.2.2.apk`(Android 8.0 이상)를 받아 설치할 수 있습니다.
 설치한 뒤 앱에서 「키보드 설정 열기」로 한영일을 켜고, 「입력 방법 고르기」로 고르세요.
 Play 버전은 Google이 서명하므로, 나중에 Play 버전으로 옮기려면 APK판을 지우고 Play에서 설치해 주세요. 소스는 `Android/`에 있습니다.
 
@@ -220,8 +220,8 @@ MSVC 골든 테스트는 `main`에 push할 때마다 [CI](.github/workflows/wind
 
 ## 알려진 한계
 
-- Windows 0.1.0은 코드 서명이 없습니다([코드 서명 정책](#코드-서명-정책)). x64 전용이고 ARM64 Windows는 지원하지 않습니다.
-- Android는 Google Play 출시 전이라 APK로만 받을 수 있습니다. Android 앱 화면은 아직 한국어로만 나옵니다.
+- Windows 0.3.0은 코드 서명이 없습니다([코드 서명 정책](#코드-서명-정책)). x64 전용이고 ARM64 Windows는 지원하지 않습니다.
+- Android는 Google Play 심사가 끝날 때까지 APK로만 받을 수 있습니다.
 - 두 언어에서 모두 말이 되는 키(`go`/해, `so`/내)는 틀릴 수 있습니다. 전환 키로 고치세요.
 - 영어 단어에 일본어 조사를 붙이면 일본어로 읽히는 경우가 있습니다(`sitede` → `してで`, `tokenwo` → `とけんを`).
 - 한자 변환의 맨 앞 후보는 구절 5개 중 4개, 문장 3개 중 2개꼴로 원문과 같습니다(iOS 경로). 나머지는 후보 목록에서 고르세요.
@@ -259,9 +259,9 @@ macOS 입력기이고, 엔진은 그 가운데 단어의 언어를 판단하는 
 
 | 부분 | 출처 |
 | --- | --- |
-| 언어 엔진, iOS (`Packages/SeamtypeCore`) | Araso의 엔진 소스(`ArasoCore`, 0.4.5)를 MIT 라이선스에 따라 쓰고 KoEnJa의 변경을 더했습니다. 변경은 `// REA:`로 표시하고 `Packages/SeamtypeCore/UPSTREAM`에 적었습니다. 한국어 단어 목록의 메모리, 화면에 보인 그대로 확정하기, 섞인 언어 규칙입니다. |
+| 언어 엔진, iOS (`Packages/SeamtypeCore`) | Araso의 엔진 소스(`ArasoCore`, 0.5.1)를 MIT 라이선스에 따라 쓰고 KoEnJa의 변경을 더했습니다. 변경은 `// REA:`로 표시하고 `Packages/SeamtypeCore/UPSTREAM`에 적었습니다. 한국어 단어 목록의 메모리, 화면에 보인 그대로 확정하기, 섞인 언어 규칙입니다. |
 | 언어 엔진, Android (`Android/engine`, Kotlin)와 Windows (`Windows/engine`, C++20) | Araso의 엔진을 따라 KoEnJa용으로 새로 작성하고 대조했습니다. Swift, Kotlin, C++ 엔진은 같은 골든 파일(`Android/engine/src/test/resources/golden.tsv`)을 재생해 한 줄도 다르지 않아야 합니다. |
-| Mac 입력기 (`Mac/`) | Araso의 macOS 입력기(`Sources/Araso`, 0.4.1)를 MIT 라이선스에 따라 가져와 KoEnJa 엔진에 연결했습니다. 이름, 번들 ID, 저장 위치, 업데이트 확인, 메뉴 아이콘을 바꿨고 `Mac/UPSTREAM`에 적었습니다. |
+| Mac 입력기 (`Mac/`) | Araso의 macOS 입력기(`Sources/Araso`, 0.5.1)를 MIT 라이선스에 따라 가져와 KoEnJa 엔진에 연결했습니다. 이름, 번들 ID, 저장 위치, 업데이트 확인, 메뉴 아이콘을 바꿨고 `Mac/UPSTREAM`에 적었습니다. |
 | iOS 키보드와 앱 (`iOS/`) | KoEnJa용으로 작성: 키 배치, 후보 막대, 전환 키, 설정 |
 | Android 키보드 (`Android/app`, `Android/japanese`) | KoEnJa용으로 작성: Mozc 사전 위의 일본어 변환기 포함 |
 | Windows 입력기 (`Windows/tip`, `Windows/japanese`, `Windows/installer`) | KoEnJa용으로 작성: TSF 텍스트 서비스, Mozc 사전 위의 MS-IME식 변환, 키보드 종류, 전환 키, 우선 언어, 설정, 설치 프로그램 |
@@ -283,13 +283,13 @@ Araso의 원래 저작권 고지는
 
 ## 코드 서명 정책
 
-**한국어:** 무료 코드 서명은 [SignPath.io](https://about.signpath.io)가, 인증서는 [SignPath Foundation](https://signpath.org)이 제공합니다. (0.1.0은 서명되지 않았으며, SignPath Foundation이 프로젝트를 승인하면 서명을 시작합니다.) 서명하는 것은 Windows 설치 프로그램과 그것이 설치하는 파일뿐입니다. 모두 이 저장소의 소스로 GitHub Actions(`.github/workflows/windows.yml`)에서 빌드하며, 릴리스마다 서명 전에 사람이 직접 승인합니다. 이 프로그램은 사용자나 설치·운영하는 사람이 특별히 요청하지 않는 한 다른 네트워크 시스템으로 어떤 정보도 보내지 않습니다. *문제 보고…*는 누를 때만 브라우저에서 GitHub 페이지를 엽니다.
+**한국어:** 무료 코드 서명은 [SignPath.io](https://about.signpath.io)가, 인증서는 [SignPath Foundation](https://signpath.org)이 제공합니다. (0.3.0은 서명되지 않았으며, SignPath Foundation이 프로젝트를 승인하면 서명을 시작합니다.) 서명하는 것은 Windows 설치 프로그램과 그것이 설치하는 파일뿐입니다. 모두 이 저장소의 소스로 GitHub Actions(`.github/workflows/windows.yml`)에서 빌드하며, 릴리스마다 서명 전에 사람이 직접 승인합니다. 이 프로그램은 사용자나 설치·운영하는 사람이 특별히 요청하지 않는 한 다른 네트워크 시스템으로 어떤 정보도 보내지 않습니다. *문제 보고…*는 누를 때만 브라우저에서 GitHub 페이지를 엽니다.
 
-**日本語：** 無償のコード署名は [SignPath.io](https://about.signpath.io) が、証明書は [SignPath Foundation](https://signpath.org) が提供しています。（0.1.0 は未署名です。SignPath Foundation にプロジェクトが承認され次第、署名を始めます。）署名するのは Windows インストーラーと、それがインストールするファイルだけです。いずれもこのリポジトリのソースから GitHub Actions（`.github/workflows/windows.yml`）でビルドし、リリースごとに署名の前に人の手で承認します。このプログラムは、ユーザーまたはインストール・運用する人が特に求めない限り、ほかのネットワーク システムに情報を送りません。*問題を報告…* はクリックしたときだけブラウザーで GitHub のページを開きます。
+**日本語：** 無償のコード署名は [SignPath.io](https://about.signpath.io) が、証明書は [SignPath Foundation](https://signpath.org) が提供しています。（0.3.0 は未署名です。SignPath Foundation にプロジェクトが承認され次第、署名を始めます。）署名するのは Windows インストーラーと、それがインストールするファイルだけです。いずれもこのリポジトリのソースから GitHub Actions（`.github/workflows/windows.yml`）でビルドし、リリースごとに署名の前に人の手で承認します。このプログラムは、ユーザーまたはインストール・運用する人が特に求めない限り、ほかのネットワーク システムに情報を送りません。*問題を報告…* はクリックしたときだけブラウザーで GitHub のページを開きます。
 
 **English:**
 
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.1.0 is unsigned; signing starts once SignPath Foundation accepts the project.)
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.3.0 is unsigned; signing starts once SignPath Foundation accepts the project.)
 
 - Committers and reviewers: [studioCIZMO](https://github.com/studioCIZMO)
 - Approvers: [studioCIZMO](https://github.com/studioCIZMO)

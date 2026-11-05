@@ -85,12 +85,12 @@ curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh 
 `~/Library/Input Methods` に移します。続いてシステム設定 → キーボード → 入力ソース → 編集… → ＋ → 韓国語 → **KoEnJa** を
 追加します（一覧にない場合は一度ログアウトして再ログイン）。アプリは CIZMO の Developer ID で署名し、Apple の公証を受けています。
 Araso と一緒にインストールしても、設定と学習した単語は別に保存します（`~/Library/Application Support/KoEnJa`）。
-削除は設定ウインドウの情報タブか `… | sh -s -- --uninstall` で行います。ソースは `Mac/` にあります。
+削除は設定ウインドウの情報タブか `… | sh -s -- --uninstall` で行います。韓国語の単語を1文字打ち間違えたときは、切り替えキーを長押しすると直した候補が出ます（設定 → Fix typos、初期設定はオフ）。ソースは `Mac/` にあります。
 
 ### Windows
 
-1. [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) から `KoEnJa-Setup-0.1.0.exe` をダウンロードして実行します。
-2. 0.1.0 はまだコード署名がないため、SmartScreen の「**Windows によって PC が保護されました**」が表示されます。
+1. [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) から `KoEnJa-Setup-0.3.0.exe` をダウンロードして実行します。
+2. 0.3.0 はまだコード署名がないため、SmartScreen の「**Windows によって PC が保護されました**」が表示されます。
    「**詳細情報**」→「**実行**」を押し、続く管理者の確認で「**はい**」を押してください。
 3. 最後の画面で「**KoEnJa の設定を開く**」にチェックしたまま完了すると、キーボードの種類、使う言語、切り替えキーを
    選べます。あとからはスタートメニューの「**KoEnJa 설정**」で変更できます。
@@ -117,7 +117,7 @@ Araso と一緒にインストールしても、設定と学習した単語は�
 
 ### Android
 
-Google Play での公開を準備中です。それまでは[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)から `KoEnJa-Android-0.2.2.apk`（Android 8.0 以上）をインストールできます。
+Google Play で審査中です（0.2.2）。それまでは[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)から `KoEnJa-Android-0.2.2.apk`（Android 8.0 以上）をインストールできます。
 インストール後、アプリの「키보드 설정 열기」で 한영일 をオンにし、「입력 방법 고르기」で選んでください（アプリの画面はまだ韓国語のみ）。
 Play 版は Google が署名するため、あとで Play 版に移るときは APK 版を削除してから Play でインストールしてください。ソースは `Android/` にあります。
 
@@ -222,8 +222,8 @@ MSVC のゴールデンテストは `main` への push のたびに [CI](.github
 
 ## 既知の制限
 
-- Windows 0.1.0 はコード署名がありません（[コード署名ポリシー](#コード署名ポリシー)）。x64 専用で、ARM64 版 Windows には対応していません。
-- Android は Google Play 公開前で APK のみです。Android アプリの画面はまだ韓国語だけです。
+- Windows 0.3.0 はコード署名がありません（[コード署名ポリシー](#コード署名ポリシー)）。x64 専用で、ARM64 版 Windows には対応していません。
+- Android は Google Play の審査が終わるまで APK のみです。
 - 2 つの言語のどちらでも意味が通るキー（`go`/해、`so`/내）は間違えることがあります。切り替えキーで直してください。
 - 英単語に日本語の助詞をつけると、日本語として読まれることがあります（`sitede` → `してで`、`tokenwo` → `とけんを`）。
 - 漢字変換の第 1 候補が原文と一致するのは、フレーズで 5 件に 4 件、文で 3 件に 2 件ほどです（iOS の経路）。残りは候補一覧から選んでください。
@@ -282,7 +282,7 @@ MIT ライセンスに基づいて取り込み、手を加えたものです。
 ## コード署名ポリシー
 
 無償のコード署名は [SignPath.io](https://about.signpath.io) が、証明書は [SignPath Foundation](https://signpath.org) が
-提供しています。（0.1.0 は未署名です。SignPath Foundation にプロジェクトが承認され次第、署名を始めます。）
+提供しています。（0.3.0 は未署名です。SignPath Foundation にプロジェクトが承認され次第、署名を始めます。）
 
 > Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
 
