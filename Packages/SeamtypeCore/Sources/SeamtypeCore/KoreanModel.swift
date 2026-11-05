@@ -104,6 +104,12 @@ public struct KoreanModel: Sendable {
     /// stays out of the splits and of `knowsSyllable`, which `EU정책` and `RJ이` rely on.
     public func isRareVocabularyWord(_ hangul: String) -> Bool { Self.contains(Self.lists.rare, hangul) } // REA: hashes
 
+    /// How often the subtitles have the word (`korean_vocabulary.txt`), 0 for a word they lack.
+    public func vocabularyCount(_ hangul: String) -> Int { // REA: counts beside the hashes
+        if let i = Self.index(Self.lists.vocabulary, hangul) { return Int(Self.lists.counts[i]) }
+        return Self.index(Self.lists.rare, hangul).map { Int(Self.lists.rareCounts[$0]) } ?? 0
+    }
+
     /// A noun the lists only have with a case particle (혜택 from 혜택을, 혜택으로): they
     /// count words with their particles, so a bare noun can be missing from both.
     public func isKnownStem(_ hangul: String) -> Bool { Self.lists.stems.contains(hangul) } // REA: lists
@@ -123,8 +129,9 @@ public struct KoreanModel: Sendable {
     // and the text cost the iOS keyboard (killed near 70 MB) some 20 MB. Upstream has `stems`,
     // `vocabulary`, `rareVocabulary`, `vocabularyCounts`, `listSyllables` and `rareListSyllables` instead.
     // ponytail: a word off the list hashing onto one on it is a 1 in 10^14 chance per lookup.
-    private static let lists: (vocabulary: [UInt64], rare: [UInt64], stems: Set<String>, syllables: Set<Character>, rareSyllables: Set<Character>) = {
-        var vocabulary: [UInt64] = [], rare: [UInt64] = [], stems = Set<String>(), syllables = Set<Character>(), rareSyllables = Set<Character>()
+    // Each word's count sits at its hash's index, for `vocabularyCount` (some 1 MB as UInt32s).
+    private static let lists: (vocabulary: [UInt64], counts: [UInt32], rare: [UInt64], rareCounts: [UInt32], stems: Set<String>, syllables: Set<Character>, rareSyllables: Set<Character>) = {
+        var vocabulary: [(UInt64, UInt32)] = [], rare: [(UInt64, UInt32)] = [], stems = Set<String>(), syllables = Set<Character>(), rareSyllables = Set<Character>()
         func addStems(_ word: String) {
             for (particle, final) in particles where word.hasSuffix(particle) {
                 let stem = word.dropLast(particle.count)
@@ -135,7 +142,7 @@ public struct KoreanModel: Sendable {
             }
         }
         for word in corpusWords { addStems(word); syllables.formUnion(word) }
-        guard let url = Resources.koreanVocabulary, let data = try? Data(contentsOf: url) else { return (vocabulary, rare, stems, syllables, rareSyllables) }
+        guard let url = Resources.koreanVocabulary, let data = try? Data(contentsOf: url) else { return ([], [], [], [], stems, syllables, rareSyllables) }
         data.withUnsafeBytes { bytes in
             var start = 0
             while start < bytes.count {
@@ -147,28 +154,30 @@ public struct KoreanModel: Sendable {
                 let word = String(decoding: line[..<tab], as: UTF8.self)
                 addStems(word)
                 if n >= commonCount {
-                    vocabulary.append(hash(word))
+                    vocabulary.append((hash(word), UInt32(clamping: n)))
                     syllables.formUnion(word)
                 } else {
-                    rare.append(hash(word))
+                    rare.append((hash(word), UInt32(clamping: n)))
                     rareSyllables.formUnion(word)
                 }
             }
         }
-        vocabulary.sort()
-        rare.sort()
-        return (vocabulary, rare, stems, syllables, rareSyllables)
+        vocabulary.sort { $0.0 < $1.0 }
+        rare.sort { $0.0 < $1.0 }
+        return (vocabulary.map(\.0), vocabulary.map(\.1), rare.map(\.0), rare.map(\.1), stems, syllables, rareSyllables)
     }()
 
     /// REA: a binary search of the sorted hashes.
-    private static func contains(_ sorted: [UInt64], _ word: String) -> Bool {
+    private static func contains(_ sorted: [UInt64], _ word: String) -> Bool { index(sorted, word) != nil }
+
+    private static func index(_ sorted: [UInt64], _ word: String) -> Int? {
         let h = hash(word)
         var low = 0, high = sorted.count
         while low < high {
             let mid = (low + high) / 2
             if sorted[mid] < h { low = mid + 1 } else { high = mid }
         }
-        return low < sorted.count && sorted[low] == h
+        return low < sorted.count && sorted[low] == h ? low : nil
     }
 
     /// REA: FNV-1a of the UTF-8, the same on every launch (`Hasher` isn't).

@@ -15,7 +15,9 @@ final class InputController: IMKInputController {
     private var pauseTapDown: Date?
     /// Which switch key (right ⌥ or right ⇧, in `AppPolicy.switchKeys`) went down and when,
     /// while no other key has been pressed with it: a tap switches the word's language.
-    private var switchTapDown: (key: UInt16, at: Date)?
+    private var switchTapDown: (key: UInt16, at: Date)? {
+        didSet { if switchTapDown == nil { MainActor.assumeIsolated { LongPressRing.hide() } } }
+    }
     /// A terminal was waiting for a password at the last key (`PasswordPrompt`): its keys went to
     /// the app as typed, and what was being typed went in before the first of them.
     private var passingPassword = false
@@ -171,14 +173,12 @@ final class InputController: IMKInputController {
             }
             syncStrip(input)
             if !handled, key != .shiftLeft, key != .shiftRight, [KeyCode.left, KeyCode.right, KeyCode.up, KeyCode.down].contains(event.keyCode) {
-                // The app moves the caret after this returns: then a word Araso wasn't sure of, if
-                // the caret is on one, lists its readings under it (`caretMoved`). A ← right after a
-                // switch key changed the word just committed marks it there instead.
+                // The app moves the caret after this returns: a ← right after a switch key changed
+                // the word just committed marks it there (`caretMoved`).
                 DispatchQueue.main.async { [weak self] in
                     guard let self else { return }
-                    let word = self.session.caretMoved(client: self.textClient(input))
-                    if let word { self.wordRect = self.placeOf(word, in: input) }
-                    if word != nil || self.session.fixing != nil { self.syncStrip(input) }
+                    self.session.caretMoved(client: self.textClient(input))
+                    if self.session.fixing != nil { self.syncStrip(input) }
                 }
             }
             // The settings window's typing test shows how each word was decided; only there.
@@ -269,20 +269,22 @@ final class InputController: IMKInputController {
             // and its tap belongs to whatever the user bound it to.
             let others = event.modifierFlags.intersection([.command, .control, .option, .shift]).subtracting(flag)
             switchTapDown = others.isEmpty ? (event.keyCode, Date()) : nil
+            if switchTapDown != nil, session.canGuess { LongPressRing.start(caret: caretRect(client)) }
             return
         }
-        guard let down = switchTapDown, down.key == event.keyCode,
-              Date().timeIntervalSince(down.at) < 0.5 else { return }
+        guard let down = switchTapDown, down.key == event.keyCode else { return }
         switchTapDown = nil
+        // Held half a second or more on its own, it lists what the word could have been meant as.
+        let key: InputSession.Key = Date().timeIntervalSince(down.at) < 0.5 ? .cycle : .guess
         guard !session.inVimNormalMode else { return } // vim's own keys
         // While a terminal waits for a password, the keys pass as typed: a tap before the first of
         // them would change the word, or the one just committed, in front of the prompt. It starts
         // the prompt as a key does: the word goes in, the strip goes away.
         guard !passwordPrompt(client) else { return }
         noteWordRect(client)
-        let handled = session.handle(.cycle, client: textClient(client))
+        let handled = session.handle(key, client: textClient(client))
         syncStrip(client)
-        log.debug("handle switchTap handled=\(handled) app=\(self.session.app ?? "?", privacy: .public)")
+        log.debug("handle switchTap held=\(key == .guess) handled=\(handled) app=\(self.session.app ?? "?", privacy: .public)")
     }
 
     /// The strip under the word: the candidates while a clause is converted, else the readings a
@@ -296,6 +298,14 @@ final class InputController: IMKInputController {
                 self.session.choose(index, client: self.textClient(input))
                 self.syncStrip(input)
             }
+        } else if let guesses = session.guesses {
+            StripHUD.show(guesses, word: wordRect ?? caretRect(client)) { [weak self] index in
+                guard let self, let input: IMKTextInput = self.client() else { return }
+                self.session.pickGuess(index, client: self.textClient(input))
+                self.syncStrip(input)
+            }
+        } else if session.fixedSlip != nil {
+            StripHUD.note("✦ " + L("Typo fixed"), word: wordRect ?? caretRect(client))
         } else if let readings = session.readings {
             let marked = client.markedRange()
             let typing = marked.location != NSNotFound && marked.length > 0
@@ -309,15 +319,11 @@ final class InputController: IMKInputController {
         }
     }
 
-    /// A reading clicked in the strip: switched to as the switch key would, a press at a time,
-    /// once round the readings at most (they can change as the word does).
+    /// A reading clicked in the strip: picked as its digit would (`InputSession.pickReading`).
     @MainActor private func pick(_ language: Language) {
         guard let input: IMKTextInput = client() else { return }
-        for _ in 0..<4 {
-            guard let readings = session.readings, readings.languages[readings.selected] != language else { break }
-            noteWordRect(input)
-            _ = session.handle(.cycle, client: textClient(input))
-        }
+        noteWordRect(input)
+        session.pickReading(language, client: textClient(input))
         syncStrip(input)
     }
 
@@ -348,16 +354,6 @@ final class InputController: IMKInputController {
             endX = start.minX + CGFloat(marked.length) * start.height * 0.55 // about a letter's width
         }
         wordRect = NSRect(x: start.minX, y: start.minY, width: endX - start.minX, height: start.height)
-    }
-
-    /// Where a word of the field is on screen while nothing is marked, for the list under it.
-    /// `attributes(forCharacterIndex:)` answers only for index 0 then (the start of the text), so
-    /// this is `firstRect`'s.
-    @MainActor private func placeOf(_ word: NSRange, in client: IMKTextInput) -> NSRect? {
-        let rect = Self.firstRect(word, in: client)
-        // Positions only, never text.
-        log.debug("hint word \(rect.debugDescription, privacy: .public)")
-        return Self.plausible(rect) ? rect : nil
     }
 
     /// `firstRect(forCharacterRange:)` as a line-height rect, its origin at the line's bottom: through
