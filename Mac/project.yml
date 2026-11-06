@@ -34,6 +34,8 @@ targets:
           set -eu
           out="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
           cp "$SRCROOT"/../Packages/SeamtypeCore/Sources/SeamtypeCore/Data/*.txt "$out/"
+          # macOS ships the same list as /usr/share/dict/words (EnglishModel reads that first): 2.5 MB less
+          rm -f "$out/english_spelling.txt"
           rm -rf "$out/Dictionary"
           cp -R "${BUILD_DIR%/Build/*}/SourcePackages/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/Dictionary" "$out/"
           cp "$SRCROOT/../THIRD_PARTY_NOTICES.txt" "$out/ThirdPartyNotices.txt"

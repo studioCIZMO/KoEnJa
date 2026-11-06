@@ -13,12 +13,29 @@ public final class JapaneseModel: @unchecked Sendable {
         public let composition: RomajiComposer.Result
     }
 
-    private var trigrams: [String: Float] = [:]
-    private var bigrams: [String: Float] = [:]
-    private var unigrams: [String: Float] = [:]
-    private var bigramContexts: [String: Float] = [:]
-    private var trigramContexts: [String: Float] = [:]
-    private var total: Float = 0
+    // REA: counts in sorted arrays keyed by packed symbol ids (21 bits each), as the Kotlin port
+    // does: String-keyed Dictionaries cost the iOS keyboard some 13 MB for the text model alone.
+    private struct Counts {
+        let keys: [UInt64], values: [Float]
+        init(keys: [UInt64], values: [Float]) { (self.keys, self.values) = (keys, values) }
+        init(_ map: [UInt64: Float]) {
+            let sorted = map.sorted { $0.key < $1.key }
+            keys = sorted.map(\.key)
+            values = sorted.map(\.value)
+        }
+        subscript(key: UInt64?) -> Float? {
+            guard let key else { return nil }
+            var low = 0, high = keys.count
+            while low < high {
+                let mid = (low + high) / 2
+                if keys[mid] < key { low = mid + 1 } else { high = mid }
+            }
+            return low < keys.count && keys[low] == key ? values[low] : nil
+        }
+    }
+    private let ids: [Character: UInt64]
+    private let trigrams: Counts, bigrams: Counts, unigrams: Counts, bigramContexts: Counts, trigramContexts: Counts
+    private let total: Float
     private let vocabulary: Float
 
     /// Non-letters that belong inside a Japanese phrase: ん (n'), ー, and the full-width symbols
@@ -29,24 +46,48 @@ public final class JapaneseModel: @unchecked Sendable {
     static let pendingLogP = -3.5
 
     public init?(contentsOf url: URL) {
-        guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
-        var symbols = Set<Character>()
-        for line in text.split(whereSeparator: \.isNewline) {
-            let parts = line.split(separator: "\t")
-            guard parts.count == 2, let count = Float(parts[1]) else { continue }
-            let chars = Array(parts[0])
-            guard chars.count == 3 else { continue }
-            let (a, b, c) = (String(chars[0]), String(chars[1]), String(chars[2]))
-            trigrams[a + b + c, default: 0] += count
-            trigramContexts[a + b, default: 0] += count
-            bigrams[b + c, default: 0] += count
+        // REA: read mapped, line by line; the trigrams (one line each) go straight into a sorted
+        // array. The counts are whole numbers summing below 2^24, so Float adds them exactly in any order.
+        guard let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return nil }
+        var ids: [Character: UInt64] = [:]
+        func id(_ c: Character) -> UInt64 {
+            if let i = ids[c] { return i }
+            let i = UInt64(ids.count)
+            ids[c] = i
+            return i
+        }
+        var trigrams: [(key: UInt64, count: Float)] = []
+        var bigrams: [UInt64: Float] = [:], unigrams: [UInt64: Float] = [:]
+        var bigramContexts: [UInt64: Float] = [:], trigramContexts: [UInt64: Float] = [:]
+        var total: Float = 0
+        trigrams.reserveCapacity(Resources.lineCount(data))
+        Resources.forEachPair(in: data) { key, count in
+            guard let count = Float(count) else { return }
+            let chars = Array(key)
+            guard chars.count == 3 else { return }
+            let (a, b, c) = (id(chars[0]), id(chars[1]), id(chars[2]))
+            trigrams.append((a << 42 | b << 21 | c, count))
+            trigramContexts[a << 21 | b, default: 0] += count
+            bigrams[b << 21 | c, default: 0] += count
             bigramContexts[b, default: 0] += count
             unigrams[c, default: 0] += count
             total += count
-            symbols.formUnion(chars)
         }
         guard total > 0 else { return nil }
-        vocabulary = Float(symbols.count)
+        trigrams.sort { $0.key < $1.key }
+        var merged: [(key: UInt64, count: Float)] = [] // the same trigram twice adds up, as upstream's Dictionary did
+        merged.reserveCapacity(trigrams.count)
+        for t in trigrams {
+            if merged.last?.key == t.key { merged[merged.count - 1].count += t.count } else { merged.append(t) }
+        }
+        vocabulary = Float(ids.count)
+        self.ids = ids
+        self.total = total
+        self.trigrams = Counts(keys: merged.map(\.key), values: merged.map(\.count))
+        self.bigrams = Counts(bigrams)
+        self.unigrams = Counts(unigrams)
+        self.bigramContexts = Counts(bigramContexts)
+        self.trigramContexts = Counts(trigramContexts)
     }
 
     public static let shared: JapaneseModel? = Resources.kanaModel.flatMap(JapaneseModel.init(contentsOf:))
@@ -54,16 +95,20 @@ public final class JapaneseModel: @unchecked Sendable {
     public static let text: JapaneseModel? = Resources.textModel.flatMap(JapaneseModel.init(contentsOf:))
 
     /// Interpolated trigram probability of `c` after `a b`.
-    private func probability(_ a: String, _ b: String, _ c: String) -> Double {
+    private func probability(_ a: Character, _ b: Character, _ c: Character) -> Double {
+        let (a, b, c) = (ids[a], ids[b], ids[c])
+        let ab = a.flatMap { a in b.map { a << 21 | $0 } }
+        let bc = b.flatMap { b in c.map { b << 21 | $0 } }
+        let abc = ab.flatMap { ab in c.map { ab << 21 | $0 } }
         let p1 = ((unigrams[c] ?? 0) + 1) / (total + vocabulary)
-        let p2 = (bigramContexts[b]).map { ((bigrams[b + c] ?? 0)) / $0 } ?? 0
-        let p3 = (trigramContexts[a + b]).map { ((trigrams[a + b + c] ?? 0)) / $0 } ?? 0
+        let p2 = (bigramContexts[b]).map { ((bigrams[bc] ?? 0)) / $0 } ?? 0
+        let p3 = (trigramContexts[ab]).map { ((trigrams[abc] ?? 0)) / $0 } ?? 0
         return Double(0.6 * p3 + 0.3 * p2 + 0.1 * p1)
     }
 
     /// Sum of log-probabilities of the kana (and the end of word unless `partial`).
     public func logProbability(kana: String, partial: Bool) -> Double {
-        var seq = ["^", "^"] + kana.map { String($0) }
+        var seq: [Character] = ["^", "^"] + Array(kana)
         if !partial { seq.append("$") }
         var sum = 0.0
         for i in 2..<seq.count {

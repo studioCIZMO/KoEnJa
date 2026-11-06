@@ -7,8 +7,10 @@ public final class EnglishModel: @unchecked Sendable {
     private static let symbols = 27
     private var trigrams: [Float]
     private var contexts: [Float]
-    /// SCOWL level of each word (lowercase, letters only).
-    private let levels: [String: Int]
+    /// SCOWL level of each word (lowercase, letters only). REA: sorted words beside their levels,
+    /// as the Kotlin port keeps them, not a Dictionary (some 6 MB at the iOS keyboard's launch).
+    private let words: [String]
+    private let wordLevels: [UInt8]
     /// The levels a guessed inflection may take from its stem: the list's own, not `commonWords`
     /// (nil: `levels`). REA: only the words `commonWords` changed (nil inside: not listed).
     private let stemLevels: [String: Int?]?
@@ -45,11 +47,14 @@ public final class EnglishModel: @unchecked Sendable {
     /// From a word<TAB>level file; a missing file leaves only `commonWords` (logged). Trigrams
     /// are trained on `spellingPath`'s words when it can be read, otherwise on the list.
     public convenience init(listURL: URL?, spellingPath: String? = nil, extraWords: [String] = EnglishModel.commonWords) {
-        var levels: [String: Int] = [:]
-        if let listURL, let text = try? String(contentsOf: listURL, encoding: .utf8) {
-            for line in text.split(whereSeparator: \.isNewline) {
-                let parts = line.split(separator: "\t")
-                if parts.count == 2, let level = Int(parts[1]) { levels[String(parts[0])] = level }
+        // REA: the list read mapped, line by line, into (word, level) pairs: a Dictionary of it and
+        // the split text cost the iOS keyboard some 25 MB at launch that malloc kept afterwards.
+        var levels: [(String, Int)] = []
+        if let listURL, let data = try? Data(contentsOf: listURL, options: .alwaysMapped) {
+            levels.reserveCapacity(Resources.lineCount(data))
+            // ponytail: a word listed twice keeps its lowest level (upstream: the later line); the list has none.
+            Resources.forEachPair(in: data) { word, level in
+                if let level = Int(level) { levels.append((word, level)) }
             }
         }
         if levels.isEmpty { NSLog("Araso: English word list missing (%@)", listURL?.path ?? "nil") }
@@ -57,7 +62,7 @@ public final class EnglishModel: @unchecked Sendable {
         // its own levels (+7 MB at the iOS keyboard's launch; it is killed near 70 MB). The spelling
         // list is read mapped and streamed into the trigrams, not split into 236k strings.
         let spelling = spellingPath.flatMap { try? Data(contentsOf: URL(fileURLWithPath: $0), options: .alwaysMapped) }
-        self.init(levels: levels, extraWords: extraWords, spelling: nil, spellingFile: spelling)
+        self.init(entries: levels, extraWords: extraWords, spelling: nil, spellingFile: spelling)
     }
 
     /// For tests: these words at a middle level.
@@ -66,32 +71,54 @@ public final class EnglishModel: @unchecked Sendable {
     }
 
     public convenience init(levels raw: [String: Int], spelling: [String]? = nil, extraWords: [String] = []) {
-        self.init(levels: raw, extraWords: extraWords, spelling: spelling, spellingFile: nil)
+        self.init(entries: Array(raw), extraWords: extraWords, spelling: spelling, spellingFile: nil)
     }
 
     /// REA: trigrams from `spelling`, else from `spellingFile`'s lines (lowercased, as an ASCII
     /// list like web2 is) and then `extraWords`, else from the levels' words.
-    init(levels raw: [String: Int], extraWords: [String], spelling: [String]?, spellingFile: Data?) {
+    init(entries raw: [(String, Int)], extraWords: [String], spelling: [String]?, spellingFile: Data?) {
         let n = Self.symbols
         var tri = [Float](repeating: 0, count: n * n * n)
         var ctx = [Float](repeating: 0, count: n * n)
-        func normalized(_ raw: [String: Int]) -> [String: Int] {
-            var levels: [String: Int] = [:]
+        // REA: sorted by word, each once at its lowest level (upstream: a Dictionary, min on a clash).
+        func normalized(_ raw: [(String, Int)]) -> [(word: String, level: Int)] {
+            var levels: [(word: String, level: Int)] = []
             levels.reserveCapacity(raw.count)
             for (raw, level) in raw {
-                let word = raw.filter { $0 != "'" }
+                let word = raw.contains("'") ? raw.filter { $0 != "'" } : raw
                 guard !word.isEmpty, word.allSatisfy({ $0.isASCII && $0.isLetter }) else { continue }
                 // Many 1–2 letter list entries aren't words people type ("ra", "ko"); only real ones count.
-                if word.count > 2 || Self.shortWords.contains(word) { levels[word] = min(levels[word] ?? level, level) }
+                if word.count > 2 || Self.shortWords.contains(word) { levels.append((word, level)) }
             }
+            levels.sort { $0.word != $1.word ? $0.word < $1.word : $0.level < $1.level }
+            var last: String?
+            levels.removeAll { defer { last = $0.word }; return $0.word == last }
             return levels
         }
         var levels = normalized(raw)
+        func find(_ word: String) -> Int? {
+            var low = 0, high = levels.count
+            while low < high {
+                let mid = (low + high) / 2
+                if levels[mid].word < word { low = mid + 1 } else { high = mid }
+            }
+            return low < levels.count && levels[low].word == word ? low : nil
+        }
         // REA: upstream normalizes the list with the extra words in and keeps a second copy without.
         var listed: [String: Int?] = [:]
-        for word in normalized(Dictionary(extraWords.map { ($0.lowercased(), Self.extraLevel) }, uniquingKeysWith: min)).keys {
-            listed[word] = levels[word]
-            levels[word] = min(levels[word] ?? Self.extraLevel, Self.extraLevel)
+        var added: [(word: String, level: Int)] = []
+        for (word, _) in normalized(extraWords.map { ($0.lowercased(), Self.extraLevel) }) {
+            if let i = find(word) {
+                listed[word] = levels[i].level
+                levels[i].level = min(levels[i].level, Self.extraLevel)
+            } else {
+                listed[word] = .some(nil)
+                added.append((word, Self.extraLevel))
+            }
+        }
+        if !added.isEmpty {
+            levels += added
+            levels.sort { $0.word < $1.word }
         }
         stemLevels = extraWords.isEmpty ? nil : listed
         func train(_ word: String) {
@@ -114,14 +141,25 @@ public final class EnglishModel: @unchecked Sendable {
             }
             extraWords.forEach(train)
         } else {
-            levels.keys.forEach(train)
+            levels.forEach { train($0.word) }
         }
         trigrams = tri
         contexts = ctx
-        self.levels = levels
+        words = levels.map(\.word)
+        wordLevels = levels.map { UInt8(clamping: $0.level) }
     }
 
-    public var wordCount: Int { levels.count }
+    public var wordCount: Int { words.count }
+
+    /// REA: the listed level, by binary search of `words`.
+    private func listedLevel(_ word: String) -> Int? {
+        var low = 0, high = words.count
+        while low < high {
+            let mid = (low + high) / 2
+            if words[mid] < word { low = mid + 1 } else { high = mid }
+        }
+        return low < words.count && words[low] == word ? Int(wordLevels[low]) : nil
+    }
 
     /// [^, ^, letters..., $] with ^ and $ both encoded as 0.
     private static func encode(_ word: String) -> [Int] {
@@ -152,14 +190,14 @@ public final class EnglishModel: @unchecked Sendable {
     /// The word's level, also for regular inflections of a listed word (nil: not a word).
     public func level(_ token: String) -> Int? {
         let w = token.lowercased().filter { $0 != "'" }
-        if let level = levels[w] { return level }
+        if let level = listedLevel(w) { return level }
         var best: Int?
         // SCOWL lists the inflections of its words, so a guessed one counts only for a stem the
         // list itself ranks above its rarest known level: thru (50, and 35 only as one of
         // `commonWords`) + s is no word, and thrus is 소견.
         func consider(_ stem: String) {
             // REA: stemLevels holds only the words `commonWords` changed.
-            if let l = stemLevels?[stem] ?? levels[stem], l < Self.knownLevel { best = min(best ?? l, l) }
+            if let l = stemLevels?[stem] ?? listedLevel(stem), l < Self.knownLevel { best = min(best ?? l, l) }
         }
         // Stems of 3+ letters: ths isn't the+s, ehs isn't eh+s.
         for suffix in ["s", "es", "ed", "d", "ing", "ly", "er", "ers", "est"] where w.count > suffix.count + 2 && w.hasSuffix(suffix) {

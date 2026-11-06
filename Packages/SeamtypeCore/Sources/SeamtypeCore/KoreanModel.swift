@@ -131,7 +131,8 @@ public struct KoreanModel: Sendable {
     // ponytail: a word off the list hashing onto one on it is a 1 in 10^14 chance per lookup.
     // Each word's count sits at its hash's index, for `vocabularyCount` (some 1 MB as UInt32s).
     private static let lists: (vocabulary: [UInt64], counts: [UInt32], rare: [UInt64], rareCounts: [UInt32], stems: Set<String>, syllables: Set<Character>, rareSyllables: Set<Character>) = {
-        var vocabulary: [(UInt64, UInt32)] = [], rare: [(UInt64, UInt32)] = [], stems = Set<String>(), syllables = Set<Character>(), rareSyllables = Set<Character>()
+        // REA: one list, sized up front and sorted common-first, so it is split without regrowth.
+        var entries: [(hash: UInt64, count: UInt32, rare: Bool)] = [], stems = Set<String>(), syllables = Set<Character>(), rareSyllables = Set<Character>()
         func addStems(_ word: String) {
             for (particle, final) in particles where word.hasSuffix(particle) {
                 let stem = word.dropLast(particle.count)
@@ -142,8 +143,9 @@ public struct KoreanModel: Sendable {
             }
         }
         for word in corpusWords { addStems(word); syllables.formUnion(word) }
-        guard let url = Resources.koreanVocabulary, let data = try? Data(contentsOf: url) else { return ([], [], [], [], stems, syllables, rareSyllables) }
+        guard let url = Resources.koreanVocabulary, let data = try? Data(contentsOf: url, options: .alwaysMapped) else { return ([], [], [], [], stems, syllables, rareSyllables) }
         data.withUnsafeBytes { bytes in
+            entries.reserveCapacity(bytes.reduce(0) { $1 == 10 ? $0 + 1 : $0 } + 1)
             var start = 0
             while start < bytes.count {
                 let end = bytes[start...].firstIndex(of: 10) ?? bytes.count
@@ -153,18 +155,14 @@ public struct KoreanModel: Sendable {
                       let n = Int(String(decoding: line[(tab + 1)...], as: UTF8.self)) else { continue }
                 let word = String(decoding: line[..<tab], as: UTF8.self)
                 addStems(word)
-                if n >= commonCount {
-                    vocabulary.append((hash(word), UInt32(clamping: n)))
-                    syllables.formUnion(word)
-                } else {
-                    rare.append((hash(word), UInt32(clamping: n)))
-                    rareSyllables.formUnion(word)
-                }
+                entries.append((hash(word), UInt32(clamping: n), n < commonCount))
+                if n >= commonCount { syllables.formUnion(word) } else { rareSyllables.formUnion(word) }
             }
         }
-        vocabulary.sort { $0.0 < $1.0 }
-        rare.sort { $0.0 < $1.0 }
-        return (vocabulary.map(\.0), vocabulary.map(\.1), rare.map(\.0), rare.map(\.1), stems, syllables, rareSyllables)
+        entries.sort { $0.rare != $1.rare ? !$0.rare : $0.hash < $1.hash }
+        let split = entries.firstIndex { $0.rare } ?? entries.count
+        let vocabulary = entries[..<split], rare = entries[split...]
+        return (vocabulary.map(\.hash), vocabulary.map(\.count), rare.map(\.hash), rare.map(\.count), stems, syllables, rareSyllables)
     }()
 
     /// REA: a binary search of the sorted hashes.

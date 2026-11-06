@@ -6,6 +6,25 @@ import Foundation
 /// SPM resource bundles are avoided on purpose: their accessor looks for the bundle
 /// at the .app root, which is outside the signed Contents and breaks code signing.
 public enum Resources {
+    /// REA: each line of `data` with exactly two tab-separated fields (empty ones skipped), read
+    /// in place: what `split(whereSeparator: \.isNewline)` and `split(separator: "\t")` of the
+    /// whole text gave, without holding it and its 200k substrings (memory at the iOS keyboard's launch).
+    static func forEachPair(in data: Data, _ body: (String, String) -> Void) {
+        data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
+            var start = 0
+            for i in 0...bytes.count where i == bytes.count || bytes[i] == 10 || bytes[i] == 13 {
+                defer { start = i + 1 }
+                guard i > start else { continue }
+                let fields = bytes[start..<i].split(separator: 9)
+                guard fields.count == 2 else { continue }
+                body(String(decoding: fields[0], as: UTF8.self), String(decoding: fields[1], as: UTF8.self))
+            }
+        }
+    }
+
+    /// REA: the number of lines, to size an array before reading them.
+    static func lineCount(_ data: Data) -> Int { data.reduce(0) { $1 == 10 ? $0 + 1 : $0 } + 1 }
+
     /// Set by a host that keeps the data files elsewhere (Windows: `Resources` beside the host).
     nonisolated(unsafe) public static var directory: URL?
 

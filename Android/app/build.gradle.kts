@@ -14,6 +14,12 @@ android {
         }
         buildTypes["release"].signingConfig = signingConfigs["upload"]
     }
+    // R8 drops the unused code and resources (classes.dex 2.5 MB); nothing is reached by reflection.
+    buildTypes["release"].apply {
+        isMinifyEnabled = true
+        isShrinkResources = true
+        proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+    }
     // the engine's data files, packaged from the Swift package where they live
     sourceSets["main"].assets.srcDir("../../Packages/SeamtypeCore/Sources/SeamtypeCore/Data")
     // the open-source notices the settings screen shows (Araso's MIT License among them)
