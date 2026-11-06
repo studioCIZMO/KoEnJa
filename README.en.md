@@ -47,7 +47,7 @@ kinouemailwookutta⏎                                       →  きのうemail�
 - **One key when it's wrong**: the switch key (the `한あA` key on iOS) puts the word in its next language. It also works right after Space committed it (`go` → `해`).
 - **Language priority**: choose whether an ambiguous word goes Korean or Japanese, 한국어 우선 or 日本語優先.
 - **Kanji conversion**: on Windows it works like Microsoft IME, with Space and 変換, F6–F10, and segments with Shift+←/→.
-- **Three platforms, the same decisions**: the Swift (iOS), Kotlin (Android) and C++ (Windows) engines pass the same 1,916-line golden test without a single line different.
+- **Three platforms, the same decisions**: the Swift (iOS), Kotlin (Android) and C++ (Windows) engines pass the same 1,932-line golden test without a single line different.
 - **On the device only**: nothing you type leaves it.
 - **99.4% accurate**: measured with Araso's own evaluation tools on 5,998 held-out words and phrases, Japanese on ([evaluation](#evaluation)).
 
@@ -220,10 +220,10 @@ they likely come from Tatoeba data downloaded on the day and from engine changes
 
 | Engine | Result |
 | --- | --- |
-| Swift (iOS) | `golden.tsv` regenerated: all 1,916 lines identical |
-| Kotlin (Android) | 1916/1916 |
-| C++, clang (macOS) | 1916/1916, 9.3 µs per key (Apple M4) |
-| C++, MSVC (CI, GitHub windows-2022) | 1916/1916, 25.7–26.1 µs per key (last three runs) |
+| Swift (iOS) | `golden.tsv` regenerated: all 1,932 lines identical |
+| Kotlin (Android) | 1932/1932 |
+| C++, clang (macOS) | 1932/1932, 8.3 µs per key (Apple M4) |
+| C++, MSVC (CI, GitHub windows-2022) | 1932/1932, 25.7–26.1 µs per key (last three runs) |
 
 The MSVC golden test runs in [CI](.github/workflows/windows.yml) on every push to `main`.
 
@@ -267,9 +267,9 @@ KoEnJa uses the **engine** of [Araso](https://github.com/nyttastudio/araso) (© 
 
 | Part | Where it comes from |
 |---|---|
-| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.5.1), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
+| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.6.0), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
 | Language engine, Android (`Android/engine`, Kotlin) and Windows (`Windows/engine`, C++20) | Written for KoEnJa to follow Araso's engine, then checked against it. The Swift, Kotlin and C++ engines replay the same golden file (`Android/engine/src/test/resources/golden.tsv`) and must match line for line. |
-| Mac input method (`Mac/`) | Araso's macOS input method (`Sources/Araso`, 0.5.1), taken under the MIT License and connected to KoEnJa's engine, with its name, bundle ID, storage folder, update check and menu icon changed (listed in `Mac/UPSTREAM`). |
+| Mac input method (`Mac/`) | Araso's macOS input method (`Sources/Araso`, 0.6.0), taken under the MIT License and connected to KoEnJa's engine, with its name, bundle ID, storage folder, update check and menu icon changed (listed in `Mac/UPSTREAM`). |
 | iOS keyboard and app (`iOS/`) | Written for KoEnJa: the key layout, candidate bar, switch key and settings. |
 | Android keyboard (`Android/app`, `Android/japanese`) | Written for KoEnJa, including a Japanese converter over the Mozc dictionary. |
 | Windows input method (`Windows/tip`, `Windows/japanese`, `Windows/installer`) | Written for KoEnJa: the TSF text service, MS-IME-style conversion over the Mozc dictionary, keyboard types, switch key, language priority, settings and installer. |

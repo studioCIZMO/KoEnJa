@@ -47,7 +47,7 @@ kinouemailwookutta⏎                                       →  きのうemail�
 - **틀리면 키 하나로**: 전환 키(iOS는 `한あA` 키)를 누르면 지금 단어가 다음 언어로 바뀝니다. Space로 확정한 직후에도 됩니다(`go` → `해`).
 - **우선 언어**: 애매한 단어를 어느 언어로 읽을지, 한국어 우선과 日本語優先 가운데 고릅니다.
 - **한자 변환**: Windows에서는 Microsoft IME처럼 Space·変換, F6–F10, Shift+←/→로 문절을 다룹니다.
-- **세 플랫폼, 같은 판단**: Swift(iOS), Kotlin(Android), C++(Windows) 엔진이 같은 골든 테스트 1,916줄을 한 줄도 다르지 않게 통과합니다.
+- **세 플랫폼, 같은 판단**: Swift(iOS), Kotlin(Android), C++(Windows) 엔진이 같은 골든 테스트 1,932줄을 한 줄도 다르지 않게 통과합니다.
 - **기기 안에서만**: 입력한 내용은 기기 밖으로 나가지 않습니다.
 - **정확도 99.4%**: Araso의 평가 도구로 잰 값입니다(학습에 쓰지 않은 단어·구절 5,998개, 일본어 켬, [평가 결과](#평가-결과)).
 
@@ -211,10 +211,10 @@ Araso 원본과 KoEnJa 엔진의 값이 같습니다. Android와 Windows는 Mozc
 
 | 엔진 | 결과 |
 | --- | --- |
-| Swift (iOS) | `golden.tsv`를 다시 만들면 1,916줄 모두 같음 |
-| Kotlin (Android) | 1916/1916 |
-| C++ clang (macOS) | 1916/1916, 키당 9.3 µs (Apple M4) |
-| C++ MSVC (CI, GitHub windows-2022) | 1916/1916, 키당 25.7–26.1 µs (최근 3회) |
+| Swift (iOS) | `golden.tsv`를 다시 만들면 1,932줄 모두 같음 |
+| Kotlin (Android) | 1932/1932 |
+| C++ clang (macOS) | 1932/1932, 키당 8.3 µs (Apple M4) |
+| C++ MSVC (CI, GitHub windows-2022) | 1932/1932, 키당 25.7–26.1 µs (최근 3회) |
 
 MSVC 골든 테스트는 `main`에 push할 때마다 [CI](.github/workflows/windows.yml)에서 돕니다.
 
@@ -259,9 +259,9 @@ macOS 입력기이고, 엔진은 그 가운데 단어의 언어를 판단하는 
 
 | 부분 | 출처 |
 | --- | --- |
-| 언어 엔진, iOS (`Packages/SeamtypeCore`) | Araso의 엔진 소스(`ArasoCore`, 0.5.1)를 MIT 라이선스에 따라 쓰고 KoEnJa의 변경을 더했습니다. 변경은 `// REA:`로 표시하고 `Packages/SeamtypeCore/UPSTREAM`에 적었습니다. 한국어 단어 목록의 메모리, 화면에 보인 그대로 확정하기, 섞인 언어 규칙입니다. |
+| 언어 엔진, iOS (`Packages/SeamtypeCore`) | Araso의 엔진 소스(`ArasoCore`, 0.6.0)를 MIT 라이선스에 따라 쓰고 KoEnJa의 변경을 더했습니다. 변경은 `// REA:`로 표시하고 `Packages/SeamtypeCore/UPSTREAM`에 적었습니다. 한국어 단어 목록의 메모리, 화면에 보인 그대로 확정하기, 섞인 언어 규칙입니다. |
 | 언어 엔진, Android (`Android/engine`, Kotlin)와 Windows (`Windows/engine`, C++20) | Araso의 엔진을 따라 KoEnJa용으로 새로 작성하고 대조했습니다. Swift, Kotlin, C++ 엔진은 같은 골든 파일(`Android/engine/src/test/resources/golden.tsv`)을 재생해 한 줄도 다르지 않아야 합니다. |
-| Mac 입력기 (`Mac/`) | Araso의 macOS 입력기(`Sources/Araso`, 0.5.1)를 MIT 라이선스에 따라 가져와 KoEnJa 엔진에 연결했습니다. 이름, 번들 ID, 저장 위치, 업데이트 확인, 메뉴 아이콘을 바꿨고 `Mac/UPSTREAM`에 적었습니다. |
+| Mac 입력기 (`Mac/`) | Araso의 macOS 입력기(`Sources/Araso`, 0.6.0)를 MIT 라이선스에 따라 가져와 KoEnJa 엔진에 연결했습니다. 이름, 번들 ID, 저장 위치, 업데이트 확인, 메뉴 아이콘을 바꿨고 `Mac/UPSTREAM`에 적었습니다. |
 | iOS 키보드와 앱 (`iOS/`) | KoEnJa용으로 작성: 키 배치, 후보 막대, 전환 키, 설정 |
 | Android 키보드 (`Android/app`, `Android/japanese`) | KoEnJa용으로 작성: Mozc 사전 위의 일본어 변환기 포함 |
 | Windows 입력기 (`Windows/tip`, `Windows/japanese`, `Windows/installer`) | KoEnJa용으로 작성: TSF 텍스트 서비스, Mozc 사전 위의 MS-IME식 변환, 키보드 종류, 전환 키, 우선 언어, 설정, 설치 프로그램 |

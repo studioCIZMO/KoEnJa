@@ -51,13 +51,8 @@ object RomajiComposer {
             if (c == 'n') {
                 if (next != null) {
                     if (next == '\'') { emit("ん"); i += 2; continue }
-                    if (next == 'n') {
-                        // "nni" → んに, "nn" → ん
-                        val after = chars.getOrNull(i + 2)
-                        emit("ん")
-                        i += if (after != null && (after in vowels || after == 'y')) 1 else 2
-                        continue
-                    }
+                    // "nn" is always ん, a vowel after it too: "rennai" → れんあい, "onnna" → おんな.
+                    if (next == 'n') { emit("ん"); i += 2; continue }
                     if (next !in vowels && next != 'y') { emit("ん"); i += 1; continue }
                 } else {
                     if (partial) pending = typed[i].toString() else emit("ん")
@@ -174,7 +169,7 @@ object RomajiComposer {
     }
 
     /** The shortest table entry for each single kana (ties: alphabetical); ん as "n'" so a
-     *  vowel typed after it can't take it over (n'a is んあ, nna would be んな). */
+     *  vowel typed after it can't take it over (n'a is んあ, na would be な). */
     private val spelling: Map<Char, String> = HashMap<Char, String>().apply {
         put('ん', "n'")
         for ((key, value) in table) {

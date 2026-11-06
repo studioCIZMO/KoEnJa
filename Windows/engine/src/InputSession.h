@@ -230,7 +230,7 @@ public:
 
     /** The romaji left after the part that produced the first [kanaCount] kana: the
      *  shortest tail that composes to exactly the remaining kana ("kitte" after きっ is
-     *  "te"; "konnichiha" after こん is "nichiha"). Kotlin's keys(keys, kanaCount). */
+     *  "te"; "konnnichiha" after こん is "nichiha"). Kotlin's keys(keys, kanaCount). */
     static std::u16string keysAfter(const std::u16string& keys, int kanaCount);
 
     /** The longest start of [from] that composes to a start of [spelling], followed by a spelling of

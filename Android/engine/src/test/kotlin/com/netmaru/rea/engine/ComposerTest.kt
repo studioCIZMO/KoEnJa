@@ -37,7 +37,12 @@ class ComposerTest {
     @Test
     fun romaji() {
         fun kana(keys: String, partial: Boolean = false) = RomajiComposer.compose(keys, partial).text
-        assertEquals("こんにちは", kana("konnichiha"))
+        assertEquals("こんにちは", kana("konnnichiha"))
+        // nn is always ん (Araso 0.5.2): rennai → れんあい, konnichiha → こんいちは, minnna → みんな
+        assertEquals("れんあい", kana("rennai"))
+        assertEquals("こんいちは", kana("konnichiha"))
+        assertEquals("みんな", kana("minnna"))
+        assertEquals("れん", kana("renn", partial = true))
         assertEquals("きって", kana("kitte"))
         assertEquals("まっちゃ", kana("matcha"))
         assertEquals("かんい", kana("kan'i"))

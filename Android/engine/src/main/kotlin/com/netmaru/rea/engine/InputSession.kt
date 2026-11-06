@@ -1505,7 +1505,7 @@ class InputSession(
 
         /** The romaji left after the part that produced the first [kanaCount] kana: the
          *  shortest tail that composes to exactly the remaining kana ("kitte" after きっ is
-         *  "te"; "konnichiha" after こん is "nichiha"). */
+         *  "te"; "konnnichiha" after こん is "nichiha"). */
         fun keys(keys: String, kanaCount: Int): String {
             val rest = RomajiComposer.compose(keys).text.drop(kanaCount)
             for (i in keys.length downTo 0) {

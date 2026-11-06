@@ -47,7 +47,7 @@ kinouemailwookutta⏎                                       →  きのうemail�
 - **間違えたらキーひとつ**：切り替えキー（iOS は `한あA` キー）を押すと、いまの単語が次の言語に変わります。Space で確定した直後でも使えます（`go` → `해`）。
 - **優先言語**：あいまいな単語をどちらで読むかを、한국어 우선 と 日本語優先 から選べます。
 - **漢字変換**：Windows では Microsoft IME と同じように、Space・変換、F6–F10、Shift+←/→ で文節を扱えます。
-- **3 つのプラットフォームで同じ判定**：Swift（iOS）、Kotlin（Android）、C++（Windows）のエンジンが、同じゴールデンテスト 1,916 行を 1 行も違えずに通ります。
+- **3 つのプラットフォームで同じ判定**：Swift（iOS）、Kotlin（Android）、C++（Windows）のエンジンが、同じゴールデンテスト 1,932 行を 1 行も違えずに通ります。
 - **端末の中だけで**：入力した内容は端末の外に出ません。
 - **正解率 99.4%**：Araso の評価ツールで測った値です（学習に使っていない単語・フレーズ 5,998 件、日本語オン、[評価結果](#評価結果)）。
 
@@ -213,10 +213,10 @@ Araso 本家と KoEnJa のエンジンで同じ値です。Android と Windows �
 
 | エンジン | 結果 |
 | --- | --- |
-| Swift（iOS） | `golden.tsv` を作り直すと 1,916 行すべて一致 |
-| Kotlin（Android） | 1916/1916 |
-| C++ clang（macOS） | 1916/1916、1 キーあたり 9.3 µs（Apple M4） |
-| C++ MSVC（CI、GitHub windows-2022） | 1916/1916、1 キーあたり 25.7–26.1 µs（直近 3 回） |
+| Swift（iOS） | `golden.tsv` を作り直すと 1,932 行すべて一致 |
+| Kotlin（Android） | 1932/1932 |
+| C++ clang（macOS） | 1932/1932、1 キーあたり 8.3 µs（Apple M4） |
+| C++ MSVC（CI、GitHub windows-2022） | 1932/1932、1 キーあたり 25.7–26.1 µs（直近 3 回） |
 
 MSVC のゴールデンテストは `main` への push のたびに [CI](.github/workflows/windows.yml) で実行されます。
 

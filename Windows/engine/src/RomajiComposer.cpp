@@ -100,7 +100,7 @@ const std::unordered_map<std::u16string, std::u16string>& RomajiComposer::table(
 }
 
 /** The shortest table entry for each single kana (ties: alphabetical); ん as "n'" so a
- *  vowel typed after it can't take it over (n'a is んあ, nna would be んな). */
+ *  vowel typed after it can't take it over (n'a is んあ, na would be な). */
 static const std::unordered_map<char16_t, std::u16string>& spelling() {
     static const auto map = [] {
         std::unordered_map<char16_t, std::u16string> m = {{u'ん', u"n'"}};
@@ -157,13 +157,8 @@ RomajiComposer::Result RomajiComposer::compose(const std::u16string& keys, bool 
         if (c == u'n') {
             if (next) {
                 if (*next == u'\'') { emit(u"ん"); i += 2; continue; }
-                if (*next == u'n') {
-                    // "nni" → んに, "nn" → ん
-                    std::optional<char16_t> after = i + 2 < n ? std::optional(chars[i + 2]) : std::nullopt;
-                    emit(u"ん");
-                    i += (after && (contains(vowels, *after) || *after == u'y')) ? 1 : 2;
-                    continue;
-                }
+                // "nn" is always ん, a vowel after it too: "rennai" → れんあい, "onnna" → おんな.
+                if (*next == u'n') { emit(u"ん"); i += 2; continue; }
                 if (!contains(vowels, *next) && *next != u'y') { emit(u"ん"); i += 1; continue; }
             } else {
                 if (partial) pending = std::u16string(1, typed[i]); else emit(u"ん");
