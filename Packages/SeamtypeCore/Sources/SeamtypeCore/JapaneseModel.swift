@@ -61,7 +61,7 @@ public final class JapaneseModel: @unchecked Sendable {
         var bigramContexts: [UInt64: Float] = [:], trigramContexts: [UInt64: Float] = [:]
         var total: Float = 0
         trigrams.reserveCapacity(Resources.lineCount(data))
-        Resources.forEachPair(in: data) { key, count in
+        let valid = Resources.forEachPair(in: data) { key, count in
             guard let count = Float(count) else { return }
             let chars = Array(key)
             guard chars.count == 3 else { return }
@@ -73,7 +73,7 @@ public final class JapaneseModel: @unchecked Sendable {
             unigrams[c, default: 0] += count
             total += count
         }
-        guard total > 0 else { return nil }
+        guard valid, total > 0 else { return nil } // not UTF-8: refused whole, as String(contentsOf:) did
         trigrams.sort { $0.key < $1.key }
         var merged: [(key: UInt64, count: Float)] = [] // the same trigram twice adds up, as upstream's Dictionary did
         merged.reserveCapacity(trigrams.count)

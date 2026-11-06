@@ -9,17 +9,29 @@ public enum Resources {
     /// REA: each line of `data` with exactly two tab-separated fields (empty ones skipped), read
     /// in place: what `split(whereSeparator: \.isNewline)` and `split(separator: "\t")` of the
     /// whole text gave, without holding it and its 200k substrings (memory at the iOS keyboard's launch).
-    static func forEachPair(in data: Data, _ body: (String, String) -> Void) {
+    /// False when a field isn't UTF-8 (repaired in what `body` got).
+    @discardableResult
+    static func forEachPair(in data: Data, _ body: (String, String) -> Void) -> Bool {
+        var valid = true
+        func text(_ bytes: Slice<UnsafeRawBufferPointer>) -> String {
+            let s = String(decoding: bytes, as: UTF8.self)
+            if s.utf8.count != bytes.count { valid = false } // a bad byte became U+FFFD (3 bytes)
+            return s
+        }
         data.withUnsafeBytes { (bytes: UnsafeRawBufferPointer) in
             var start = 0
             for i in 0...bytes.count where i == bytes.count || bytes[i] == 10 || bytes[i] == 13 {
                 defer { start = i + 1 }
                 guard i > start else { continue }
                 let fields = bytes[start..<i].split(separator: 9)
-                guard fields.count == 2 else { continue }
-                body(String(decoding: fields[0], as: UTF8.self), String(decoding: fields[1], as: UTF8.self))
+                guard fields.count == 2 else {
+                    if bytes[start..<i].contains(where: { $0 >= 0x80 }) { _ = text(bytes[start..<i]) } // checked all the same
+                    continue
+                }
+                body(text(fields[0]), text(fields[1]))
             }
         }
+        return valid
     }
 
     /// REA: the number of lines, to size an array before reading them.

@@ -21,4 +21,17 @@ import Testing
         #expect(model.level("zzyzx") == EnglishModel.extraLevel)
         #expect(model.level("cats") == 10)
     }
+
+    @Test func englishListAsUpstreamRead() throws {
+        let dir = FileManager.default.temporaryDirectory
+        let twice = dir.appendingPathComponent("twice-\(UUID()).txt"), bad = dir.appendingPathComponent("bad-\(UUID()).txt")
+        try Data("cat\t10\ncat\t60\ndon't\t40\ndont\t30\n".utf8).write(to: twice)
+        try Data("cat\t10\n".utf8 + [0xFF, 10]).write(to: bad)
+        defer { try? FileManager.default.removeItem(at: twice); try? FileManager.default.removeItem(at: bad) }
+        let model = EnglishModel(listURL: twice, extraWords: [])
+        #expect(model.level("cat") == 60) // the later line
+        #expect(model.level("dont") == 30) // the lower of two spellings
+        #expect(EnglishModel(listURL: bad, extraWords: []).level("cat") == nil)
+        #expect(EnglishModel(levels: ["cat": -1]).level("cat") == -1)
+    }
 }

@@ -10,7 +10,7 @@ public final class EnglishModel: @unchecked Sendable {
     /// SCOWL level of each word (lowercase, letters only). REA: sorted words beside their levels,
     /// as the Kotlin port keeps them, not a Dictionary (some 6 MB at the iOS keyboard's launch).
     private let words: [String]
-    private let wordLevels: [UInt8]
+    private let wordLevels: [Int32]
     /// The levels a guessed inflection may take from its stem: the list's own, not `commonWords`
     /// (nil: `levels`). REA: only the words `commonWords` changed (nil inside: not listed).
     private let stemLevels: [String: Int?]?
@@ -52,10 +52,10 @@ public final class EnglishModel: @unchecked Sendable {
         var levels: [(String, Int)] = []
         if let listURL, let data = try? Data(contentsOf: listURL, options: .alwaysMapped) {
             levels.reserveCapacity(Resources.lineCount(data))
-            // ponytail: a word listed twice keeps its lowest level (upstream: the later line); the list has none.
-            Resources.forEachPair(in: data) { word, level in
+            let valid = Resources.forEachPair(in: data) { word, level in
                 if let level = Int(level) { levels.append((word, level)) }
             }
+            if !valid { levels = [] } // not UTF-8: refused whole, as String(contentsOf:) did
         }
         if levels.isEmpty { NSLog("Araso: English word list missing (%@)", listURL?.path ?? "nil") }
         // REA: the extra words go in in init(levels:), not into a copy of the 119k-word list kept as
@@ -81,18 +81,29 @@ public final class EnglishModel: @unchecked Sendable {
         var tri = [Float](repeating: 0, count: n * n * n)
         var ctx = [Float](repeating: 0, count: n * n)
         // REA: sorted by word, each once at its lowest level (upstream: a Dictionary, min on a clash).
+        // A line listed twice takes its later level, as upstream's Dictionary of the lines did.
         func normalized(_ raw: [(String, Int)]) -> [(word: String, level: Int)] {
-            var levels: [(word: String, level: Int)] = []
-            levels.reserveCapacity(raw.count)
-            for (raw, level) in raw {
-                let word = raw.contains("'") ? raw.filter { $0 != "'" } : raw
+            var entries: [(word: String, raw: String?, line: Int32, level: Int)] = []
+            entries.reserveCapacity(raw.count)
+            for (line, (raw, level)) in raw.enumerated() {
+                let apostrophe = raw.contains("'")
+                let word = apostrophe ? raw.filter { $0 != "'" } : raw
                 guard !word.isEmpty, word.allSatisfy({ $0.isASCII && $0.isLetter }) else { continue }
                 // Many 1–2 letter list entries aren't words people type ("ra", "ko"); only real ones count.
-                if word.count > 2 || Self.shortWords.contains(word) { levels.append((word, level)) }
+                if word.count > 2 || Self.shortWords.contains(word) { entries.append((word, apostrophe ? raw : nil, Int32(line), level)) }
             }
-            levels.sort { $0.word != $1.word ? $0.word < $1.word : $0.level < $1.level }
-            var last: String?
-            levels.removeAll { defer { last = $0.word }; return $0.word == last }
+            entries.sort { a, b in
+                if a.word != b.word { return a.word < b.word }
+                if a.raw != b.raw { return (a.raw ?? "") < (b.raw ?? "") }
+                return a.line > b.line
+            }
+            var levels: [(word: String, level: Int)] = []
+            levels.reserveCapacity(entries.count)
+            for (i, e) in entries.enumerated() {
+                if i > 0, entries[i - 1].word == e.word, entries[i - 1].raw == e.raw { continue } // an earlier line
+                if levels.last?.word == e.word { levels[levels.count - 1].level = min(levels[levels.count - 1].level, e.level) }
+                else { levels.append((e.word, e.level)) }
+            }
             return levels
         }
         var levels = normalized(raw)
@@ -146,7 +157,7 @@ public final class EnglishModel: @unchecked Sendable {
         trigrams = tri
         contexts = ctx
         words = levels.map(\.word)
-        wordLevels = levels.map { UInt8(clamping: $0.level) }
+        wordLevels = levels.map { Int32(clamping: $0.level) }
     }
 
     public var wordCount: Int { words.count }
