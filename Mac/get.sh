@@ -27,13 +27,22 @@ codesign --verify --deep --strict "$work/KoEnJa.app" 2>/dev/null &&
 xattr -dr com.apple.quarantine "$work/KoEnJa.app" 2>/dev/null || true
 
 mkdir -p "$dest"
-rm -rf "$dest/.KoEnJa.app.new"
-ditto "$work/KoEnJa.app" "$dest/.KoEnJa.app.new"
-rm -rf "$app"
-mv "$dest/.KoEnJa.app.new" "$app"
+# One install at a time (the input method and the settings window can both start one).
+lock="$dest/.KoEnJa.install"
+find "$lock" -maxdepth 0 -mmin +10 -exec rm -rf {} + 2>/dev/null || true  # one left by a crash
+mkdir "$lock" 2>/dev/null || { echo "Another KoEnJa install is running." >&2; exit 1; }
+trap 'rm -rf "$work" "$lock"' EXIT
+staged=$(mktemp -d "$dest/.KoEnJa.new.XXXXXX")
+ditto "$work/KoEnJa.app" "$staged/KoEnJa.app"
+# The old copy stays until the new one is in place, and comes back if the move fails.
+old=""
+if [ -d "$app" ]; then old="$staged/KoEnJa.app.old"; mv "$app" "$old"; fi
+mv "$staged/KoEnJa.app" "$app" || { [ -n "$old" ] && mv "$old" "$app"; rm -rf "$staged"; exit 1; }
+rm -rf "$staged"
 # The running copy is the old one: macOS starts the new one on the next key.
 pkill -x KoEnJa 2>/dev/null || true
-"$app/Contents/MacOS/KoEnJa" --register
+"$app/Contents/MacOS/KoEnJa" --register ||
+  echo "KoEnJa is installed but couldn't register; log out and back in once." >&2
 killall TextInputMenuAgent 2>/dev/null || true
 cat <<'MSG'
 KoEnJa is installed. If it isn't in the input menu yet: System Settings → Keyboard → Input Sources →

@@ -136,11 +136,13 @@
 "Checking for updates…" = "업데이트 확인 중…";
 "KoEnJa is up to date" = "최신 버전입니다";
 "Version %@" = "버전 %@";
-"Downloading… Installer opens when it's done; macOS asks for your password." = "내려받는 중… 다 받으면 설치 프로그램이 열리고, macOS가 암호를 묻습니다.";
-"Installer opens and macOS asks for your password. Settings and learned words stay." = "설치 프로그램이 열리고 macOS가 암호를 묻습니다. 설정과 학습한 단어는 그대로 남습니다.";
+"Downloading and installing… KoEnJa restarts on the next key." = "내려받아 설치하는 중… 다음 키부터 새 버전이 동작합니다.";
+"Downloads and installs it here; no password. Settings and learned words stay." = "여기서 내려받아 바로 설치합니다(암호 필요 없음). 설정과 학습한 단어는 그대로 남습니다.";
+"Opens the release page." = "릴리스 페이지를 엽니다.";
+"Couldn't install the update." = "업데이트를 설치하지 못했습니다.";
+"The download isn't KoEnJa signed by CIZMO and notarized, so nothing was installed." = "내려받은 파일이 CIZMO 서명·Apple 공증을 받은 한영일이 아니어서 설치하지 않았습니다.";
 "Couldn't reach GitHub. Try again later." = "GitHub에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요.";
 "Couldn't download the update. Try again later." = "업데이트를 내려받지 못했습니다. 잠시 뒤 다시 시도하세요.";
-"The downloaded installer isn't signed by KoEnJa's developer, so it was deleted." = "내려받은 설치 파일이 한영일 개발자의 서명이 아니어서 지웠습니다.";
 
 /* 설정 창 */
 "%ld apps use their own keys." = "앱 %ld개는 따로 정한 키를 씁니다.";

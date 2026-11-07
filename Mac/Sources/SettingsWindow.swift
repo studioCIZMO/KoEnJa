@@ -1329,10 +1329,10 @@ private struct AboutPane: View {
 
     private var updateDetail: String? {
         switch updater.state {
-        case .downloading: return L("Downloading… Installer opens when it's done; macOS asks for your password.")
+        case .downloading: return L("Downloading and installing… KoEnJa restarts on the next key.")
         case .failed(let message): return message
         default:
-            return updater.available == nil ? nil : L("Installer opens and macOS asks for your password. Settings and learned words stay.")
+            return updater.available == nil ? nil : (Updater.replaceable ? L("Downloads and installs it here; no password. Settings and learned words stay.") : L("Opens the release page."))
         }
     }
 }

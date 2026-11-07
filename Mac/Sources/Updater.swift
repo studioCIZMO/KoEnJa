@@ -3,8 +3,8 @@ import SeamtypeCore
 
 /// Updates: asks GitHub for the latest release's version (nothing else is sent) once a day from
 /// the input method, each time the settings window opens, and on Check Now. A newer one shows in
-/// the input menu and in About, with what changed in it (the release notes' first section), whose Install button opens
-/// the release page (KoEnJa: `KoEnJa-Mac.zip` there, no signed installer package). Nothing installs on its own.
+/// the input menu and in About, with what changed in it (the release notes' first section), whose Install button
+/// downloads `KoEnJa-Mac.zip` and replaces this copy with it (`install()`). Nothing installs on its own.
 ///
 /// The input method and the settings window are separate processes; what the last check found is
 /// shared through the bundle's user defaults.
@@ -93,6 +93,7 @@ final class Updater: ObservableObject {
     }
 
     private func finishCheck(_ release: Release?, failed: Bool, noMac: Bool) {
+        guard state == .checking else { return } // an install started meanwhile owns the state
         if !failed, release == nil, noMac {
             UserDefaults.standard.set(Date(), forKey: Key.checked)
             state = .upToDate
@@ -112,9 +113,70 @@ final class Updater: ObservableObject {
         state = available == nil ? .upToDate : .idle
     }
 
-    /// KoEnJa: opens the release page, where the zip and how to install it are.
+    /// The copy get.sh installs, which this updater can replace (the user owns the folder).
+    nonisolated static var replaceable: Bool {
+        let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath()
+        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Input Methods")
+        return bundle.deletingLastPathComponent().standardizedFileURL == folder.resolvingSymlinksInPath().standardizedFileURL
+            && FileManager.default.isWritableFile(atPath: folder.path)
+    }
+
+    /// KoEnJa: downloads `KoEnJa-Mac.zip` and installs it with the bundled get.sh, which checks
+    /// that the app is CIZMO's and notarized before it replaces this copy, then stops the old one
+    /// (macOS starts the new one on the next key) and registers the new one. No password: the copy
+    /// is in ~/Library/Input Methods. A copy elsewhere gets the release page instead.
     func install() {
-        guard let release = available else { return }
-        NSWorkspace.shared.open(release.page ?? release.package)
+        guard let release = available, state != .downloading, state != .checking else { return }
+        guard Self.replaceable, let script = Bundle.main.url(forResource: "get", withExtension: "sh") else {
+            NSWorkspace.shared.open(release.page ?? release.package)
+            return
+        }
+        state = .downloading
+        URLSession.shared.downloadTask(with: release.package) { file, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+            var failure: InstallFailure? = .download
+            if let file, error == nil, status == 200 { failure = Self.run(script, zip: file) }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { Updater.shared.finishInstall(failure) }
+            }
+        }.resume()
+    }
+
+    enum InstallFailure { case download, unsigned, other }
+
+    /// Runs get.sh on the downloaded zip; nil when it installed. Its output goes to a file, not a
+    /// pipe: get.sh stops this process, and a pipe with no reader would stop get.sh with it. A
+    /// successful install stops this process before it can clean up, so each run first removes
+    /// what earlier ones left.
+    nonisolated private static func run(_ script: URL, zip: URL) -> InstallFailure? {
+        let temp = FileManager.default.temporaryDirectory
+        for old in (try? FileManager.default.contentsOfDirectory(at: temp, includingPropertiesForKeys: nil)) ?? []
+        where old.lastPathComponent.hasPrefix("koenja-update-") { try? FileManager.default.removeItem(at: old) }
+        let work = temp.appendingPathComponent("koenja-update-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: work) } // reached only when get.sh failed
+        try? FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let saved = work.appendingPathComponent("KoEnJa.zip"), log = work.appendingPathComponent("get.log")
+        guard (try? FileManager.default.moveItem(at: zip, to: saved)) != nil,
+              FileManager.default.createFile(atPath: log.path, contents: nil),
+              let output = try? FileHandle(forWritingTo: log) else { return .download }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [script.path]
+        process.environment = ["KOENJA_ZIP": saved.path, "HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+        process.standardOutput = output
+        process.standardError = output
+        guard (try? process.run()) != nil else { return .other }
+        process.waitUntilExit()
+        let said = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
+        return process.terminationStatus == 0 ? nil : said.contains("isn't signed") ? .unsigned : .other
+    }
+
+    private func finishInstall(_ failure: InstallFailure?) {
+        switch failure {
+        case nil: state = .idle
+        case .download: state = .failed(L("Couldn't download the update. Try again later."))
+        case .unsigned: state = .failed(L("The download isn't KoEnJa signed by CIZMO and notarized, so nothing was installed."))
+        case .other: state = .failed(L("Couldn't install the update."))
+        }
     }
 }
