@@ -1,4 +1,4 @@
-mozc.dic.gz is built from google/mozc src/data/dictionary_oss/ at 0136c35782536cb43d710575c311cd4185982738.
+mozc.dic.gz is built from google/mozc src/data/dictionary_oss/ at 0136c35782536cb43d710575c311cd4185982738, keeping per reading the 20 cheapest entries costing at most 7000 (names and places at most 4000), readings up to 20 characters.
 
 Copyright 2010-2018, Google Inc.
 All rights reserved.
