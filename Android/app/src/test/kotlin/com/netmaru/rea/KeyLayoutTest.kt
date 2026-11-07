@@ -44,4 +44,13 @@ class KeyLayoutTest {
         assertEquals("space", KeyLayout.nearest(all, 125.44f, 198.13f, shape).id)
         assertEquals("a", KeyLayout.nearest(all, 30.35f, 97.51f, shape).id)
     }
+
+    @Test fun learnedKeysMoveTheirTouchArea() {
+        val all = KeyLayout.keys(412f)
+        val n = all.first { it.id == "n" }; val m = all.first { it.id == "m" }
+        val between = (n.x + n.w + m.x) / 2 - 2 // just on n's side of the gap
+        assertEquals("n", KeyLayout.nearest(all, between, n.y + 10).id)
+        // this person touches m 6 dp left of its center: the gap's left side is m's now
+        assertEquals("m", KeyLayout.nearest(all, between, n.y + 10, offsets = mapOf("m" to (-6f to 0f))).id)
+    }
 }

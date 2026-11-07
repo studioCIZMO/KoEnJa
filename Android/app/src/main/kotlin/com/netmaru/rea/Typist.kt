@@ -26,6 +26,10 @@ sealed interface Key {
     data object Cycle : Key
 }
 
+/** How far toward a neighbor key (0 the typed key's center, 1 the neighbor's) a touch must lie for
+ *  the neighbor's word to be offered when the typed word is fine: past a third of the way. */
+private const val NEAR = 0.33f
+
 /** A word in the bar above the keys; `selected` is highlighted (the one Space/Return takes). */
 data class Candidate(val text: String, val selected: Boolean = false)
 
@@ -50,6 +54,43 @@ class Typist(private val service: InputMethodService) {
     private val handler = Handler(Looper.getMainLooper())
     private val refreshLater = Runnable { refresh(); onCandidates() }
 
+    /** Where each key of the word being typed was touched (dp), for nearby-key suggestions and
+     *  touch learning; null for a key not touched (typed by the app, a picked candidate). */
+    private val touches = mutableListOf<Pair<Float, Float>?>()
+    /** The keys [touches] are for (the session's keys when they were last matched). */
+    private var touchKeys = ""
+
+    /** Matches [touches] to the session's keys after a key: a letter added keeps them and adds its
+     *  touch; the engine keeping only the end (a Japanese prefix committed, Korean typed on) keeps
+     *  the end's; anything else keeps the touches of the keys still in front and knows no others
+     *  (a respelled key, a key the engine made). */
+    private fun follow(before: String, typed: Char?, touch: Pair<Float, Float>?) {
+        val after = if (built != null) session.keys else ""
+        val withKey = if (typed != null) before + typed else before
+        val kept: List<Pair<Float, Float>?> = when {
+            after.isEmpty() -> emptyList()
+            typed != null && after == withKey -> touches + touch
+            typed != null && withKey.endsWith(after) -> (touches + touch).takeLast(after.length)
+            else -> {
+                val same = before.commonPrefixWith(after).length
+                touches.take(same) + List(after.length - same) { null }
+            }
+        }
+        touches.clear(); touches.addAll(kept)
+        touchKeys = after
+    }
+
+    /** The word ended (committed, replaced, the cursor moved): its touches go with it. */
+    private fun forgetTouches() { touches.clear(); touchKeys = "" }
+    /** A key's center on the keyboard (dp), set by the keyboard. */
+    var keyCenter: (Char) -> Pair<Float, Float>? = { null }
+    /** A nearby-key fix was picked: key `n` was meant, touched (dx, dy) from its center. */
+    var onLearn: (n: Char, dx: Float, dy: Float) -> Unit = { _, _, _ -> }
+    /** Nearby-key suggestions for a word that is itself fine (settings), and touch learning (off in
+     *  password fields and fields that ask for no learning). */
+    var nearbyKeys = true
+    var learning = true
+
     /** The keyboard comes up: a new field. Rebuilds the session if the settings changed in the app. */
     fun start(prefs: SharedPreferences) {
         val order = Prefs.order(prefs)
@@ -66,12 +107,14 @@ class Typist(private val service: InputMethodService) {
                 fullWidthDigits = options[1], fullWidthSpace = options[2], learningFile = File(service.filesDir, "learning.txt"))
             thread { KoreanModel.warmUp() }
         }
+        forgetTouches()
         session.activate()
         refresh()
     }
 
     /** The field is going away: the word stays as typed. */
     fun finish() {
+        forgetTouches()
         if (built == null) return
         session.commit(client)
         runCatching { mozc?.save() } // a full disk loses the learning, not the keyboard
@@ -82,15 +125,44 @@ class Typist(private val service: InputMethodService) {
      *  Whether that changed the candidates. */
     fun selectionChanged(selecting: Boolean = false): Boolean {
         if (built == null || !client.resetIfMovedAway(selecting)) return false
+        forgetTouches()
         session.commitForNewContext(null)
         refresh()
         return true
     }
 
-    /** The text changes now, in one batch; the candidates once typing pauses. */
-    fun tap(key: Key) {
+    /** The text changes now, in one batch; the candidates once typing pauses. [touch]: where a
+     *  letter key was touched, in dp. */
+    fun tap(key: Key, touch: Pair<Float, Float>? = null) {
+        val before = touchKeys
         client.batch { type(key) }
+        follow(before, (key as? Key.Char)?.char, touch)
         refreshSoon()
+    }
+
+    /** How far (0 at key `t`'s center, 1 at `n`'s) the touch for the key at [i] lay toward `n`. */
+    private fun toward(i: Int, n: Char, keys: String): Float? {
+        val p = touches.getOrNull(i) ?: return null
+        val t = keyCenter(keys[i].lowercaseChar()) ?: return null
+        val c = keyCenter(n.lowercaseChar()) ?: return null
+        val vx = c.first - t.first; val vy = c.second - t.second
+        return ((p.first - t.first) * vx + (p.second - t.second) * vy) / (vx * vx + vy * vy)
+    }
+
+    /** The key a fix swapped (its index and new key), if it swapped exactly one. */
+    private fun swapped(typed: String, fix: String): Pair<Int, Char>? {
+        if (typed.length != fix.length) return null
+        val diff = typed.indices.filter { typed[it] != fix[it] }
+        return diff.singleOrNull()?.let { it to fix[it] }
+    }
+
+    /** A picked fix that swapped one key: that key was meant where it was touched. */
+    private fun learn(typed: String, fixKeys: String?, touchesThen: List<Pair<Float, Float>?>) {
+        if (!learning || fixKeys == null) return
+        val (i, n) = swapped(typed, fixKeys) ?: return
+        val p = touchesThen.getOrNull(i) ?: return
+        val c = keyCenter(n.lowercaseChar()) ?: return
+        onLearn(n.lowercaseChar(), p.first - c.first, p.second - c.second)
     }
 
     private fun type(key: Key) {
@@ -117,6 +189,7 @@ class Typist(private val service: InputMethodService) {
     fun choose(index: Int) {
         if (stale) return refresh() // tapped a bar that's about to change
         actions.getOrNull(index)?.invoke()
+        follow(touchKeys, null, null) // a candidate may have committed the word, or kept some of it
         refresh()
     }
 
@@ -186,10 +259,29 @@ class Typist(private val service: InputMethodService) {
                     }
                     else -> {}
                 }
+                val keys = session.keys
+                if (suggestions.words.isEmpty() && nearbyKeys) {
+                    // a fine word, but a touch near a neighbor key: what that key would have made
+                    suggestions = when (trace.decision.language) {
+                        Language.KOREAN -> Suggestions.nearby(keys, splitter.korean, null) { i, n -> (toward(i, n, keys) ?: 0f) >= NEAR }
+                        Language.ENGLISH -> Suggestions.nearby(keys, null, splitter.english) { i, n -> (toward(i, n, keys) ?: 0f) >= NEAR }
+                        else -> Suggestions()
+                    }
+                }
                 if (suggestions.words.isNotEmpty()) {
+                    // the fix Space puts in first, then the others by how close the touch was to the key they swap in
+                    val auto = suggestions.autocorrect
+                    val others = suggestions.words.filter { it != auto }.sortedByDescending { w ->
+                        suggestions.keys[w]?.let { swapped(keys, it) }?.let { (i, n) -> toward(i, n, keys) } ?: -1f
+                    }
+                    val touchesNow = touches.toList()
+                    val keysOf = suggestions.keys
                     // a tap puts the word in with a space
                     list += Candidate("“$typed”") to { replaceWord(typed); client.insertText(" ", null) }
-                    for (s in suggestions.words) list += Candidate(s, s == suggestions.autocorrect) to { replaceWord(s); client.insertText(" ", null) }
+                    for (s in listOfNotNull(auto) + others) list += Candidate(s, s == auto) to {
+                        learn(keys, keysOf[s], touchesNow)
+                        replaceWord(s); client.insertText(" ", null)
+                    }
                 }
             }
         }
@@ -201,6 +293,7 @@ class Typist(private val service: InputMethodService) {
     /** Finish the session, replacing only the differing end of the displayed word. */
     private fun replaceWord(text: String) {
         if (client.marked.isEmpty() || client.before()?.endsWith(client.marked) != true) return
+        forgetTouches()
         session.commit(null) // finish without replacing the displayed word with a new decision
         session.commit(null) // and close the 한あA window on the word as typed
         client.insertText(text, null)

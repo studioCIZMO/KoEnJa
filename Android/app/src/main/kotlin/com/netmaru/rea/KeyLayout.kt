@@ -80,11 +80,15 @@ object KeyLayout {
     /** The key a touch types, as Gboard decides (measured on a Pixel emulator): the gap between
      *  two keys is split in the middle, the gap under a key is that key's (a thumb lands a little
      *  low), and a touch anywhere else goes to the nearest key, so there are no dead zones. */
-    fun nearest(keys: List<KeyFrame>, x: Float, y: Float, shape: KeyShape = KeyShape()) =
+    fun nearest(keys: List<KeyFrame>, x: Float, y: Float, shape: KeyShape = KeyShape(),
+                offsets: Map<String, Pair<Float, Float>> = emptyMap()): KeyFrame {
+        // a learned key's touch area moved by where this person touches it (TouchCalibration)
+        fun area(k: KeyFrame) = offsets[k.id]?.let { (dx, dy) -> k.copy(x = k.x + dx, y = k.y + dy) } ?: k
         // a key touched where it is drawn first: with the rows curved, a gap below one key can lie over the next
-        keys.firstOrNull { it.distance(x, y) == 0f } ?: keys.minBy {
-            it.copy(x = it.x - shape.gap / 2, w = it.w + shape.gap, h = it.h + shape.rowGap).distance(x, y)
+        return keys.firstOrNull { area(it).distance(x, y) == 0f } ?: keys.minBy {
+            area(it).let { a -> a.copy(x = a.x - shape.gap / 2, w = a.w + shape.gap, h = a.h + shape.rowGap) }.distance(x, y)
         }
+    }
 
     /** What the letter keys type in 123 mode, like the system keyboard's first symbol page. */
     val symbols = "qwertyuiopasdfghjklzxcvbnm".zip("1234567890-/:;()₩&@.,?!'\"~").toMap()

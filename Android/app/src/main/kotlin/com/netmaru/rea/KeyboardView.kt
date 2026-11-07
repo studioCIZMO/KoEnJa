@@ -37,6 +37,10 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
     private var backgroundColor = 0
     private var shape = KeyShape()
     private var prefs: SharedPreferences? = null
+    private var calibration: TouchCalibration? = null
+    /** Learned keys' touch areas moved by where this person touches them (TouchCalibration). */
+    private var offsets = emptyMap<String, Pair<Float, Float>>()
+    private var adaptToTouch = true
 
     private fun color(shape: KeyShape) {
         fun hsv(s: Float, v: Float) = android.graphics.Color.HSVToColor(floatArrayOf(shape.hue.toFloat(), s, v))
@@ -51,6 +55,8 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
     /** The shape changed in the settings while the keyboard is up (its try field): redrawn at once. */
     private val shapeChanged = SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
         if (key != null && (key.startsWith("kb"))) applyShape(KeyShape.of(p))
+        // cleared in the settings (or learned): what the keys use comes from the file again
+        if (key == null || key == TouchCalibration.KEY) { calibration = TouchCalibration(p); refreshOffsets() }
     }
 
     private fun applyShape(new: KeyShape) {
@@ -58,6 +64,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         shape = new
         color(new)
         if (width > 0) keys = KeyLayout.keys(width / density, new)
+        refreshOffsets()
         if (resized) requestLayout()
         shown = emptyList()
         refreshCandidates()
@@ -104,10 +111,25 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         })
         addView(popup, LayoutParams(0, (48 * density).toInt()))
         typist.onCandidates = ::refreshCandidates
+        typist.keyCenter = { c -> keys.firstOrNull { it.id == c.toString() }?.let { it.midX to it.y + it.h / 2 } }
+        typist.onLearn = { n, dx, dy ->
+            calibration?.add(n, dx, dy)
+            refreshOffsets()
+        }
+    }
+
+    private fun refreshOffsets() {
+        val letter = keys.firstOrNull { it.id == "q" }
+        offsets = if (adaptToTouch && letter != null) calibration?.offsets(letter.w, letter.h).orEmpty() else emptyMap()
     }
 
     /** The keyboard comes up: settings may have changed in the app. */
-    fun start(prefs: SharedPreferences) {
+    fun start(prefs: SharedPreferences, sensitive: Boolean = false) {
+        // Nearby-key suggestions and touch learning (Kej's): neither in a password field or one that asks for no learning.
+        typist.nearbyKeys = prefs.getBoolean("nearbyKeys", true) && !sensitive
+        adaptToTouch = prefs.getBoolean("adaptToTouch", true) && !sensitive
+        typist.learning = adaptToTouch && typist.nearbyKeys
+        calibration = TouchCalibration(prefs)
         switchLabel = Prefs.switchLabel(prefs)
         sound = prefs.getBoolean("keySound", true)
         haptics = prefs.getBoolean("keyHaptics", true)
@@ -143,6 +165,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         keys = KeyLayout.keys(w / density, shape)
+        refreshOffsets()
     }
 
     private fun isCharacter(id: String) = id.length == 1 && id != "⇧" && id != "⌫"
@@ -194,11 +217,11 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
                 val startNanos = SystemClock.elapsedRealtimeNanos()
                 val x = e.getX(i) / density
                 val y = e.getY(i) / density
-                val key = KeyLayout.nearest(keys, x, y, shape)
+                val key = KeyLayout.nearest(keys, x, y, shape, offsets)
                 pressed[e.getPointerId(i)] = key
                 feedback(key.id)
                 if (isCharacter(key.id)) showPopup(key)
-                tap(key.id)
+                tap(key.id, x to y)
                 if (key.id == "⌫") { removeCallbacks(repeatDelete); postDelayed(repeatDelete, 400) }
                 invalidate()
                 // handle: touch-down to keys done; lag: the touch's age when it reached us
@@ -247,7 +270,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         if (haptics) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    private fun tap(id: String) {
+    private fun tap(id: String, touch: Pair<Float, Float>? = null) {
         when (id) {
             "⇧" -> shifted = !shifted
             "123" -> { numbers = !numbers; shifted = false }
@@ -259,7 +282,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
                 val symbol = if (numbers) KeyLayout.symbols[id[0]] else null
                 // The key touched, as Gboard types it: no swapping a letter for its neighbor (typos
                 // are fixed by the word, at its end).
-                typist.tap(Key.Char(symbol ?: if (shifted) id[0].uppercaseChar() else id[0]))
+                typist.tap(Key.Char(symbol ?: if (shifted) id[0].uppercaseChar() else id[0]), touch.takeIf { symbol == null })
                 if (symbol == null) shifted = false // one-shot shift
             }
         }

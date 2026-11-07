@@ -27,4 +27,17 @@ class SuggestionsTest {
         assertEquals(null, Suggestions.english("hello", english).autocorrect)
         assertEquals(null, Suggestions.english("Seamtype", english).autocorrect)
     }
+
+    @Test fun nearbyKeys() {
+        // "cat" is fine; a touch toward v on the c offers "vat", toward r on the t offers "car"
+        val near = Suggestions.nearby("cat", null, english) { i, n -> (i == 0 && n == 'v') || (i == 2 && n == 'r') }
+        assertEquals(listOf("vat", "car"), near.words)
+        assertEquals(null, near.autocorrect)
+        assertEquals("car", near.keys["car"])
+        // nothing near: nothing offered
+        assertEquals(emptyList<String>(), Suggestions.nearby("cat", null, english) { _, _ -> false }.words)
+        // Korean: 사람 (tkfka), a touch toward g on the k offers 하람? only words in the list
+        val ko = Suggestions.nearby("tkfka", korean, null) { _, _ -> true }
+        assert(ko.words.size <= 3 && ko.words.all { korean.isVocabularyWord(it) })
+    }
 }

@@ -22,7 +22,7 @@ class ReaKeyboardService : InputMethodService() {
         // The app restarted the field (its text may be new) without onFinishInputView: the word stays as typed.
         if (restarting) typist.finish()
         typist.start(Prefs.of(this))
-        keyboard?.start(Prefs.of(this))
+        keyboard?.start(Prefs.of(this), sensitive = info != null && isSensitive(info))
     }
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {
@@ -35,6 +35,19 @@ class ReaKeyboardService : InputMethodService() {
         keyboard?.stop()
         super.onFinishInputView(finishingInput)
     }
+}
+
+/** A password field, or one asking keyboards not to learn from it (incognito). */
+private fun isSensitive(info: EditorInfo): Boolean {
+    val type = info.inputType
+    val variation = type and android.text.InputType.TYPE_MASK_VARIATION
+    val password = when (type and android.text.InputType.TYPE_MASK_CLASS) {
+        android.text.InputType.TYPE_CLASS_TEXT -> variation in listOf(android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD,
+            android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD, android.text.InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)
+        android.text.InputType.TYPE_CLASS_NUMBER -> variation == android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        else -> false
+    }
+    return password || info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0
 }
 
 /** Debug builds log per-key and candidate timings (tag REA) to compare on devices. */

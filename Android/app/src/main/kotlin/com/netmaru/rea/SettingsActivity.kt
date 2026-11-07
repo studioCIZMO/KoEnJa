@@ -134,6 +134,19 @@ class SettingsActivity : Activity() {
         toggles(Prefs.options)
         note(tr("Mac용 Seamtype과 같은 옵션입니다. 라이브 변환을 켜면 치는 동안 한자로 바뀌고, 끄면 위쪽 막대에서 한자를 고릅니다.", "Mac 版 Seamtype と同じオプションです。ライブ変換をオンにすると打ちながら漢字になり、オフでは上のバーから漢字を選びます。", "The same options as Seamtype for Mac. With live conversion on, kanji appear as you type; off, you pick them from the bar above."))
 
+        header(tr("오타 도움", "入力の補助", "Typing assistance"))
+        toggles(listOf(
+            Triple("nearbyKeys", tr("주변 키 후보", "隣のキーの候補", "Nearby-key suggestions"), true),
+            Triple("adaptToTouch", tr("내 터치에 맞추기", "タッチに合わせる", "Adapt to my touch"), true),
+        ))
+        note(tr("주변 키 후보: 맞는 단어라도 옆 키 쪽을 눌렀으면 그 키로 바꾼 단어를 위쪽 막대에 보여 줍니다(자동으로 바꾸지 않음). 내 터치에 맞추기: 그런 후보를 고르면 키마다 누른 위치를 기억하고, 한 키에 8번 쌓이면 그 키의 인식 범위를 조금 옮깁니다. 비밀번호 칸에서는 둘 다 꺼집니다.",
+            "隣のキーの候補：正しい単語でも隣のキー寄りを押したときは、そのキーにした単語を上のバーに出します（自動では変えません）。タッチに合わせる：その候補を選ぶとキーごとに押した位置を覚え、1つのキーで8回たまるとそのキーの範囲を少し動かします。パスワード欄ではどちらもオフです。",
+            "Nearby-key suggestions: even for a correct word, a touch toward a neighbor key offers the word that key makes in the bar (never put in by itself). Adapt to my touch: picking one remembers where you touched each key; after 8 for a key, its touch area moves a little. Both are off in password fields."))
+        list.addView(Button(this).apply {
+            text = tr("터치 기록 지우기", "タッチの記録を消す", "Clear touch learning")
+            setOnClickListener { TouchCalibration.clear(prefs) }
+        })
+
         header(tr("키 피드백", "キーのフィードバック", "Key feedback"))
         toggles(Prefs.feedback)
 
