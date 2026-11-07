@@ -601,6 +601,37 @@ private struct GeneralPane: View {
                               detail: L("Type Japanese with romaji; Space converts to kanji."),
                               isOn: binding(\.japanese))
             }
+            // KoEnJa: which language an ambiguous word goes to first, and a key that changes it.
+            SeamCard(title: L("Priority")) {
+                SeamRow(title: L("Comes first"),
+                        detail: L("A word that reads well in more than one language goes to this one.")) {
+                    Picker(L("Comes first"), selection: Binding(get: { model.settings.priority },
+                                                                set: { model.set(\.priority, $0) })) {
+                        Text(L("None")).tag(String?.none)
+                        Text(verbatim: "한국어").tag(String?.some("korean"))
+                        Text(verbatim: "English").tag(String?.some("english"))
+                        if model.settings.japanese || model.settings.priority == "japanese" {
+                            Text(verbatim: "日本語").tag(String?.some("japanese"))
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+                SeamRow(title: L("Priority key"),
+                        detail: L("Tap it on its own to put the next language first (한 → A → あ); it shows under the caret.")) {
+                    Picker(L("Priority key"), selection: Binding(get: { model.settings.priorityKey },
+                                                                 set: { model.set(\.priorityKey, $0) })) {
+                        Text(L("Off")).tag(PauseKey.Tap?.none)
+                        ForEach(PauseKey.Tap.allCases.filter { model.settings.pauseKey != .tap($0) }, id: \.self) { tap in
+                            let switches = tap.switchKey.map(model.defaultPolicy.switchKeys.contains) ?? false
+                            Text(switches ? L("%@ — instead of switching languages", PauseKey.tap(tap).title) : PauseKey.tap(tap).title)
+                                .tag(PauseKey.Tap?.some(tap))
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+            }
             // The layouts together: each language reads every key through its own.
             SeamCard(title: L("Layouts")) {
                 SeamRow(title: L("Hangul"),
@@ -733,6 +764,8 @@ private struct KeysPane: View {
                         Spacer(minLength: 8)
                         PauseKeyPicker(selection: model.settings.pauseKey, switchKeys: model.defaultPolicy.switchKeys,
                                        problem: $pauseProblem) {
+                            // KoEnJa: the pause key takes its key from the priority key.
+                            if case .tap(let tap) = $0, tap == model.settings.priorityKey { model.set(\.priorityKey, nil) }
                             model.set(\.pauseKey, $0)
                         }
                     }
@@ -1289,6 +1322,11 @@ private struct AboutPane: View {
                 SeamToggleRow(title: L("Check for updates automatically"),
                               detail: L("Once a day, and each time this window opens. Only the latest version number is asked of GitHub; nothing you type is sent."),
                               isOn: Binding(get: { model.settings.checkForUpdates }, set: { model.set(\.checkForUpdates, $0) }))
+                SeamToggleRow(title: L("Install updates automatically"),
+                              detail: Updater.replaceable ? L("An update the daily check finds installs without asking, once it is checked as CIZMO's and notarized. KoEnJa restarts on the next key.")
+                                  : L("Only for KoEnJa in ~/Library/Input Methods."),
+                              isOn: Binding(get: { model.settings.autoInstallUpdates }, set: { model.set(\.autoInstallUpdates, $0) }))
+                    .disabled(!model.settings.checkForUpdates || !Updater.replaceable)
             }
             SeamCard(title: L("This Mac")) {
                 SeamRow(title: L("Settings and learning files"),

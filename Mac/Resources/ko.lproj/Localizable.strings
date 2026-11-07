@@ -296,3 +296,16 @@
 "Corrected once · %ld days left" = "한 번 고침 · %ld일 남음";
 "With a particle: %@" = "조사가 붙어도: %@";
 "Examples" = "예시";
+
+/* KoEnJa: priority, automatic updates */
+"Priority" = "우선 언어";
+"Comes first" = "먼저 고르는 언어";
+"A word that reads well in more than one language goes to this one." = "여러 언어로 읽힐 수 있는 단어를 이 언어로 먼저 입력합니다.";
+"None" = "없음";
+"Priority key" = "우선 언어 바꾸기 키";
+"Tap it on its own to put the next language first (한 → A → あ); it shows under the caret." = "이 키만 짧게 누르면 다음 언어가 우선이 됩니다(한 → A → あ). 커서 아래에 표시됩니다.";
+"%@ — instead of switching languages" = "%@ — 단어 언어 전환 대신";
+"%@ first" = "%@ 우선";
+"Install updates automatically" = "업데이트 자동 설치";
+"An update the daily check finds installs without asking, once it is checked as CIZMO's and notarized. KoEnJa restarts on the next key." = "하루 한 번 확인에서 찾은 업데이트를 묻지 않고 설치합니다. CIZMO 서명과 Apple 공증을 확인한 뒤 설치하며, 다음 키부터 새 버전이 동작합니다.";
+"Only for KoEnJa in ~/Library/Input Methods." = "~/Library/Input Methods에 설치한 경우에만 쓸 수 있습니다.";

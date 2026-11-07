@@ -1,4 +1,5 @@
 import Cocoa
+import SeamtypeCore
 
 /// A white 한 (KoEnJa: the menu bar icon's letter; Araso draws A) shown for a moment under the caret when KoEnJa pauses (struck through, on gray) or
 /// resumes in a text field (on the accent color). The menu bar icon can't show it (the bundle is
@@ -13,16 +14,20 @@ import Cocoa
     /// The system indicator's capsule.
     private static let size = NSSize(width: 30, height: CaretPanel.indicatorHeight)
 
-    private static let icons = (on: letter(slashed: false), paused: letter(slashed: true))
+    private static let icons = (on: letter("한", slashed: false), paused: letter("한", slashed: true))
+    /// KoEnJa: the priority language's mark, as the iOS switch key shows it.
+    private static let marks: [Language: NSImage] = [.korean: letter("한", slashed: false),
+                                                      .english: letter("A", slashed: false),
+                                                      .japanese: letter("あ", slashed: false)]
 
     /// The letter, black to be tinted; the stroke through it has a clear gap cut around it, so it stands
     /// apart from the letter.
-    private static func letter(slashed: Bool) -> NSImage {
+    private static func letter(_ mark: String, slashed: Bool) -> NSImage {
         let side = NSSize(width: 16, height: 16)
         let image = NSImage(size: side, flipped: false) { rect in
             let base = NSFont.systemFont(ofSize: 12, weight: .heavy)
             let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: 12) } ?? base
-            let text = NSAttributedString(string: "한", attributes: [.font: font, .foregroundColor: NSColor.black])
+            let text = NSAttributedString(string: mark, attributes: [.font: font, .foregroundColor: NSColor.black])
             let size = text.size()
             text.draw(at: NSPoint(x: (rect.width - size.width) / 2, y: (rect.height - size.height) / 2))
             if slashed, let context = NSGraphicsContext.current?.cgContext {
@@ -44,9 +49,20 @@ import Cocoa
 
     /// `caret` is the caret's line in screen coordinates, or `.zero` when the app doesn't say.
     static func show(paused: Bool, caret: NSRect) {
+        show(paused ? icons.paused : icons.on, label: paused ? L("KoEnJa paused") : L("KoEnJa resumed"),
+             paused: paused, caret: caret)
+    }
+
+    /// KoEnJa: the language that now goes first (the priority key).
+    static func show(priority: Language, caret: NSRect) {
+        let name = [Language.korean: "한국어", .english: "English", .japanese: "日本語"][priority] ?? ""
+        show(marks[priority] ?? icons.on, label: L("%@ first", name), paused: false, caret: caret)
+    }
+
+    private static func show(_ image: NSImage, label: String, paused: Bool, caret: NSRect) {
         let (panel, imageView) = make()
-        imageView.image = paused ? icons.paused : icons.on
-        imageView.setAccessibilityLabel(paused ? L("KoEnJa paused") : L("KoEnJa resumed"))
+        imageView.image = image
+        imageView.setAccessibilityLabel(label)
         var fill = paused ? Paper.reset.cgColor : CaretPanel.indicatorFill.cgColor
         panel.contentView?.effectiveAppearance.performAsCurrentDrawingAppearance {
             fill = paused ? Paper.reset.cgColor : CaretPanel.indicatorFill.cgColor

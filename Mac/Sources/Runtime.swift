@@ -10,6 +10,8 @@ final class Runtime {
 
     private(set) var settings: Settings
     private(set) var engine: DictionaryEngine
+    /// KoEnJa: the engine's scorer, which `Settings.priority` tilts.
+    private var heuristic: HeuristicEngine
     private(set) var converter: JapaneseConverter?
     /// Whether the engine has the Japanese model and the converter is made: Japanese is on in the
     /// Languages tab, or an app turns it on itself (`AppPolicies.turnsJapaneseOn`). Where it is on
@@ -20,6 +22,8 @@ final class Runtime {
     private(set) var generation = 0
     /// The controller of the text field in front, which a vim mode change is about.
     weak var active: InputController?
+    /// KoEnJa: when a key last reached the input method; an automatic update waits for a quiet moment.
+    var lastKey = Date.distantPast
     /// The latest vim mode change and the app vim runs in. Vim's FocusGained can arrive before
     /// macOS activates the terminal's controller (and FocusLost after), so a controller
     /// activated in that app catches up on it.
@@ -33,7 +37,8 @@ final class Runtime {
         KoreanLayout.active = settings.koreanLayout
         LatinLayout.activeRomaji = settings.japaneseLayout
         japaneseLoaded = Self.needsJapanese(settings)
-        engine = Self.makeEngine(japanese: japaneseLoaded)
+        (engine, heuristic) = Self.makeEngine(japanese: japaneseLoaded)
+        Self.tilt(heuristic, toward: settings.priority)
         converter = japaneseLoaded ? Self.makeConverter(settings) : nil
         let center = DistributedNotificationCenter.default()
         center.addObserver(forName: SettingsNotice.changed, object: nil, queue: .main) { note in
@@ -57,7 +62,7 @@ final class Runtime {
         settings.japanese || AppPolicies.load().turnsJapaneseOn
     }
 
-    private static func makeEngine(japanese: Bool) -> DictionaryEngine {
+    private static func makeEngine(japanese: Bool) -> (DictionaryEngine, HeuristicEngine) {
         let heuristic = HeuristicEngine(japanese: japanese ? JapaneseModel.shared : nil)
         let engine = DictionaryEngine(base: SplittingEngine(base: heuristic, english: heuristic.english,
                                                             japanese: heuristic.segmenter),
@@ -66,7 +71,45 @@ final class Runtime {
                                       sharedURL: DictionaryEngine.myTypelessURL)
         // An open settings window shows a word learned while typing at once, not on its next activation.
         engine.saved = { SettingsNotice.postFromInputMethod() }
-        return engine
+        return (engine, heuristic)
+    }
+
+    /// HeuristicEngine's own japaneseOffset, which the tilt adds to.
+    private static let japaneseOffset = 0.5
+
+    /// KoEnJa: the priority language goes first, then the rest as Korean, English, Japanese, each
+    /// rank 0.3 behind (iOS's LanguagePreferences.rankStep, against the engine's 0.8 context bias).
+    /// No priority leaves Araso's scores as they are.
+    static func tilt(_ heuristic: HeuristicEngine, toward priority: String?) {
+        let base = japaneseOffset
+        guard let first = priority.flatMap(Language.init(rawValue:)) else {
+            heuristic.koreanOffset = 0
+            heuristic.japaneseOffset = base
+            return
+        }
+        let order = [first] + [Language.korean, .english, .japanese].filter { $0 != first }
+        func bonus(_ language: Language) -> Double { -Double(order.firstIndex(of: language)!) * 0.3 }
+        heuristic.koreanOffset = bonus(.korean) - bonus(.english)
+        heuristic.japaneseOffset = base + bonus(.japanese) - bonus(.english)
+    }
+
+    /// KoEnJa: the languages the priority key goes through, Japanese only when it is on.
+    var priorities: [Language] { settings.japanese ? [.korean, .english, .japanese] : [.korean, .english] }
+
+    /// KoEnJa: the priority key: the next language goes first. Returns it.
+    func nextPriority() -> Language {
+        let list = priorities
+        let now = settings.priority.flatMap(Language.init(rawValue:)).flatMap(list.firstIndex(of:)) ?? -1
+        let next = list[(now + 1) % list.count]
+        // Saved and applied to the scorer only: no new generation, so the word being typed, a
+        // pause and vim's mode all stay (update() would replace every session).
+        var new = Settings.load()
+        new.priority = next.rawValue
+        do { try new.save() } catch { NSLog("KoEnJa: could not save settings: %@", error.localizedDescription) }
+        settings.priority = next.rawValue
+        Self.tilt(heuristic, toward: settings.priority)
+        SettingsNotice.postFromInputMethod()
+        return next
     }
 
     /// macOS's Japanese engine unless the user chose AzooKey; AzooKey also where macOS's can't be loaded.
@@ -136,9 +179,10 @@ final class Runtime {
     private func apply(_ new: Settings) {
         let japanese = Self.needsJapanese(new)
         if japanese != japaneseLoaded {
-            engine = Self.makeEngine(japanese: japanese)
+            (engine, heuristic) = Self.makeEngine(japanese: japanese)
             japaneseLoaded = japanese
         }
+        Self.tilt(heuristic, toward: new.priority)
         if !japanese {
             // Nowhere uses Japanese any more: drop the converter and its dictionary, after saving
             // the kanji learned.

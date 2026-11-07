@@ -4,7 +4,8 @@ import SeamtypeCore
 /// Updates: asks GitHub for the latest release's version (nothing else is sent) once a day from
 /// the input method, each time the settings window opens, and on Check Now. A newer one shows in
 /// the input menu and in About, with what changed in it (the release notes' first section), whose Install button
-/// downloads `KoEnJa-Mac.zip` and replaces this copy with it (`install()`). Nothing installs on its own.
+/// downloads `KoEnJa-Mac.zip` and replaces this copy with it (`install()`). Nothing installs on its own unless
+/// "Install updates automatically" is on: then the input method installs what its daily check finds.
 ///
 /// The input method and the settings window are separate processes; what the last check found is
 /// shared through the bundle's user defaults.
@@ -40,6 +41,9 @@ final class Updater: ObservableObject {
     }
 
     private var timer: Timer?
+    /// Set in the input method (its daily checks): there, with the setting on, an update found is
+    /// installed without asking. The settings window only offers it.
+    private var installsOnItsOwn = false
 
     private init() { available = Self.stored() }
 
@@ -57,19 +61,32 @@ final class Updater: ObservableObject {
     /// Reads again what the last check found, which the other process may have written.
     func refresh() { available = Self.stored() }
 
-    /// The input method: a check a minute after it starts, then hourly wake-ups that check only
+    /// The input method: a check a minute after it starts, then wake-ups every 10 minutes that check only
     /// once a day has passed, while the setting is on.
     func startDailyChecks() {
+        installsOnItsOwn = true
         timer?.invalidate()
         let tick = { @MainActor in
             guard Runtime.shared.settings.checkForUpdates else { return }
+            Updater.shared.installIfQuiet()
             let last = UserDefaults.standard.object(forKey: Key.checked) as? Date ?? .distantPast
             if Date().timeIntervalSince(last) >= Self.interval { Updater.shared.check() }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 60) { MainActor.assumeIsolated { tick() } }
-        timer = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 10 * 60, repeats: true) { _ in
             MainActor.assumeIsolated { tick() }
         }
+    }
+
+    /// With "Install updates automatically" on, in the input method: installs what a check found,
+    /// once no key has come for two minutes and nothing is being typed (get.sh restarts KoEnJa).
+    /// Tried after each check and on every timer tick.
+    private func installIfQuiet() {
+        guard installsOnItsOwn, available != nil, state == .idle || state == .upToDate, Self.replaceable,
+              Runtime.shared.settings.autoInstallUpdates, Runtime.shared.settings.checkForUpdates,
+              Date().timeIntervalSince(Runtime.shared.lastKey) > 120,
+              Runtime.shared.active?.composing != true else { return }
+        install()
     }
 
     /// Asks GitHub now.
@@ -111,6 +128,7 @@ final class Updater: ObservableObject {
         defaults.set(release.notes, forKey: Key.notes)
         available = Release.isNewer(release.version, than: Self.currentVersion) ? release : nil
         state = available == nil ? .upToDate : .idle
+        installIfQuiet()
     }
 
     /// The copy get.sh installs, which this updater can replace (the user owns the folder).

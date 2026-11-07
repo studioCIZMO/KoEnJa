@@ -42,6 +42,14 @@ public struct Settings: Codable, Equatable, Sendable {
     /// The language of the settings window, the input menu and the rest of the UI: "en" or "ko";
     /// absent follows the system's.
     public var displayLanguage: String?
+    // REA: KoEnJa's own options.
+    /// Install an update the daily check finds without asking (the input method replaces itself).
+    public var autoInstallUpdates: Bool = false
+    /// The language an ambiguous word goes to first: "korean", "english" or "japanese"; absent, none
+    /// (Araso's scores as they are).
+    public var priority: String?
+    /// A right modifier tapped on its own that moves `priority` to the next language; absent, none.
+    public var priorityKey: PauseKey.Tap?
 
     public init(japanese: Bool = false, liveConversion: Bool = false, pauseKey: PauseKey = .standard,
                 returnConfirmsOnly: Bool = true, checkForUpdates: Bool = true, japaneseEngine: String = "apple",
@@ -84,6 +92,9 @@ public struct Settings: Codable, Equatable, Sendable {
         koreanLayout = value(.koreanLayout, .dubeolsik)
         japaneseLayout = value(.japaneseLayout, nil as LatinLayout?)
         displayLanguage = value(.displayLanguage, nil as String?)
+        autoInstallUpdates = value(.autoInstallUpdates, false) // REA
+        priority = value(.priority, nil as String?)
+        priorityKey = value(.priorityKey, nil as PauseKey.Tap?)
     }
 
     private enum LegacyKeys: String, CodingKey { case rightCommandPause }
@@ -111,8 +122,12 @@ public struct Settings: Codable, Equatable, Sendable {
         object[LegacyKeys.rightCommandPause.rawValue] = nil // now in pauseKey
         if japaneseLayout == nil { object[CodingKeys.japaneseLayout.stringValue] = nil } // follows English again
         if displayLanguage == nil { object[CodingKeys.displayLanguage.stringValue] = nil } // follows the system again
+        if priority == nil { object[CodingKeys.priority.stringValue] = nil } // REA
+        if priorityKey == nil { object[CodingKeys.priorityKey.stringValue] = nil }
         let data = try JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys])
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: url, options: .atomic)
     }
 }
+
+extension PauseKey.Tap: Codable {} // REA: Settings.priorityKey

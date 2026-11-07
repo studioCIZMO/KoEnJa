@@ -13,6 +13,9 @@ final class InputController: IMKInputController {
     /// When the pause key (a right modifier, `Settings.pauseKey`) went down, while no other key
     /// has been pressed with it: a tap pauses.
     private var pauseTapDown: Date?
+    /// KoEnJa: when the priority key (`Settings.priorityKey`) went down on its own: a tap moves the
+    /// priority to the next language.
+    private var priorityTapDown: Date?
     /// Which switch key (right ⌥ or right ⇧, in `AppPolicy.switchKeys`) went down and when,
     /// while no other key has been pressed with it: a tap switches the word's language.
     private var switchTapDown: (key: UInt16, at: Date)? {
@@ -141,6 +144,7 @@ final class InputController: IMKInputController {
                     }
                 }
                 pauseTapChanged(event, client: input)
+                priorityTapChanged(event, client: input)
                 switchTapChanged(event, client: input)
             }
             return false
@@ -150,6 +154,8 @@ final class InputController: IMKInputController {
             return false
         }
         pauseTapDown = nil // a modifier with a key is a shortcut, not a tap
+        priorityTapDown = nil
+        MainActor.assumeIsolated { Runtime.shared.lastKey = Date() }
         switchTapDown = nil // ⌥ or ⇧ with a key types a character, not a tap
         if maskedField(input) {
             // A masked password field: the keys go to the app as typed, as when paused.
@@ -250,6 +256,33 @@ final class InputController: IMKInputController {
         togglePause(client: client)
     }
 
+    /// KoEnJa: whether a word is being typed or converted here (an automatic update waits).
+    @MainActor var composing: Bool {
+        guard let current else { return false }
+        return !current.session.keys.isEmpty || current.session.conversion != nil
+    }
+
+    /// KoEnJa: the priority key, a right modifier tapped on its own: the next language goes first
+    /// (`Runtime.nextPriority`), shown under the caret. The pause key wins if it is the same key.
+    @MainActor private func priorityTapChanged(_ event: NSEvent, client: IMKTextInput) {
+        guard let tap = Runtime.shared.settings.priorityKey, Runtime.shared.settings.pauseKey != .tap(tap) else { return }
+        guard event.keyCode == tap.keyCode else {
+            priorityTapDown = nil // another modifier joined in
+            return
+        }
+        let flag = NSEvent.ModifierFlags(tap)
+        if event.modifierFlags.contains(flag) {
+            let others = event.modifierFlags.intersection([.command, .control, .option, .shift]).subtracting(flag)
+            priorityTapDown = others.isEmpty ? Date() : nil
+            return
+        }
+        guard let down = priorityTapDown, Date().timeIntervalSince(down) < 0.5 else { return }
+        priorityTapDown = nil
+        let language = Runtime.shared.nextPriority()
+        PauseHUD.show(priority: language, caret: caretRect(client))
+        log.info("priority=\(language.rawValue, privacy: .public)")
+    }
+
     /// A switch key (right ⌥ or right ⇧) pressed and released on its own, within a moment:
     /// switch the word being typed, or the one just committed, to its next reading (as Esc
     /// does). The app still gets the modifier's events, and a lone modifier does nothing there,
@@ -259,6 +292,10 @@ final class InputController: IMKInputController {
         let flag: NSEvent.ModifierFlags
         if case .tap(let tap) = Runtime.shared.settings.pauseKey, tap.keyCode == event.keyCode {
             switchTapDown = nil // the pause key wins where an app chose the same key
+            return
+        }
+        if Runtime.shared.settings.priorityKey?.keyCode == event.keyCode {
+            switchTapDown = nil // and so does the priority key (KoEnJa)
             return
         }
         switch event.keyCode {
