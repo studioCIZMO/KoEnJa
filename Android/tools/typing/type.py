@@ -96,10 +96,16 @@ def swift_pairs(path):
 # The settings app with Korean > Japanese > English, the keyboard up in the try field.
 adb("shell", "am", "start", "-n", "com.cizmo.koenja/com.netmaru.rea.SettingsActivity")
 time.sleep(2)
-adb("shell", "uiautomator", "dump", "/sdcard/rea.xml")
-xml = adb("shell", "cat", "/sdcard/rea.xml")
-x1, y1, x2, y2 = map(int, re.search(r'text="한국어 &gt; 일본어 &gt; 영어"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml).groups())
+# The preset is below the keyboard shape's sliders: scrolled to, picked, then back to the try field.
+for _ in range(12):
+    adb("shell", "uiautomator", "dump", "/sdcard/rea.xml")
+    preset = re.search(r'text="한국어 &gt; 일본어 &gt; 영어"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', adb("shell", "cat", "/sdcard/rea.xml"))
+    if preset: break
+    adb("shell", "input", "swipe", str(w // 2), str(h * 3 // 4), str(w // 2), str(h * 3 // 8), "300")
+x1, y1, x2, y2 = map(int, preset.groups())
 adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+for _ in range(12):
+    adb("shell", "input", "swipe", str(w // 2), str(h // 4), str(w // 2), str(h * 3 // 4), "150")
 _, (fx, fy) = field()
 adb("shell", "input", "tap", str(fx), str(fy))
 time.sleep(2)

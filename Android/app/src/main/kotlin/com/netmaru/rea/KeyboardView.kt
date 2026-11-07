@@ -29,12 +29,40 @@ import android.widget.TextView
 class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(context) {
     private val density = resources.displayMetrics.density
     private val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-    // iOS 26's system keyboard: every key the same color
-    private val keyColor = if (dark) 0xFF6B6B6B.toInt() else 0xFFFFFFFF.toInt()
-    private val pressedColor = if (dark) 0xFF454545.toInt() else 0xFFABB0BA.toInt()
+    // iOS 26's system keyboard: every key the same color; a hue from the settings tints them
+    private var keyColor = 0
+    private var pressedColor = 0
     private val labelColor = if (dark) 0xFFFFFFFF.toInt() else 0xFF000000.toInt()
     private val secondaryColor = if (dark) 0x99EBEBF5.toInt() else 0x993C3C43.toInt()
-    private val backgroundColor = if (dark) 0xFF2B2B2B.toInt() else 0xFFD1D3D9.toInt()
+    private var backgroundColor = 0
+    private var shape = KeyShape()
+    private var prefs: SharedPreferences? = null
+
+    private fun color(shape: KeyShape) {
+        fun hsv(s: Float, v: Float) = android.graphics.Color.HSVToColor(floatArrayOf(shape.hue.toFloat(), s, v))
+        val tinted = shape.hue >= 0
+        keyColor = if (tinted) hsv(0.08f, if (dark) 0.38f else 1f) else if (dark) 0xFF6B6B6B.toInt() else 0xFFFFFFFF.toInt()
+        pressedColor = if (tinted) hsv(0.2f, if (dark) 0.26f else 0.74f) else if (dark) 0xFF454545.toInt() else 0xFFABB0BA.toInt()
+        backgroundColor = if (tinted) hsv(0.2f, if (dark) 0.18f else 0.86f) else if (dark) 0xFF2B2B2B.toInt() else 0xFFD1D3D9.toInt()
+        setBackgroundColor(backgroundColor)
+        (popup.background as? GradientDrawable)?.setColor(keyColor)
+    }
+
+    /** The shape changed in the settings while the keyboard is up (its try field): redrawn at once. */
+    private val shapeChanged = SharedPreferences.OnSharedPreferenceChangeListener { p, key ->
+        if (key != null && (key.startsWith("kb"))) applyShape(KeyShape.of(p))
+    }
+
+    private fun applyShape(new: KeyShape) {
+        val resized = new.total != shape.total
+        shape = new
+        color(new)
+        if (width > 0) keys = KeyLayout.keys(width / density, new)
+        if (resized) requestLayout()
+        shown = emptyList()
+        refreshCandidates()
+        invalidate()
+    }
 
     private var keys = emptyList<KeyFrame>()
     private val pressed = mutableMapOf<Int, KeyFrame>() // by pointer id
@@ -69,7 +97,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
 
     init {
         setWillNotDraw(false)
-        setBackgroundColor(backgroundColor)
+        color(shape)
         val margin = (KeyLayout.MARGIN * density).toInt()
         addView(bar, LayoutParams(LayoutParams.MATCH_PARENT, (KeyLayout.BAR_HEIGHT * density).toInt()).apply {
             leftMargin = margin; rightMargin = margin
@@ -86,11 +114,13 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         ringer = audio.ringerMode == AudioManager.RINGER_MODE_NORMAL
         shifted = false
         numbers = false
-        refreshCandidates()
-        invalidate()
+        if (this.prefs !== prefs) { this.prefs?.unregisterOnSharedPreferenceChangeListener(shapeChanged); this.prefs = prefs }
+        prefs.registerOnSharedPreferenceChangeListener(shapeChanged)
+        applyShape(KeyShape.of(prefs))
     }
 
     fun stop() {
+        prefs?.unregisterOnSharedPreferenceChangeListener(shapeChanged)
         pressed.clear()
         removeCallbacks(repeatDelete)
         popup.visibility = INVISIBLE
@@ -108,11 +138,11 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val bar = navigationBar()
         if (bar != paddingBottom) setPadding(0, 0, 0, bar)
-        super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec((KeyLayout.HEIGHT * density).toInt() + bar, MeasureSpec.EXACTLY))
+        super.onMeasure(widthMeasureSpec, MeasureSpec.makeMeasureSpec((shape.total * density).toInt() + bar, MeasureSpec.EXACTLY))
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        keys = KeyLayout.keys(w / density)
+        keys = KeyLayout.keys(w / density, shape)
     }
 
     private fun isCharacter(id: String) = id.length == 1 && id != "⇧" && id != "⌫"
@@ -133,7 +163,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         for (key in keys) {
             rect.set(key.x, key.y, key.x + key.w, key.y + key.h)
             paint.color = if (key in pressed.values && !isCharacter(key.id)) pressedColor else keyColor
-            canvas.drawRoundRect(rect, 6f, 6f, paint)
+            canvas.drawRoundRect(rect, shape.radius, shape.radius, paint)
             val letter = key.id.length == 1 && key.id[0].isLetter() && !numbers
             paint.color = labelColor
             paint.textSize = if (letter) 20f else if (isCharacter(key.id)) 22f else 16f
@@ -164,11 +194,11 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
                 val startNanos = SystemClock.elapsedRealtimeNanos()
                 val x = e.getX(i) / density
                 val y = e.getY(i) / density
-                val key = KeyLayout.nearest(keys, x, y)
+                val key = KeyLayout.nearest(keys, x, y, shape)
                 pressed[e.getPointerId(i)] = key
                 feedback(key.id)
                 if (isCharacter(key.id)) showPopup(key)
-                tap(key.id, x, y)
+                tap(key.id)
                 if (key.id == "⌫") { removeCallbacks(repeatDelete); postDelayed(repeatDelete, 400) }
                 invalidate()
                 // handle: touch-down to keys done; lag: the touch's age when it reached us
@@ -217,8 +247,7 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
         if (haptics) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
     }
 
-    /** [x], [y]: where the key was touched, for typing correction. */
-    private fun tap(id: String, x: Float = 0f, y: Float = 0f) {
+    private fun tap(id: String) {
         when (id) {
             "⇧" -> shifted = !shifted
             "123" -> { numbers = !numbers; shifted = false }
@@ -228,21 +257,12 @@ class KeyboardView(context: Context, private val typist: Typist) : FrameLayout(c
             "return" -> typist.tap(Key.Return)
             else -> {
                 val symbol = if (numbers) KeyLayout.symbols[id[0]] else null
-                val letter = if (symbol == null && id[0].isLetter()) corrected(id[0], x, y) else id[0]
-                typist.tap(Key.Char(symbol ?: if (shifted) letter.uppercaseChar() else letter))
+                // The key touched, as Gboard types it: no swapping a letter for its neighbor (typos
+                // are fixed by the word, at its end).
+                typist.tap(Key.Char(symbol ?: if (shifted) id[0].uppercaseChar() else id[0]))
                 if (symbol == null) shifted = false // one-shot shift
             }
         }
-    }
-
-    /** A touch near the edge of a letter key: the typist decides whether the neighbor was meant
-     *  (within a quarter key past the gap, as on iOS). */
-    private fun corrected(letter: Char, x: Float, y: Float): Char {
-        val typed = keys.first { it.id == letter.toString() }
-        val neighbor = keys.filter { it.id.length == 1 && it.id[0].isLetter() && it !== typed }.minBy { it.distance(x, y) }
-        if (neighbor.distance(x, y) >= KeyLayout.GAP + typed.w * 0.25f) return letter
-        fun case(c: Char) = if (shifted) c.uppercaseChar() else c
-        return typist.corrected(case(letter), case(neighbor.id[0])).lowercaseChar()
     }
 
     /** The typist's words; a tap picks one. Unchanged words (most keys) leave the bar alone. */

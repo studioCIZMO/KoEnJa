@@ -120,21 +120,6 @@ class Typist(private val service: InputMethodService) {
         refresh()
     }
 
-    /** A touch near a neighbor key mid-word: the neighbor wins when it makes the word much more
-     *  likely (fgem → fhem, 로드), as on iOS. ponytail: one key at a time, a fixed margin. */
-    fun corrected(typed: Char, neighbor: Char): Char {
-        val keys = session.keys
-        if (keys.isEmpty()) return typed
-        return if (plausibility(keys + neighbor) > plausibility(keys + typed) + 1.0) neighbor else typed
-    }
-
-    /** How likely the keys are as a word in any enabled language (average log-probability per key). */
-    private fun plausibility(keys: String) = listOfNotNull(
-        splitter.english.averageLogProbability(keys.lowercase()),
-        splitter.korean.score(keys, partial = true)?.averageLogProbability,
-        splitter.japanese?.japanese?.score(keys, partial = true)?.averageLogProbability,
-    ).maxOrNull() ?: Double.NEGATIVE_INFINITY
-
     /** Space after a typo: the fix goes in first. Kana with romaji left over (てh) goes in as
      *  English with its fix too; a word straight after . / @ : (README.md, a URL) isn't corrected. */
     private fun autocorrect() {

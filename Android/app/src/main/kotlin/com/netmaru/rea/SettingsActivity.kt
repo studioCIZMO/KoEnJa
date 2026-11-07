@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
+import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 
@@ -41,6 +42,53 @@ class SettingsActivity : Activity() {
 
         header(tr("써 보기", "試し打ち", "Try it")) // first: below, the keyboard would cover it
         list.addView(EditText(this).apply { hint = "dkssudgktpdy / hello / kanjihenkan" })
+
+        // The keyboard's shape, under the try field: open the keyboard there and it changes as you drag.
+        header(tr("키보드 모양", "キーボードの形", "Keyboard shape"))
+        note(tr("위 칸에서 키보드를 연 채로 움직이면 바로 바뀝니다.", "上の欄でキーボードを開いたまま動かすと、すぐに変わります。", "Open the keyboard in the field above and it changes as you drag."))
+        val names = mapOf(
+            "kbHeight" to tr("키 높이", "キーの高さ", "Key height"), "kbBottom" to tr("아래 여백", "下の余白", "Space below"),
+            "kbArc" to tr("가운데·양끝 높낮이", "中央・両端の高さ", "Middle and edge height"), "kbGap" to tr("키 간격", "キーの間隔", "Key spacing"),
+            "kbRowGap" to tr("줄 간격", "行の間隔", "Row spacing"), "kbRadius" to tr("모서리 둥글기", "角の丸み", "Corner radius"),
+            "kbSideKeys" to tr("Shift·Delete 너비", "Shift・Delete の幅", "Shift and Delete width"),
+        )
+        val sliders = mutableListOf<() -> Unit>()
+        fun slider(label: String, steps: Int, get: () -> Int, show: (Int) -> String, set: (Int) -> Unit) {
+            val title = TextView(this)
+            list.addView(title)
+            list.addView(SeekBar(this).apply {
+                max = steps
+                fun refresh() { progress = get(); title.text = "$label  ${show(progress)}" }
+                refresh()
+                sliders += ::refresh
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(bar: SeekBar, value: Int, fromUser: Boolean) {
+                        if (!fromUser) return
+                        set(value); title.text = "$label  ${show(value)}"
+                    }
+                    override fun onStartTrackingTouch(bar: SeekBar) {}
+                    override fun onStopTrackingTouch(bar: SeekBar) {}
+                })
+            })
+        }
+        for ((key, range, default) in KeyShape.SETTINGS) {
+            val (min, max, step) = range
+            fun value(i: Int) = min + i * step
+            slider(names.getValue(key), Math.round((max - min) / step), { Math.round((prefs.getFloat(key, default) - min) / step) },
+                { i -> if (key == "kbHeight" || key == "kbSideKeys") "×%.2f".format(value(i)) else "%.0f dp".format(value(i)) },
+                { i -> prefs.edit().putFloat(key, value(i)).apply() })
+        }
+        // 0: the system keyboard's grays; then every 10° of hue
+        slider(tr("색", "色", "Color"), 36, { prefs.getInt("kbHue", -1).let { if (it < 0) 0 else it / 10 + 1 } },
+            { i -> if (i == 0) tr("기본", "標準", "Default") else "${(i - 1) * 10}°" },
+            { i -> prefs.edit().putInt("kbHue", if (i == 0) -1 else (i - 1) * 10).apply() })
+        list.addView(Button(this).apply {
+            text = tr("모양 기본값으로", "形を標準に戻す", "Reset the shape")
+            setOnClickListener {
+                prefs.edit().apply { KeyShape.SETTINGS.forEach { remove(it.first) }; remove("kbHue") }.apply()
+                sliders.forEach { it() }
+            }
+        })
 
         header(tr("키보드 켜기", "キーボードをオンにする", "Turn on the keyboard"))
         // The steps with the system's own screens, shown until KoEnJa is turned on.

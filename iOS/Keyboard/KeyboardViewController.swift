@@ -491,11 +491,11 @@ final class KeyboardViewController: UIInputViewController {
     /// ponytail: one key at a time, a fixed band and margin; tune them with traces.
     private func corrected(_ letter: Character) -> Character {
         guard Self.preferences?.touchCorrection != false, !numbers, !session.keys.isEmpty, let keyStack, let point = keyStack.lastTouch,
-              let typed = letterKeys.first(where: { $0.letter == letter }) else { return letter }
+              letterKeys.contains(where: { $0.letter == letter }) else { return letter }
         let neighbor = letterKeys.filter { $0.letter != letter }
             .map { (letter: $0.letter, distance: keyStack.distance(point, $0.button)) }
             .min { $0.distance < $1.distance }
-        guard let neighbor, neighbor.distance < Self.gap + typed.button.bounds.width * Self.correctionBand else { return letter }
+        guard let neighbor, neighbor.distance < Self.gap / 2 + Self.correctionShift else { return letter }
         let keys = session.keys
         let shift: (Character) -> String = { [shifted] in shifted ? $0.uppercased() : String($0) }
         let typedScore = Self.plausibility(keys + shift(letter), heuristic)
@@ -504,9 +504,11 @@ final class KeyboardViewController: UIInputViewController {
         return neighborScore > typedScore + Self.correctionMargin ? neighbor.letter : letter
     }
 
-    /// How close to the neighbor counts as "near the edge" (share of a key's width past the gap),
-    /// and how much more likely (log-probability per key) the neighbor's word must be.
-    static let correctionBand: CGFloat = 0.25, correctionMargin = 1.0
+    /// How far into a key the neighbor can take it (points past the gap's middle), and how much
+    /// more likely (log-probability per key) the neighbor's word must be. The system keyboard,
+    /// measured on an iPhone 17 Pro simulator (UITests/HitAreas), moves its boundaries 2–8 pt by
+    /// what is likely next; this was a quarter key (about 12 pt), which took keys not touched.
+    static let correctionShift: CGFloat = 6, correctionMargin = 1.0
 
     /// How likely the keys are as a word in any enabled language (average log-probability per key).
     static func plausibility(_ keys: String, _ heuristic: HeuristicEngine) -> Double {

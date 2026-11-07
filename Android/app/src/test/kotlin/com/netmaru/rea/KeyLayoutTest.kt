@@ -27,6 +27,21 @@ class KeyLayoutTest {
         val q = keys.getValue("q")
         assertEquals("w", KeyLayout.nearest(all, q.x + q.w + KeyLayout.GAP * 0.9f, q.y + 5).id)
         assertEquals("q", KeyLayout.nearest(all, 0f, 0f).id) // the margin above-left
-        assertEquals("a", KeyLayout.nearest(all, keys.getValue("a").midX, q.y + q.h + KeyLayout.ROW_GAP * 0.6f).id)
+        // Gboard's: the gap under a row is the row's (a thumb lands low); the next row starts at its keys' top
+        val s = keys.getValue("s")
+        assertEquals("w", KeyLayout.nearest(all, s.midX - 4, q.y + q.h + KeyLayout.ROW_GAP * 0.9f).id)
+        assertEquals("s", KeyLayout.nearest(all, s.midX, s.y + 0.5f).id)
+    }
+
+    @Test fun curvedRowsTypeTheKeyTouched() {
+        for (arc in listOf(12f, -12f)) {
+            val shape = KeyShape(arc = arc)
+            val all = KeyLayout.keys(412f, shape)
+            for (key in all) assertEquals("arc $arc", key.id, KeyLayout.nearest(all, key.midX, key.y + key.h - 0.5f, shape).id)
+        }
+        val shape = KeyShape(arc = 12f)
+        val all = KeyLayout.keys(412f, shape)
+        assertEquals("space", KeyLayout.nearest(all, 125.44f, 198.13f, shape).id)
+        assertEquals("a", KeyLayout.nearest(all, 30.35f, 97.51f, shape).id)
     }
 }
