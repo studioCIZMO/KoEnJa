@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 11 and earlier: only the settings (shared_prefs/rea.xml), never what was typed or learned. -->
+<full-backup-content>
+    <include domain="sharedpref" path="rea.xml" />
+</full-backup-content>

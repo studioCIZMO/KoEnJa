@@ -20,6 +20,9 @@ import android.widget.TextView
 
 /** The iOS app's settings: turning the keyboard on, language order, input options, key feedback,
  *  and a field to try it in. */
+private const val EXPORT = 1
+private const val IMPORT = 2
+
 class SettingsActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -138,13 +141,66 @@ class SettingsActivity : Activity() {
         toggles(listOf(
             Triple("nearbyKeys", tr("주변 키 후보", "隣のキーの候補", "Nearby-key suggestions"), true),
             Triple("adaptToTouch", tr("내 터치에 맞추기", "タッチに合わせる", "Adapt to my touch"), true),
+            Triple("swipeSymbols", tr("위로 쓸어 기호 입력", "上にスワイプで記号", "Swipe up for symbols"), true),
         ))
-        note(tr("주변 키 후보: 맞는 단어라도 옆 키 쪽을 눌렀으면 그 키로 바꾼 단어를 위쪽 막대에 보여 줍니다(자동으로 바꾸지 않음). 내 터치에 맞추기: 그런 후보를 고르면 키마다 누른 위치를 기억하고, 한 키에 8번 쌓이면 그 키의 인식 범위를 조금 옮깁니다. 비밀번호 칸에서는 둘 다 꺼집니다.",
-            "隣のキーの候補：正しい単語でも隣のキー寄りを押したときは、そのキーにした単語を上のバーに出します（自動では変えません）。タッチに合わせる：その候補を選ぶとキーごとに押した位置を覚え、1つのキーで8回たまるとそのキーの範囲を少し動かします。パスワード欄ではどちらもオフです。",
-            "Nearby-key suggestions: even for a correct word, a touch toward a neighbor key offers the word that key makes in the bar (never put in by itself). Adapt to my touch: picking one remembers where you touched each key; after 8 for a key, its touch area moves a little. Both are off in password fields."))
+        note(tr("주변 키 후보: 맞는 단어라도 옆 키 쪽을 눌렀으면 그 키로 바꾼 단어를 위쪽 막대에 보여 줍니다(자동으로 바꾸지 않음). 내 터치에 맞추기: 그런 후보를 고르면 키마다 누른 위치를 기억하고, 한 키에 8번 쌓이면 그 키의 인식 범위를 조금 옮깁니다. 비밀번호 칸에서는 둘 다 꺼집니다. 글자 키를 위로 쓸면 키 구석의 기호가, 스페이스를 누른 채 옆으로 밀면 커서가 움직입니다.",
+            "隣のキーの候補：正しい単語でも隣のキー寄りを押したときは、そのキーにした単語を上のバーに出します（自動では変えません）。タッチに合わせる：その候補を選ぶとキーごとに押した位置を覚え、1つのキーで8回たまるとそのキーの範囲を少し動かします。パスワード欄ではどちらもオフです。文字キーを上にスワイプするとキーの隅の記号が、スペースを押したまま横に動かすとカーソルが動きます。",
+            "Nearby-key suggestions: even for a correct word, a touch toward a neighbor key offers the word that key makes in the bar (never put in by itself). Adapt to my touch: picking one remembers where you touched each key; after 8 for a key, its touch area moves a little. Both are off in password fields. Swipe up on a letter for the symbol in its corner; hold space and slide to move the cursor."))
         list.addView(Button(this).apply {
             text = tr("터치 기록 지우기", "タッチの記録を消す", "Clear touch learning")
             setOnClickListener { TouchCalibration.clear(prefs) }
+        })
+
+        // Text shortcuts: typed keys offer a saved phrase in the bar.
+        header(tr("텍스트 단축어", "テキストショートカット", "Text shortcuts"))
+        note(tr("단축어를 치면 위쪽 막대에 문장이 나오고, 누르면 입력됩니다. 예: brb → Be right back",
+            "ショートカットを打つと上のバーに文が出て、押すと入力されます。例：brb → Be right back",
+            "Type a shortcut and its phrase shows in the bar; tap it to put it in. Example: brb → Be right back"))
+        val shortcutList = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        fun showShortcuts() {
+            shortcutList.removeAllViews()
+            for ((keys, phrase) in Prefs.shortcuts(prefs)) shortcutList.addView(LinearLayout(this).apply {
+                addView(TextView(context).apply { text = "$keys  →  $phrase" }, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                addView(Button(context).apply {
+                    text = tr("삭제", "削除", "Delete")
+                    setOnClickListener { Prefs.setShortcuts(prefs, Prefs.shortcuts(prefs).filter { it.first != keys }); showShortcuts() }
+                })
+            })
+        }
+        showShortcuts()
+        list.addView(shortcutList)
+        val newKeys = EditText(this).apply { hint = "brb"; isSingleLine = true }
+        val newPhrase = EditText(this).apply { hint = "Be right back"; isSingleLine = true }
+        list.addView(newKeys); list.addView(newPhrase)
+        list.addView(Button(this).apply {
+            text = tr("단축어 추가", "ショートカットを追加", "Add shortcut")
+            setOnClickListener {
+                val keys = newKeys.text.toString().trim().lowercase()
+                val phrase = newPhrase.text.toString().trim()
+                // letters only (a-z): what reaches the word being typed; digits go to the app as typed
+                if (keys.isEmpty() || phrase.isEmpty() || keys.any { it !in 'a'..'z' } || keys.length > 32 || phrase.length > 500) return@setOnClickListener
+                Prefs.setShortcuts(prefs, Prefs.shortcuts(prefs).filter { it.first != keys } + (keys to phrase))
+                newKeys.text.clear(); newPhrase.text.clear(); showShortcuts()
+            }
+        })
+
+        // Backup: the settings (not what was typed or learned as words) to a file and back.
+        header(tr("설정 백업", "設定のバックアップ", "Settings backup"))
+        note(tr("설정, 키보드 모양, 단축어, 터치 기록만 저장합니다. 입력한 글과 학습한 단어는 넣지 않습니다. 기기의 Google 백업도 같은 범위만 백업합니다.",
+            "設定、キーボードの形、ショートカット、タッチの記録だけを保存します。入力した文章や学習した単語は入れません。端末の Google バックアップも同じ範囲だけです。",
+            "Saves the settings, keyboard shape, shortcuts and touch learning only, never what you typed or the words learned. The phone's Google backup takes the same."))
+        list.addView(Button(this).apply {
+            text = tr("파일로 내보내기", "ファイルに書き出す", "Export to a file")
+            setOnClickListener {
+                startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+                    .setType("application/json").putExtra(Intent.EXTRA_TITLE, "koenja-settings.json"), EXPORT)
+            }
+        })
+        list.addView(Button(this).apply {
+            text = tr("파일에서 복원", "ファイルから復元", "Restore from a file")
+            setOnClickListener {
+                startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*"), IMPORT)
+            }
         })
 
         header(tr("키 피드백", "キーのフィードバック", "Key feedback"))
@@ -164,6 +220,32 @@ class SettingsActivity : Activity() {
         })
 
         setContentView(ScrollView(this).apply { fitsSystemWindows = true; addView(list) })
+    }
+
+    @Deprecated("startActivityForResult: no AndroidX here")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        val uri = data?.data ?: return
+        if (resultCode != RESULT_OK) return
+        val prefs = Prefs.of(this)
+        val done = runCatching {
+            when (requestCode) {
+                EXPORT -> contentResolver.openOutputStream(uri)!!.use { it.write(SettingsBackup.export(prefs).toByteArray()) }
+                IMPORT -> SettingsBackup.restore(prefs, contentResolver.openInputStream(uri)!!.use {
+                    val out = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val n = it.read(buffer)
+                        if (n < 0) break
+                        out.write(buffer, 0, n)
+                        require(out.size() <= SettingsBackup.MAX_BYTES) { "too big" }
+                    }
+                    out.toByteArray().decodeToString()
+                })
+            }
+        }.isSuccess
+        android.widget.Toast.makeText(this, if (done) tr("완료했습니다.", "完了しました。", "Done.") else tr("읽거나 쓰지 못했습니다.", "読み書きできませんでした。", "Couldn't read or write the file."), android.widget.Toast.LENGTH_SHORT).show()
+        if (done && requestCode == IMPORT) recreate()
     }
 
     private val guide by lazy { LinearLayout(this).apply { orientation = LinearLayout.VERTICAL } }

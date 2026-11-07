@@ -32,6 +32,15 @@ object Prefs {
     fun setOrder(p: SharedPreferences, order: List<Language>) =
         p.edit().putString("languages", order.joinToString(",") { it.name }).apply()
 
+    /** Text shortcuts ("brb" → "Be right back"), in the order added: lines of keys TAB phrase. */
+    fun shortcuts(p: SharedPreferences): List<Pair<String, String>> =
+        p.getString("shortcuts", null)?.lines()?.mapNotNull { line ->
+            line.split('\t', limit = 2).takeIf { it.size == 2 && it[0].isNotBlank() }?.let { it[0] to it[1] }
+        }.orEmpty()
+
+    fun setShortcuts(p: SharedPreferences, list: List<Pair<String, String>>) =
+        p.edit().putString("shortcuts", list.joinToString("\n") { (k, v) -> "$k\t${v.replace('\n', ' ')}" }).apply()
+
     /** The switch key's label: the enabled languages in order (한あA, あA…). */
     fun switchLabel(p: SharedPreferences) = order(p).joinToString("") { it.mark }
 

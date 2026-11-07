@@ -90,9 +90,12 @@ class Typist(private val service: InputMethodService) {
      *  password fields and fields that ask for no learning). */
     var nearbyKeys = true
     var learning = true
+    /** Text shortcuts from the settings: typed keys → the phrase offered for them. */
+    private var shortcuts = emptyMap<String, String>()
 
     /** The keyboard comes up: a new field. Rebuilds the session if the settings changed in the app. */
     fun start(prefs: SharedPreferences) {
+        shortcuts = Prefs.shortcuts(prefs).toMap()
         val order = Prefs.order(prefs)
         val options = Prefs.options.map { (key, _, default) -> prefs.getBoolean(key, default) }
         val settings = "$order $options"
@@ -138,6 +141,26 @@ class Typist(private val service: InputMethodService) {
         client.batch { type(key) }
         follow(before, (key as? Key.Char)?.char, touch)
         refreshSoon()
+    }
+
+    /** The word's keys now (before a letter, for [replaceLastKey]). */
+    val keysNow get() = if (built != null) session.keys else ""
+
+    /** A letter swiped up: it becomes [symbol]. Delete takes it back; where Delete took more (a
+     *  kana: か for its a), the keys before it are typed again first. */
+    fun replaceLastKey(before: String, symbol: Char) {
+        tap(Key.Delete)
+        val now = keysNow
+        if (before.startsWith(now)) for (c in before.substring(now.length)) tap(Key.Char(c))
+        tap(Key.Char(symbol))
+    }
+
+    /** Space dragged sideways: the word goes in as it is, then the cursor moves [steps] characters
+     *  (negative: left), as on Gboard. */
+    fun moveCursor(steps: Int) {
+        if (built != null && session.keys.isNotEmpty()) { session.commit(client); forgetTouches(); refresh(); onCandidates() }
+        val code = if (steps < 0) android.view.KeyEvent.KEYCODE_DPAD_LEFT else android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+        repeat(kotlin.math.abs(steps)) { service.sendDownUpKeyEvents(code) }
     }
 
     /** How far (0 at key `t`'s center, 1 at `n`'s) the touch for the key at [i] lay toward `n`. */
@@ -242,6 +265,10 @@ class Typist(private val service: InputMethodService) {
                 list += Candidate(candidate.text, index == (conversion?.selected ?: 0)) to {
                     if (conversion != null) session.choose(index, client) else session.choose(candidate, client)
                 }
+            }
+            // a text shortcut typed (brb): its phrase first, put in with a space when picked
+            shortcuts[session.keys.lowercase()]?.let { phrase ->
+                list.add(0, Candidate(phrase) to { replaceWord(phrase); client.insertText(" ", null) })
             }
             val word = client.marked
             val trace = session.lastTrace

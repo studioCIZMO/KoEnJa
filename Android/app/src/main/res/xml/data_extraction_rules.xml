@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 and later: the settings only (shared_prefs/rea.xml), to the cloud and to a new phone. -->
+<data-extraction-rules>
+    <cloud-backup><include domain="sharedpref" path="rea.xml" /></cloud-backup>
+    <device-transfer><include domain="sharedpref" path="rea.xml" /></device-transfer>
+</data-extraction-rules>
