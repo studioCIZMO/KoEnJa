@@ -269,12 +269,24 @@ KoEnJa uses the **engine** of [Araso](https://github.com/nyttastudio/araso) (© 
 
 | Part | Where it comes from |
 |---|---|
-| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.6.0), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
+| Language engine, iOS (`Packages/SeamtypeCore`) | Araso's engine source (`ArasoCore`, 0.6.1), used under the MIT License, with our changes. They are marked `// REA:` and listed in `Packages/SeamtypeCore/UPSTREAM`. They cover the memory use of the Korean vocabulary, committing exactly what the screen shows, and mixed-language rules. |
 | Language engine, Android (`Android/engine`, Kotlin) and Windows (`Windows/engine`, C++20) | Written for KoEnJa to follow Araso's engine, then checked against it. The Swift, Kotlin and C++ engines replay the same golden file (`Android/engine/src/test/resources/golden.tsv`) and must match line for line. |
-| Mac input method (`Mac/`) | Araso's macOS input method (`Sources/Araso`, 0.6.0), taken under the MIT License and connected to KoEnJa's engine, with its name, bundle ID, storage folder, update check and menu icon changed (listed in `Mac/UPSTREAM`). |
+| Mac input method (`Mac/`) | Araso's macOS input method (`Sources/Araso`, 0.6.1), taken under the MIT License and connected to KoEnJa's engine, with its name, bundle ID, storage folder, update check and menu icon changed (listed in `Mac/UPSTREAM`). |
 | iOS keyboard and app (`iOS/`) | Written for KoEnJa: the key layout, candidate bar, switch key and settings. |
 | Android keyboard (`Android/app`, `Android/japanese`) | Written for KoEnJa, including a Japanese converter over the Mozc dictionary. |
 | Windows input method (`Windows/tip`, `Windows/japanese`, `Windows/installer`) | Written for KoEnJa: the TSF text service, MS-IME-style conversion over the Mozc dictionary, keyboard types, switch key, language priority, settings and installer. |
+
+### Differences by platform
+
+Araso is a macOS input method only. For Mac this lists what differs on the same base; for the other platforms, what KoEnJa does where Araso doesn't run.
+
+| Platform | Araso | KoEnJa |
+| --- | --- | --- |
+| All: language engine | Swift engine (`ArasoCore`) | The same engine with KoEnJa's changes: the Korean word list kept as hashes (less memory), Space and Return commit what is shown, Japanese after a capitalized English word, particles after addresses, dotfiles in URLs. The Kotlin (Android) and C++ (Windows) ports pass the same 1,932-line golden test without a single difference |
+| Mac | macOS input method "Araso" | Araso's input method, renamed (한영일) with its own bundle ID and storage, so an Araso beside it keeps its own settings and learned words. Updates come from KoEnJa's releases; the input menu shows the installed version and, when there is a newer one, an update item. Menu icon "한영일". Digits in dictionary keys (k8s). Developer ID signed and notarized; the zip opens when unzipped in Finder |
+| iPhone | none | Its own keyboard: the `한あA` switch key, a candidate bar with Japanese conversions and next-word predictions, suggestions, autocorrect and edge-touch correction. Coming in 1.0.4: keyboard shape and color, nearby-key suggestions and touch learning, swipe up for symbols, slide Space to move the cursor, text shortcuts |
+| Android | none | Its own keyboard (Kotlin engine) and a Japanese converter over the Mozc dictionary. 0.2.4: keyboard shape and color, nearby-key suggestions and touch learning, swipe up for symbols, slide Space to move the cursor, text shortcuts, a pruned dictionary (9.5 MB APK) |
+| Windows | none | Its own TSF input method (C++ engine): Microsoft IME-style kanji conversion (Space/変換, F6–F10, Shift+←/→ for phrases), keyboard types (Korean, US, JIS), a choice of switch keys, a priority language (한국어 우선 ↔ 日本語優先), an installer |
 
 We are grateful to Araso's author for publishing the engine under the MIT License, which made this project possible. The engine's original copyright notice is kept in `THIRD_PARTY_NOTICES.txt` (and in the iOS app's license screen).
 

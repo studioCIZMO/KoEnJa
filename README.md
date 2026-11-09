@@ -261,12 +261,24 @@ macOS 입력기이고, 엔진은 그 가운데 단어의 언어를 판단하는 
 
 | 부분 | 출처 |
 | --- | --- |
-| 언어 엔진, iOS (`Packages/SeamtypeCore`) | Araso의 엔진 소스(`ArasoCore`, 0.6.0)를 MIT 라이선스에 따라 쓰고 KoEnJa의 변경을 더했습니다. 변경은 `// REA:`로 표시하고 `Packages/SeamtypeCore/UPSTREAM`에 적었습니다. 한국어 단어 목록의 메모리, 화면에 보인 그대로 확정하기, 섞인 언어 규칙입니다. |
+| 언어 엔진, iOS (`Packages/SeamtypeCore`) | Araso의 엔진 소스(`ArasoCore`, 0.6.1)를 MIT 라이선스에 따라 쓰고 KoEnJa의 변경을 더했습니다. 변경은 `// REA:`로 표시하고 `Packages/SeamtypeCore/UPSTREAM`에 적었습니다. 한국어 단어 목록의 메모리, 화면에 보인 그대로 확정하기, 섞인 언어 규칙입니다. |
 | 언어 엔진, Android (`Android/engine`, Kotlin)와 Windows (`Windows/engine`, C++20) | Araso의 엔진을 따라 KoEnJa용으로 새로 작성하고 대조했습니다. Swift, Kotlin, C++ 엔진은 같은 골든 파일(`Android/engine/src/test/resources/golden.tsv`)을 재생해 한 줄도 다르지 않아야 합니다. |
-| Mac 입력기 (`Mac/`) | Araso의 macOS 입력기(`Sources/Araso`, 0.6.0)를 MIT 라이선스에 따라 가져와 KoEnJa 엔진에 연결했습니다. 이름, 번들 ID, 저장 위치, 업데이트 확인, 메뉴 아이콘을 바꿨고 `Mac/UPSTREAM`에 적었습니다. |
+| Mac 입력기 (`Mac/`) | Araso의 macOS 입력기(`Sources/Araso`, 0.6.1)를 MIT 라이선스에 따라 가져와 KoEnJa 엔진에 연결했습니다. 이름, 번들 ID, 저장 위치, 업데이트 확인, 메뉴 아이콘을 바꿨고 `Mac/UPSTREAM`에 적었습니다. |
 | iOS 키보드와 앱 (`iOS/`) | KoEnJa용으로 작성: 키 배치, 후보 막대, 전환 키, 설정 |
 | Android 키보드 (`Android/app`, `Android/japanese`) | KoEnJa용으로 작성: Mozc 사전 위의 일본어 변환기 포함 |
 | Windows 입력기 (`Windows/tip`, `Windows/japanese`, `Windows/installer`) | KoEnJa용으로 작성: TSF 텍스트 서비스, Mozc 사전 위의 MS-IME식 변환, 키보드 종류, 전환 키, 우선 언어, 설정, 설치 프로그램 |
+
+### 플랫폼별 차이
+
+Araso는 macOS 입력기만 있습니다. 그래서 Mac은 Araso와 같은 바탕에서 무엇이 다른지, 나머지 플랫폼은 Araso가 없는 곳에서 KoEnJa가 무엇을 하는지로 정리했습니다.
+
+| 플랫폼 | Araso | KoEnJa |
+| --- | --- | --- |
+| 공통: 언어 엔진 | Swift 엔진(`ArasoCore`) | 같은 엔진에 KoEnJa의 변경: 한국어 단어 목록을 해시로 두어 메모리를 줄임, Space·Return은 화면에 보인 그대로 확정, 영어 대문자 단어 뒤 일본어, 주소 뒤 조사, URL 속 점 파일 처리. Kotlin(Android)과 C++(Windows)로 옮긴 엔진도 같은 골든 테스트 1,932줄을 한 줄도 다르지 않게 통과 |
+| Mac | macOS 입력기 「Araso」 | Araso 입력기를 가져와 이름(한영일)·번들 ID·저장 위치를 바꿈. Araso와 함께 설치해도 설정·학습 단어를 따로 둠. 업데이트는 KoEnJa 릴리스에서 받고, 입력 메뉴에 설치된 버전과(새 버전이 있을 때) 업데이트 항목을 보여 줌. 메뉴 아이콘은 「한영일」. 사전 키에 숫자 허용(k8s). Developer ID 서명·Apple 공증, Finder로 풀어도 열리는 zip |
+| iPhone | 없음 | 직접 만든 키보드: `한あA` 전환 키, 일본어 변환 후보와 다음 말 예측이 나오는 후보 막대, 추천 단어·자동 고침·가장자리 터치 보정. 다음 버전 1.0.4(출시 예정): 키보드 모양·색, 이웃 키 추천과 터치 학습, 위로 밀어 기호, Space 밀어 커서 이동, 텍스트 단축어 |
+| Android | 없음 | 직접 만든 키보드(Kotlin 엔진)와 Mozc 사전 위의 일본어 변환기. 0.2.4: 키보드 모양·색, 이웃 키 추천과 터치 학습, 위로 밀어 기호, Space 밀어 커서 이동, 텍스트 단축어, 사전을 줄여 APK 9.5 MB |
+| Windows | 없음 | 직접 만든 TSF 입력기(C++ 엔진): Microsoft IME식 한자 변환(Space·変換, F6–F10, Shift+←/→ 문절), 키보드 종류(한국어·미국식·JIS), 고를 수 있는 전환 키, 우선 언어(한국어 우선 ↔ 日本語優先), 설치 프로그램 |
 
 Araso의 원래 저작권 고지는
 `THIRD_PARTY_NOTICES.txt`(와 iOS 앱의 라이선스 화면)에 그대로 두었습니다.

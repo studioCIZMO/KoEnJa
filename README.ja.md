@@ -264,12 +264,24 @@ MIT ライセンスに基づいて取り込み、手を加えたものです。
 
 | 部分 | 出どころ |
 | --- | --- |
-| 言語エンジン、iOS（`Packages/SeamtypeCore`） | Araso のエンジンのソース（`ArasoCore`、0.4.5）を MIT ライセンスに基づいて使い、KoEnJa の変更を加えています。変更は `// REA:` で印をつけ、`Packages/SeamtypeCore/UPSTREAM` に記載しています。韓国語の単語リストのメモリ、画面に表示したとおりの確定、混在言語の規則です。 |
+| 言語エンジン、iOS（`Packages/SeamtypeCore`） | Araso のエンジンのソース（`ArasoCore`、0.6.1）を MIT ライセンスに基づいて使い、KoEnJa の変更を加えています。変更は `// REA:` で印をつけ、`Packages/SeamtypeCore/UPSTREAM` に記載しています。韓国語の単語リストのメモリ、画面に表示したとおりの確定、混在言語の規則です。 |
 | 言語エンジン、Android（`Android/engine`、Kotlin）と Windows（`Windows/engine`、C++20） | Araso のエンジンに倣って KoEnJa 用に書き、照合しました。Swift・Kotlin・C++ のエンジンは同じゴールデンファイル（`Android/engine/src/test/resources/golden.tsv`）を再生し、1 行も違ってはいけません。 |
-| Mac の入力メソッド（`Mac/`） | Araso の macOS 入力メソッド（`Sources/Araso`、0.6.0）を MIT ライセンスに基づいて取り込み、KoEnJa のエンジンにつなぎました。名前、バンドル ID、保存先、アップデート確認、メニューのアイコンを変え、`Mac/UPSTREAM` に記載しています。 |
+| Mac の入力メソッド（`Mac/`） | Araso の macOS 入力メソッド（`Sources/Araso`、0.6.1）を MIT ライセンスに基づいて取り込み、KoEnJa のエンジンにつなぎました。名前、バンドル ID、保存先、アップデート確認、メニューのアイコンを変え、`Mac/UPSTREAM` に記載しています。 |
 | iOS のキーボードとアプリ（`iOS/`） | KoEnJa 用に作成：キー配置、候補バー、切り替えキー、設定 |
 | Android のキーボード（`Android/app`、`Android/japanese`） | KoEnJa 用に作成：Mozc 辞書を使う日本語変換器を含む |
 | Windows の入力メソッド（`Windows/tip`、`Windows/japanese`、`Windows/installer`） | KoEnJa 用に作成：TSF テキスト サービス、Mozc 辞書による MS-IME 風の変換、キーボードの種類、切り替えキー、優先言語、設定、インストーラー |
+
+### プラットフォームごとの違い
+
+Araso は macOS の入力メソッドだけです。Mac は同じ土台から何が違うかを、ほかのプラットフォームは Araso のない場所で KoEnJa が何をするかをまとめました。
+
+| プラットフォーム | Araso | KoEnJa |
+| --- | --- | --- |
+| 共通：言語エンジン | Swift のエンジン（`ArasoCore`） | 同じエンジンに KoEnJa の変更：韓国語の単語リストをハッシュにしてメモリを削減、Space・Return は表示どおりに確定、英語の大文字語に続く日本語、住所の後の助詞、URL 内のドットファイル。Kotlin（Android）と C++（Windows）に移したエンジンも同じゴールデンテスト 1,932 行を 1 行も違わずに通過 |
+| Mac | macOS 入力メソッド「Araso」 | Araso の入力メソッドを取り込み、名前（한영일）・バンドル ID・保存場所を変更。Araso と同時に入れても設定・学習語は別。更新は KoEnJa のリリースから取得し、入力メニューにインストール中のバージョンと（新しい版があれば）更新項目を表示。メニューアイコンは「한영일」。辞書のキーに数字（k8s）。Developer ID 署名・Apple 公証、Finder で展開しても開ける zip |
+| iPhone | なし | 独自のキーボード：`한あA` 切り替えキー、日本語変換候補と次の語の予測が出る候補バー、おすすめ語・自動修正・端のタッチ補正。次のバージョン 1.0.4（公開予定）：キーボードの形・色、近いキーの候補とタッチ学習、上フリックで記号、Space スライドでカーソル移動、ユーザ辞書の短縮入力 |
+| Android | なし | 独自のキーボード（Kotlin エンジン）と Mozc 辞書による日本語変換。0.2.4：キーボードの形・色、近いキーの候補とタッチ学習、上フリックで記号、Space スライドでカーソル移動、短縮入力、辞書を絞って APK 9.5 MB |
+| Windows | なし | 独自の TSF 入力メソッド（C++ エンジン）：Microsoft IME 風の漢字変換（Space・変換、F6–F10、Shift+←/→ で文節）、キーボードの種類（韓国語・米国・JIS）、選べる切り替えキー、優先言語（한국어 우선 ↔ 日本語優先）、インストーラー |
 
 エンジンを MIT ライセンスで公開して
 くださった Araso の開発者に感謝します。おかげでこのプロジェクトが実現しました。エンジンの元の著作権表示は
