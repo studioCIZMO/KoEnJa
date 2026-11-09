@@ -628,8 +628,11 @@ final class InputController: IMKInputController {
                 }
             }
             Updater.shared.refresh()
+            // Always there, so the version shows: About checks again as it opens and installs from there.
             if let release = Updater.shared.available {
                 add(L("Update to KoEnJa %@…", release.version), #selector(openUpdate(_:)))
+            } else {
+                add(L("KoEnJa %@ — Check for Updates…", Updater.currentVersion), #selector(openUpdate(_:)))
             }
             add(L("Try Typing…"), #selector(openTyping(_:)))
             add(L("Dictionary…"), #selector(openLearned(_:)))

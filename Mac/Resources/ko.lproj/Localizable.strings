@@ -125,6 +125,7 @@
 
 /* Updates */
 "Update to KoEnJa %@…" = "한영일 %@로 업데이트…";
+"KoEnJa %@ — Check for Updates…" = "한영일 %@ — 업데이트 확인…";
 "Updates" = "업데이트";
 "Install %@…" = "%@ 설치…";
 "Check Now" = "지금 확인";
