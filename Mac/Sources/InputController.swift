@@ -612,8 +612,6 @@ final class InputController: IMKInputController {
                 }
                 menu.addItem(.separator())
             }
-
-            menu.addItem(.separator())
             if let keys = runtime.engine.lastLearned {
                 add(L("Undo Last Learned (%@)", keys), #selector(undoLastLearned(_:)))
             }
@@ -627,16 +625,17 @@ final class InputController: IMKInputController {
                         indent: 1, value: word.keys)
                 }
             }
-            Updater.shared.refresh()
-            // Always there, so the version shows: choosing it checks and installs (Updater.updateFromMenu).
-            if let release = Updater.shared.available {
-                add(L("Update to KoEnJa %@…", release.version), #selector(openUpdate(_:)))
-            } else {
-                add(L("KoEnJa %@ — Update…", Updater.currentVersion), #selector(openUpdate(_:)))
-            }
             add(L("Try Typing…"), #selector(openTyping(_:)))
             add(L("Dictionary…"), #selector(openLearned(_:)))
             add(L("KoEnJa Settings…"), #selector(openSettings(_:)))
+            // Last: the installed version, greyed, and the update item only once a check found a newer
+            // one; choosing it installs (Updater.updateFromMenu).
+            menu.addItem(.separator())
+            Updater.shared.refresh()
+            add(L("KoEnJa %@", Updater.currentVersion), nil)
+            if let release = Updater.shared.available {
+                add(L("Update to KoEnJa %@…", release.version), #selector(openUpdate(_:)))
+            }
             return menu
         }
     }
