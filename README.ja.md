@@ -37,7 +37,10 @@ kinouemailwookutta⏎                                       →  きのうemail�
 <sub>上の例はエンジンのゴールデンテスト（`Android/engine/src/test/resources/golden.tsv`）からそのまま取ったものです。⏎（Return）はかなのまま確定し、Space で漢字に変換します。</sub>
 
 <p align="center">
-  <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="https://img.shields.io/badge/Windows%E7%89%88%E3%82%92%E3%83%80%E3%82%A6%E3%83%B3%E3%83%AD%E3%83%BC%E3%83%89-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 版をダウンロード"></a>
+  <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest/download/KoEnJa-Mac.zip"><img src="https://img.shields.io/badge/Mac%20%E7%89%88%E3%82%92%E3%83%80%E3%82%A6%E3%83%B3%E3%83%AD%E3%83%BC%E3%83%89-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Mac 版をダウンロード"></a>
+  <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="https://img.shields.io/badge/Windows%20%E7%89%88%E3%82%92%E3%83%80%E3%82%A6%E3%83%B3%E3%83%AD%E3%83%BC%E3%83%89-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 版をダウンロード"></a>
+  <a href="https://apps.apple.com/app/id6824875642"><img src="https://img.shields.io/badge/App%20Store%20%28iPhone%29-0d96f6?style=for-the-badge&logo=appstore&logoColor=white" alt="App Store (iPhone)"></a>
+  <a href="https://play.google.com/store/apps/details?id=com.cizmo.koenja"><img src="https://img.shields.io/badge/Google%20Play%20%28Android%29-01875f?style=for-the-badge&logo=googleplay&logoColor=white" alt="Google Play (Android)"></a>
 </p>
 
 ## ひと目でわかる KoEnJa

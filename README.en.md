@@ -37,7 +37,10 @@ kinouemailwookutta⏎                                       →  きのうemail�
 <sub>These examples are taken as they are from the engine's golden test (`Android/engine/src/test/resources/golden.tsv`). ⏎ (Return) commits the kana as typed; Space converts to kanji.</sub>
 
 <p align="center">
+  <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest/download/KoEnJa-Mac.zip"><img src="https://img.shields.io/badge/Download%20for%20Mac-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download for Mac"></a>
   <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="https://img.shields.io/badge/Download%20for%20Windows-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Download for Windows"></a>
+  <a href="https://apps.apple.com/app/id6824875642"><img src="https://img.shields.io/badge/App%20Store%20%28iPhone%29-0d96f6?style=for-the-badge&logo=appstore&logoColor=white" alt="App Store (iPhone)"></a>
+  <a href="https://play.google.com/store/apps/details?id=com.cizmo.koenja"><img src="https://img.shields.io/badge/Google%20Play%20%28Android%29-01875f?style=for-the-badge&logo=googleplay&logoColor=white" alt="Google Play (Android)"></a>
 </p>
 
 ## At a glance
