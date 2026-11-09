@@ -115,9 +115,9 @@ Araso와 함께 설치해도 설정과 학습한 단어는 따로 둡니다(`~/L
 
 ### Android
 
-Google Play 심사 중입니다(0.2.3). 그전에 [릴리스](https://github.com/studioCIZMO/KoEnJa/releases/latest)에서 `KoEnJa-Android-0.2.3.apk`(Android 8.0 이상)를 받아 설치할 수 있습니다.
+[Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja)에서 받을 수 있습니다(Android 8.0 이상, 무료). [릴리스](https://github.com/studioCIZMO/KoEnJa/releases/latest)의 `KoEnJa-Android-0.2.4.apk`로 설치할 수도 있습니다.
 설치한 뒤 앱에서 「키보드 설정 열기」로 한영일을 켜고, 「입력 방법 고르기」로 고르세요.
-Play 버전은 Google이 서명하므로, 나중에 Play 버전으로 옮기려면 APK판을 지우고 Play에서 설치해 주세요. 소스는 `Android/`에 있습니다.
+Play 버전은 Google이 서명하므로, APK판에서 Play 버전으로 옮기려면 APK판을 지우고 Play에서 설치해 주세요. 소스는 `Android/`에 있습니다.
 
 ## 키
 
@@ -221,7 +221,6 @@ MSVC 골든 테스트는 `main`에 push할 때마다 [CI](.github/workflows/wind
 ## 알려진 한계
 
 - Windows 0.3.1은 코드 서명이 없습니다([코드 서명 정책](#코드-서명-정책)). x64 전용이고 ARM64 Windows는 지원하지 않습니다.
-- Android는 Google Play 심사가 끝날 때까지 APK로만 받을 수 있습니다.
 - 두 언어에서 모두 말이 되는 키(`go`/해, `so`/내)는 틀릴 수 있습니다. 전환 키로 고치세요.
 - 영어 단어에 일본어 조사를 붙이면 일본어로 읽히는 경우가 있습니다(`sitede` → `してで`, `tokenwo` → `とけんを`).
 - 한자 변환의 맨 앞 후보는 구절 5개 중 4개, 문장 3개 중 2개꼴로 원문과 같습니다(iOS 경로). 나머지는 후보 목록에서 고르세요.

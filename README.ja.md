@@ -117,9 +117,9 @@ Araso と一緒にインストールしても、設定と学習した単語は�
 
 ### Android
 
-Google Play で審査中です（0.2.3）。それまでは[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)から `KoEnJa-Android-0.2.3.apk`（Android 8.0 以上）をインストールできます。
+[Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja) で入手できます（Android 8.0 以上、無料）。[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)の `KoEnJa-Android-0.2.4.apk` からもインストールできます。
 インストール後、アプリの「키보드 설정 열기」で 한영일 をオンにし、「입력 방법 고르기」で選んでください（アプリの画面はまだ韓国語のみ）。
-Play 版は Google が署名するため、あとで Play 版に移るときは APK 版を削除してから Play でインストールしてください。ソースは `Android/` にあります。
+Play 版は Google が署名するため、APK 版から Play 版に移るときは APK 版を削除してから Play でインストールしてください。ソースは `Android/` にあります。
 
 ## キー
 
@@ -223,7 +223,6 @@ MSVC のゴールデンテストは `main` への push のたびに [CI](.github
 ## 既知の制限
 
 - Windows 0.3.1 はコード署名がありません（[コード署名ポリシー](#コード署名ポリシー)）。x64 専用で、ARM64 版 Windows には対応していません。
-- Android は Google Play の審査が終わるまで APK のみです。
 - 2 つの言語のどちらでも意味が通るキー（`go`/해、`so`/내）は間違えることがあります。切り替えキーで直してください。
 - 英単語に日本語の助詞をつけると、日本語として読まれることがあります（`sitede` → `してで`、`tokenwo` → `とけんを`）。
 - 漢字変換の第 1 候補が原文と一致するのは、フレーズで 5 件に 4 件、文で 3 件に 2 件ほどです（iOS の経路）。残りは候補一覧から選んでください。
@@ -264,7 +263,7 @@ MIT ライセンスに基づいて取り込み、手を加えたものです。
 | --- | --- |
 | 言語エンジン、iOS（`Packages/SeamtypeCore`） | Araso のエンジンのソース（`ArasoCore`、0.4.5）を MIT ライセンスに基づいて使い、KoEnJa の変更を加えています。変更は `// REA:` で印をつけ、`Packages/SeamtypeCore/UPSTREAM` に記載しています。韓国語の単語リストのメモリ、画面に表示したとおりの確定、混在言語の規則です。 |
 | 言語エンジン、Android（`Android/engine`、Kotlin）と Windows（`Windows/engine`、C++20） | Araso のエンジンに倣って KoEnJa 用に書き、照合しました。Swift・Kotlin・C++ のエンジンは同じゴールデンファイル（`Android/engine/src/test/resources/golden.tsv`）を再生し、1 行も違ってはいけません。 |
-| Mac の入力メソッド（`Mac/`） | Araso の macOS 入力メソッド（`Sources/Araso`、0.4.1）を MIT ライセンスに基づいて取り込み、KoEnJa のエンジンにつなぎました。名前、バンドル ID、保存先、アップデート確認、メニューのアイコンを変え、`Mac/UPSTREAM` に記載しています。 |
+| Mac の入力メソッド（`Mac/`） | Araso の macOS 入力メソッド（`Sources/Araso`、0.6.0）を MIT ライセンスに基づいて取り込み、KoEnJa のエンジンにつなぎました。名前、バンドル ID、保存先、アップデート確認、メニューのアイコンを変え、`Mac/UPSTREAM` に記載しています。 |
 | iOS のキーボードとアプリ（`iOS/`） | KoEnJa 用に作成：キー配置、候補バー、切り替えキー、設定 |
 | Android のキーボード（`Android/app`、`Android/japanese`） | KoEnJa 用に作成：Mozc 辞書を使う日本語変換器を含む |
 | Windows の入力メソッド（`Windows/tip`、`Windows/japanese`、`Windows/installer`） | KoEnJa 用に作成：TSF テキスト サービス、Mozc 辞書による MS-IME 風の変換、キーボードの種類、切り替えキー、優先言語、設定、インストーラー |
