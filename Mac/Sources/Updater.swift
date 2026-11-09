@@ -44,6 +44,9 @@ final class Updater: ObservableObject {
     /// Set in the input method (its daily checks): there, with the setting on, an update found is
     /// installed without asking. The settings window only offers it.
     private var installsOnItsOwn = false
+    /// The input menu's item was chosen: install what the check finds, and show About when there
+    /// is nothing to install or it failed (the input method has no window of its own).
+    private var fromMenu = false
 
     private init() { available = Self.stored() }
 
@@ -89,6 +92,20 @@ final class Updater: ObservableObject {
         install()
     }
 
+    /// The input menu's item: installs a newer release, checking first; About shows the outcome
+    /// unless it installed (get.sh then restarts KoEnJa).
+    func updateFromMenu() {
+        fromMenu = true
+        // A check or download already running finishes the same way (finishCheck, finishInstall).
+        if available != nil { install() } else { check() }
+    }
+
+    private func menuDone() {
+        guard fromMenu else { return }
+        fromMenu = false
+        SettingsLauncher.open(tab: .about)
+    }
+
     /// Asks GitHub now.
     func check() {
         guard state != .checking, state != .downloading else { return }
@@ -114,10 +131,12 @@ final class Updater: ObservableObject {
         if !failed, release == nil, noMac {
             UserDefaults.standard.set(Date(), forKey: Key.checked)
             state = .upToDate
+            menuDone()
             return
         }
         guard !failed, let release else {
             state = .failed(L("Couldn't reach GitHub. Try again later."))
+            menuDone()
             return
         }
         let defaults = UserDefaults.standard
@@ -128,7 +147,12 @@ final class Updater: ObservableObject {
         defaults.set(release.notes, forKey: Key.notes)
         available = Release.isNewer(release.version, than: Self.currentVersion) ? release : nil
         state = available == nil ? .upToDate : .idle
-        installIfQuiet()
+        if fromMenu, available != nil {
+            install()
+        } else {
+            menuDone()
+            installIfQuiet()
+        }
     }
 
     /// The copy get.sh installs, which this updater can replace (the user owns the folder).
@@ -147,6 +171,7 @@ final class Updater: ObservableObject {
         guard let release = available, state != .downloading, state != .checking else { return }
         guard Self.replaceable, let script = Bundle.main.url(forResource: "get", withExtension: "sh") else {
             NSWorkspace.shared.open(release.page ?? release.package)
+            fromMenu = false // the release page is the outcome
             return
         }
         state = .downloading
@@ -196,5 +221,6 @@ final class Updater: ObservableObject {
         case .unsigned: state = .failed(L("The download isn't KoEnJa signed by CIZMO and notarized, so nothing was installed."))
         case .other: state = .failed(L("Couldn't install the update."))
         }
+        menuDone() // a successful install stops this process first
     }
 }

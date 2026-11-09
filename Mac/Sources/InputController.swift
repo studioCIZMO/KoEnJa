@@ -628,11 +628,11 @@ final class InputController: IMKInputController {
                 }
             }
             Updater.shared.refresh()
-            // Always there, so the version shows: About checks again as it opens and installs from there.
+            // Always there, so the version shows: choosing it checks and installs (Updater.updateFromMenu).
             if let release = Updater.shared.available {
                 add(L("Update to KoEnJa %@…", release.version), #selector(openUpdate(_:)))
             } else {
-                add(L("KoEnJa %@ — Check for Updates…", Updater.currentVersion), #selector(openUpdate(_:)))
+                add(L("KoEnJa %@ — Update…", Updater.currentVersion), #selector(openUpdate(_:)))
             }
             add(L("Try Typing…"), #selector(openTyping(_:)))
             add(L("Dictionary…"), #selector(openLearned(_:)))
@@ -720,7 +720,7 @@ final class InputController: IMKInputController {
     @objc func openLearned(_ sender: Any?) { SettingsLauncher.open(tab: .learning) }
     @objc func openTyping(_ sender: Any?) { SettingsLauncher.open(tab: .typing) }
     @objc func openSettings(_ sender: Any?) { SettingsLauncher.open(tab: .general) }
-    @objc func openUpdate(_ sender: Any?) { SettingsLauncher.open(tab: .about) }
+    @objc func openUpdate(_ sender: Any?) { MainActor.assumeIsolated { Updater.shared.updateFromMenu() } }
 }
 
 /// `TextClient` over the IMK client proxy.
