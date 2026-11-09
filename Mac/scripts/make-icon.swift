@@ -1,4 +1,4 @@
-// Draws the menu-bar input source icon (from Araso's scripts/make-icon.swift, MIT): KoEnJa's 한.
+// Draws the menu-bar input source icon (from Araso's scripts/make-icon.swift, MIT): KoEnJa's 한영일.
 // One icon whatever is switched on: the bundle is signed, so it can't change at runtime.
 // Black on transparent, so macOS can tint it (TISIconIsTemplate), at 1x and 2x in one TIFF.
 // --slash strikes it through, for the pause indicator under the caret.
@@ -8,7 +8,7 @@ import CoreText
 
 let out = URL(fileURLWithPath: CommandLine.arguments.last!)
 let slashed = CommandLine.arguments.contains("--slash")
-let W: CGFloat = 20, H: CGFloat = 16
+let W: CGFloat = 34, H: CGFloat = 16
 
 func roundedFont(_ size: CGFloat, _ weight: NSFont.Weight) -> CTFont {
     let base = NSFont.systemFont(ofSize: size, weight: weight)
@@ -45,7 +45,7 @@ struct Mark {
     let letters: [(String, CGFloat)]
 }
 
-let mark = Mark(letters: [("한", 16)])
+let mark = Mark(letters: [("한영일", 12)])
 /// Clear space between rows.
 let gap: CGFloat = 1
 

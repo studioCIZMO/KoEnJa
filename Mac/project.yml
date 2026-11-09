@@ -38,6 +38,10 @@ targets:
           rm -f "$out/english_spelling.txt"
           rm -rf "$out/Dictionary"
           cp -R "${BUILD_DIR%/Build/*}/SourcePackages/checkouts/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/Dictionary" "$out/"
+          # Finder's Archive Utility writes kana file names as NFD (ガ → カ+゛); a seal over NFC names
+          # then reads as "damaged". Seal NFD names: every unzip keeps them, APFS opens either form.
+          find "$out/Dictionary" -type f | perl -CSDA -MUnicode::Normalize -ne 'chomp; my $d = NFD($_);
+            if ($d ne $_) { rename($_, "$_.tmp") or die; rename("$_.tmp", $d) or die }'
           cp "$SRCROOT/../THIRD_PARTY_NOTICES.txt" "$out/ThirdPartyNotices.txt"
           # The updater installs with it (Updater.install)
           cp "$SRCROOT/get.sh" "$out/get.sh"

@@ -8,10 +8,11 @@ import Testing
 @MainActor @Suite struct JoinedWordTests {
     let field = FakeTextField()
     let session: InputSession
+    let engine: DictionaryEngine
 
     init() {
         let store = FileManager.default.temporaryDirectory.appendingPathComponent("araso-joined-\(UUID().uuidString).json")
-        let engine = DictionaryEngine(base: SplittingEngine(base: trilingual, english: trilingual.english, japanese: trilingual.segmenter),
+        engine = DictionaryEngine(base: SplittingEngine(base: trilingual, english: trilingual.english, japanese: trilingual.segmenter),
                                       english: trilingual.english, korean: trilingual.korean, japaneseParticles: true, storeURL: store)
         session = InputSession(engine: engine, converter: FakeConverter(), japaneseEnabled: true)
         field.insertsOverMarked = true
@@ -23,6 +24,16 @@ import Testing
                                                     : session.handle(.printable(ch), client: field)
             if !handled { field.insertText(String(ch), replacing: nil) }
         }
+    }
+
+    /// The settings window takes digits in an entry's keys (dkssud1 as typed, not 안녕1).
+    @Test func anEntryWithADigitIsUsed() {
+        type("dkssud1 ")
+        let without = field.text
+        engine.add(UserDictionary.Entry(keys: "dkssud1", language: .english, source: .user))
+        type("dkssud1 ")
+        #expect(without == "안녕1 ")
+        #expect(field.text == without + "dkssud1 ")
     }
 
     @Test func digitsStayInTheWordBeingTyped() {

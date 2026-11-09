@@ -505,13 +505,14 @@ final class KeyCaptureView: NSView {
         0: "a", 11: "b", 8: "c", 2: "d", 14: "e", 3: "f", 5: "g", 4: "h", 34: "i", 38: "j", 40: "k",
         37: "l", 46: "m", 45: "n", 31: "o", 35: "p", 12: "q", 15: "r", 1: "s", 17: "t", 32: "u",
         9: "v", 13: "w", 7: "x", 16: "y", 6: "z", 27: "-", 39: "'",
+        18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6", 26: "7", 28: "8", 25: "9", 29: "0",
     ]
 
-    /// The key's letter: what it types when that is a letter, `-` or `'` (an English layout, as
-    /// Araso's), else by its key code (a Korean layout types jamo).
+    /// The key's letter: what it types when that is a letter, digit, `-` or `'` (an English layout,
+    /// as Araso's), else by its key code (a Korean layout types jamo, 3-set even on the digit row).
     static func key(_ event: NSEvent) -> Character? {
         if let typed = event.charactersIgnoringModifiers?.lowercased(), typed.count == 1, let ch = typed.first,
-           ch.isASCII, ch.isLetter || ch == "-" || ch == "'" {
+           ch.isASCII, ch.isLetter || ch.isNumber || ch == "-" || ch == "'" {
             return ch
         }
         return qwerty[event.keyCode]
@@ -572,7 +573,11 @@ final class KeyCaptureView: NSView {
             flags.contains(.shift) ? window?.selectPreviousKeyView(self) : window?.selectNextKeyView(self)
             return
         default:
-            guard var key = Self.key(event), keys.count < 40 else { return super.keyDown(with: event) }
+            // A word starts with a letter (k8s, h2o): the engine never keeps a digit-first run as one.
+            // Shift+1 is !, no key of a word: the key-code fallback would make it 1.
+            guard var key = Self.key(event), keys.count < 40,
+                  !(key.isNumber && (keys.isEmpty || flags.contains(.shift)))
+            else { return super.keyDown(with: event) }
             if flags.contains(.shift) { key = Character(key.uppercased()) }
             keys.append(key)
         }
