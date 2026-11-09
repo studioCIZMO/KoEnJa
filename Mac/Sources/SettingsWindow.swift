@@ -82,7 +82,7 @@ enum AppName {
 func runSettingsApp(tab: SettingsTab) -> Never {
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
-    if let icon = SeamMark.appIcon() { app.applicationIconImage = icon }
+    if let icon = KoEnJaMark.appIcon() { app.applicationIconImage = icon }
     let model = SettingsModel(tab: tab)
     let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model)))
     window.title = L("KoEnJa Settings")
@@ -340,134 +340,37 @@ extension Language {
     }
 }
 
-/// A → 아 → あ (all read "a") one after another in place, then all of them at once, cut into
-/// rows like the menu-bar icon: the top of A, the middle of 아, the bottom of あ. Reduce Motion
-/// shows only the joined mark.
-struct SeamMark: View {
+/// KoEnJa's mark, as its app icon: 한영일 over 韓英日 on a plate.
+struct KoEnJaMark: View {
     var height: CGFloat = 96
-    /// Just the joined mark, for a picture (the app icon): no animation.
-    var still = false
     /// Fixed colors for a picture; nil follows the appearance.
     var plateColor: Color? = nil
     var letterColor: Color? = nil
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var stage = 0
 
-    init(height: CGFloat = 96, still: Bool = false, plateColor: Color? = nil, letterColor: Color? = nil) {
-        self.height = height
-        self.still = still
-        self.plateColor = plateColor
-        self.letterColor = letterColor
-        _stage = State(initialValue: still ? Self.all.count : 0)
+    var body: some View {
+        RoundedRectangle(cornerRadius: height * 0.24, style: .continuous)
+            .fill(plateColor ?? Seam.plate)
+            .overlay {
+                VStack(spacing: height * 0.04) {
+                    Text(verbatim: "한영일")
+                    Text(verbatim: "韓英日")
+                }
+                .font(.system(size: height * 0.25, weight: .heavy))
+                .foregroundStyle(letterColor ?? Seam.ink)
+            }
+            .frame(width: height, height: height)
+            .accessibilityHidden(true)
     }
 
-    /// The app icon: the joined mark on a squircle, drawn at launch (the signed bundle can't
-    /// carry one that changes, and an input method has none of its own).
+    /// The app icon, drawn at launch (an input method has none of its own in the Dock).
     @MainActor static func appIcon() -> NSImage? {
-        let ink = Color(red: 0.11, green: 0.11, blue: 0.12), paper = Color(red: 0.95, green: 0.95, blue: 0.96)
-        let icon = ZStack {
-            RoundedRectangle(cornerRadius: 185, style: .continuous).fill(ink)
-                .frame(width: 824, height: 824)
-                .shadow(color: .black.opacity(0.3), radius: 12, y: 8)
-            SeamMark(height: 560, still: true, plateColor: ink, letterColor: paper)
-        }
-        .frame(width: 1024, height: 1024)
+        let icon = KoEnJaMark(height: 824, plateColor: Color(red: 0.85, green: 0.85, blue: 0.84),
+                              letterColor: Color(red: 0.07, green: 0.07, blue: 0.08))
+            .shadow(color: .black.opacity(0.3), radius: 12, y: 8)
+            .frame(width: 1024, height: 1024)
         let renderer = ImageRenderer(content: icon)
         renderer.scale = 1
         return renderer.nsImage
-    }
-
-    private static let all: [(String, CGFloat)] = [("A", 0.64), ("아", 0.6), ("あ", 0.6)]
-    private var letters: [(String, CGFloat)] { Self.all }
-    /// Letters one by one, then the joined mark (the last stage).
-    private var stages: Int { letters.count + 1 }
-    private var joined: Int { letters.count }
-
-    var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: height * 0.28, style: .continuous).fill(plateColor ?? .primary)
-            Group {
-                if stage == joined { joinedMark } else { letter(letters[stage]) }
-            }
-            .id(stage)
-            .transition(.asymmetric(
-                insertion: .scale(scale: 1.06).combined(with: .opacity).combined(with: .modifier(active: Blur(radius: 2), identity: Blur(radius: 0))),
-                removal: .scale(scale: 0.94).combined(with: .opacity).combined(with: .modifier(active: Blur(radius: 2), identity: Blur(radius: 0)))))
-        }
-        .frame(width: height * 1.25, height: height)
-        .task(id: reduceMotion) {
-            guard !reduceMotion, !still else { stage = joined; return }
-            stage = 0
-            while !Task.isCancelled {
-                // The joined mark stays a little longer: it's where the sequence lands.
-                try? await Task.sleep(for: .seconds(stage == joined ? 3.4 : 2.2))
-                if Task.isCancelled { break }
-                // Slow and even (sine-like ease in and out): the letters cross over each other.
-                withAnimation(.timingCurve(0.37, 0, 0.63, 1, duration: 1.2)) {
-                    stage = (stage + 1) % stages
-                }
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func letter(_ item: (String, CGFloat)) -> some View {
-        Text(verbatim: item.0)
-            .font(.system(size: height * item.1, weight: .heavy, design: .rounded))
-            .foregroundStyle(letterColor ?? Color(nsColor: .windowBackgroundColor))
-    }
-
-    /// Each letter shows only in its own row of the letters' height, with a thin gap between rows.
-    /// The seams are gentle waves, as in the README logo (`make-readme-logo.swift`).
-    private var joinedMark: some View {
-        // Letters grown so their outlines fill the rows, as in the menu-bar icon.
-        let band = height * 0.62, gap = height * 0.03, grow: CGFloat = 1.32
-        let row = (band - gap * CGFloat(letters.count - 1)) / CGFloat(letters.count)
-        let last = letters.count - 1
-        return ZStack {
-            ForEach(Array(letters.enumerated()), id: \.offset) { i, item in
-                let top = height / 2 - band / 2 + CGFloat(i) * (row + gap) + height * 0.01
-                letter(item)
-                    .scaleEffect(grow)
-                    .frame(width: height * 1.25, height: height)
-                    .mask { WaveRow(top: i == 0 ? nil : top, bottom: i == last ? nil : top + row) }
-            }
-        }
-    }
-
-    /// One row of the joined mark: the band between two wavy seams, or the edge of the plate
-    /// where a side has none. Amplitude 2% of the height, a wavelength of half the width.
-    private struct WaveRow: Shape {
-        let top: CGFloat?, bottom: CGFloat?
-
-        func path(in rect: CGRect) -> Path {
-            let amplitude = rect.height * 0.02, wavelength = rect.width * 0.5
-            func y(_ seam: CGFloat, _ x: CGFloat) -> CGFloat {
-                seam + amplitude * sin(2 * .pi * (x - rect.width / 4) / wavelength)
-            }
-            let xs = Array(stride(from: rect.minX, through: rect.maxX, by: max(rect.width / 40, 0.5)))
-            var path = Path()
-            if let top {
-                path.move(to: CGPoint(x: xs[0], y: y(top, xs[0])))
-                for x in xs.dropFirst() { path.addLine(to: CGPoint(x: x, y: y(top, x))) }
-            } else {
-                path.move(to: CGPoint(x: rect.minX, y: rect.minY))
-                path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-            }
-            if let bottom {
-                for x in xs.reversed() { path.addLine(to: CGPoint(x: x, y: y(bottom, x))) }
-            } else {
-                path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
-                path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY))
-            }
-            path.closeSubpath()
-            return path
-        }
-    }
-
-    private struct Blur: ViewModifier {
-        let radius: CGFloat
-        func body(content: Content) -> some View { content.blur(radius: radius) }
     }
 }
 
@@ -547,7 +450,7 @@ private struct Sidebar: View {
                 if tab == .about, updater.available != nil {
                     Text(L("Update"))
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Seam.bg)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Seam.blue, in: Capsule())
                         .transition(.scale.combined(with: .opacity))
@@ -1266,16 +1169,16 @@ private struct AboutPane: View {
     var body: some View {
         Pane(tab: .about, showsHeader: false) {
             HStack(spacing: 18) {
-                SeamMark(height: 56, plateColor: Seam.ink, letterColor: Seam.bg)
+                KoEnJaMark(height: 56)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(verbatim: "KoEnJa").font(.system(size: 20, weight: .bold)).tracking(-0.3)
                         .foregroundStyle(Seam.ink)
                     HStack(spacing: 0) {
-                        Text(verbatim: "흐름대로 써진다").foregroundStyle(Seam.korean)
+                        Text(verbatim: "한·영·일을 자연스럽게 변환").foregroundStyle(Seam.korean)
                         Text(verbatim: " · ").foregroundStyle(Seam.ink3)
-                        Text(verbatim: "流れるままに").foregroundStyle(Seam.japaneseInk)
+                        Text(verbatim: "韓・英・日を自然に変換").foregroundStyle(Seam.japaneseInk)
                         Text(verbatim: " · ").foregroundStyle(Seam.ink3)
-                        Text(verbatim: "Type as it flows").foregroundStyle(Seam.ink2)
+                        Text(verbatim: "Korean, English, Japanese, naturally").foregroundStyle(Seam.ink2)
                     }
                     .font(.system(size: 12, weight: .medium))
                     Text(L("Version %@", Updater.currentVersion))

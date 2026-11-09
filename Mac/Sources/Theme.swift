@@ -2,23 +2,28 @@ import SeamtypeCore
 import Cocoa
 import SwiftUI
 
-/// The website's palette (nyttastudio.com/araso): birch paper, navy ink, blue and yellow,
-/// with its dark counterpart. Each color follows the window's appearance.
+/// KoEnJa's palette, as its website (cizmo.net/KoEnJa): neutral paper and ink, green for actions,
+/// blue for Korean and amber for Japanese, with the dark counterpart. Each color follows the
+/// window's appearance.
 enum Seam {
-    static let bg = dynamic(0xfaf8f4, 0x081a30)
-    static let bg2 = dynamic(0xf1ede5, 0x0f2440)
-    static let card = dynamic(0xffffff, 0x0d213b)
-    static let ink = dynamic(0x0b2545, 0xf3f1ec)
-    static let ink2 = dynamic(0x4a5b70, 0xa9b6c6)
-    static let ink3 = dynamic(0x8592a3, 0x6f8197)
-    static let line = dynamic(0xe6e1d8, 0xf3f1ec, darkAlpha: 0.1)
-    static let blue = dynamic(0x006aa7, 0x1f86c4)
-    static let yellow = dynamic(0xfecc02, 0xfecc02)
-    static let english = dynamic(0x8592a3, 0x8a9bb0)
-    static let korean = dynamic(0x006aa7, 0x4fa8e0)
-    static let japanese = dynamic(0xe0b000, 0xfecc02)
-    /// Japanese as text: the yellow is too light to read on paper.
-    static let japaneseInk = dynamic(0x8a6a00, 0xfecc02)
+    static let bg = dynamic(0xf4f4f1, 0x131413)
+    static let bg2 = dynamic(0xebebe7, 0x1a1b1c)
+    static let card = dynamic(0xffffff, 0x1e1f21)
+    static let ink = dynamic(0x1b1c1e, 0xf2f2ee)
+    static let ink2 = dynamic(0x6b7076, 0xa3a8ae)
+    static let ink3 = dynamic(0x666b71, 0x80858b)
+    static let line = dynamic(0xe5e5e1, 0x2f3033)
+    /// Actions and choices (the website's primary green).
+    static let blue = dynamic(0x1e7a63, 0x4fb397)
+    /// The dot on the chosen item.
+    static let yellow = dynamic(0x1e7a63, 0x4fb397)
+    /// The mark's plate, as the app icon's.
+    static let plate = dynamic(0xdadad6, 0x2a2b2d)
+    static let english = dynamic(0x9a9fa5, 0x8a9096)
+    static let korean = dynamic(0x2b5a9e, 0x86aeea)
+    static let japanese = dynamic(0xd9822b, 0xe9a65c)
+    /// Japanese as text, darker to read on paper.
+    static let japaneseInk = dynamic(0x8a4207, 0xe9a65c)
     static let warning = dynamic(0xb45309, 0xf59e0b)
 
     private static func dynamic(_ light: UInt32, _ dark: UInt32, darkAlpha: CGFloat = 1) -> Color {
@@ -88,19 +93,19 @@ struct PaneHeader: View {
     }
 }
 
-/// The mark where it is small: its rows don't read under about 40 pt, so the plate holds the A.
+/// The mark where it is small: 韓英日 doesn't read under about 40 pt, so the plate holds 한영일.
 struct SmallMark: View {
     var height: CGFloat = 20
 
     var body: some View {
         RoundedRectangle(cornerRadius: height * 0.28, style: .continuous)
-            .fill(Seam.ink)
+            .fill(Seam.plate)
             .overlay {
-                Text(verbatim: "A")
-                    .font(.system(size: height * 0.66, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Seam.bg)
+                Text(verbatim: "한영일")
+                    .font(.system(size: height * 0.5, weight: .heavy))
+                    .foregroundStyle(Seam.ink)
             }
-            .frame(width: height * 1.25, height: height)
+            .frame(width: height * 2.4, height: height)
             .accessibilityHidden(true)
     }
 }

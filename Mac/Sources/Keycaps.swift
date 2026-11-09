@@ -88,7 +88,7 @@ struct Keycap: View {
             Text(verbatim: key.displayName).lineLimit(1)
         }
         .font(.system(size: 12, weight: .semibold))
-        .foregroundStyle(on ? Color.white : Seam.ink2)
+        .foregroundStyle(on ? Seam.bg : Seam.ink2) // paper on the green, readable light and dark
         .padding(.horizontal, 10).padding(.vertical, 5)
         .background {
             ZStack {
