@@ -18,7 +18,7 @@ final class TypingTests: XCTestCase {
         sleep(2) // the keyboard comes up
         // System keyboards show their keys to accessibility, 한영일 (another app's) doesn't.
         for _ in 0..<4 where app.keyboards.firstMatch.exists {
-            app.buttons["다음 키보드"].tap()
+            app.buttons.matching(NSPredicate(format: "label IN %@", ["다음 키보드", "次のキーボード", "Next keyboard"])).firstMatch.tap()
             sleep(2)
         }
         XCTAssertFalse(app.keyboards.firstMatch.exists, "한영일 isn't up")

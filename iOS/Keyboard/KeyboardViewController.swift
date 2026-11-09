@@ -41,10 +41,11 @@ final class KeyboardViewController: UIInputViewController {
 
     /// Keys, like the system keyboard in light and dark (iOS 26: every key the same), and a
     /// function key while pressed (a character key shows its popup instead).
-    static let keyColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.42, alpha: 1) : .white }
-    static let pressedKeyColor = UIColor {
-        $0.userInterfaceStyle == .dark ? UIColor(white: 0.27, alpha: 1) : UIColor(red: 0.67, green: 0.69, blue: 0.73, alpha: 1)
-    }
+    /// Tinted by the app's color setting (KeyShape.colors), set as the keyboard comes up.
+    static var keyColor = KeyShape().colors().key
+    static var pressedKeyColor = KeyShape().colors().pressed
+    /// The shape set in the app, read as the keyboard comes up.
+    private var shape = KeyShape()
 
     /// Immutable syllable tables shared by every controller and splitter.
     private static let korean = KoreanModel()
@@ -107,6 +108,7 @@ final class KeyboardViewController: UIInputViewController {
             "zxcvbnm".map { (String($0), 1) },
             [("123", 1.25)] + (globe ? [("🌐", 1.25)] : []) + [("한あA", 1.25), ("space", globe ? 3.25 : 4.5), (".", 1), ("return", 2)],
         ]
+        let rowGap = shape.rowGap
         candidateRow.spacing = 4
         let candidates = UIScrollView()
         candidates.showsHorizontalScrollIndicator = false
@@ -121,7 +123,8 @@ final class KeyboardViewController: UIInputViewController {
 
         // The third row's letters line up under the others; shift and delete take what's left.
         var views: [UIView] = [candidates, makeRow(rows[0]), makeRow(rows[1])]
-        let thirdRow = UIStackView(arrangedSubviews: [makeKey("⇧", units: 1.3), makeRow(rows[2]), makeKey("⌫", units: 1.3)])
+        let side = shape.sideKeys
+        let thirdRow = UIStackView(arrangedSubviews: [makeKey("⇧", units: side), makeRow(rows[2]), makeKey("⌫", units: side)])
         thirdRow.distribution = .equalSpacing
         views += [thirdRow, makeRow(rows[3])]
         let stack = KeyStack(arrangedSubviews: views)
@@ -129,7 +132,7 @@ final class KeyboardViewController: UIInputViewController {
         keyStack = stack
         stack.axis = .vertical
         stack.alignment = .center
-        stack.spacing = Self.rowGap
+        stack.spacing = rowGap
         stack.setCustomSpacing(0, after: candidates)
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
@@ -137,7 +140,7 @@ final class KeyboardViewController: UIInputViewController {
             stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stack.topAnchor.constraint(equalTo: view.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -shape.bottom),
             candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
             candidates.heightAnchor.constraint(equalToConstant: Self.barHeight),
             thirdRow.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
@@ -160,7 +163,17 @@ final class KeyboardViewController: UIInputViewController {
             Self.session = Self.makeSession(converter: converter, preferences: current, heuristic: heuristic)
             DispatchQueue.global(qos: .userInitiated).async { KoreanModel.warmUp() }
         }
-        if keyStack == nil { buildKeys() }
+        if keyStack == nil {
+            shape = KeyShape.load()
+            let colors = shape.colors()
+            (Self.keyColor, Self.pressedKeyColor) = (colors.key, colors.pressed)
+            view.backgroundColor = colors.background
+            buildKeys()
+        }
+        Self.shortcuts = Dictionary(Shortcuts.load().map { ($0.keys, $0.phrase) }, uniquingKeysWith: { a, _ in a })
+        calibration = TouchCalibration()
+        checkSensitive()
+        forgetTouches()
         if Self.lexicon == nil { requestSupplementaryLexicon { Self.lexicon = $0.entries } }
         switchKey?.configuration?.attributedTitle = Self.functionTitle(current.switchLabel)
         sound = KeyFeedback.sound
@@ -183,22 +196,37 @@ final class KeyboardViewController: UIInputViewController {
     /// before passing them on: q, a, p, l came late or were lost. Hamster turns it off the same way.
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        view.window?.gestureRecognizers?.forEach { $0.delaysTouchesBegan = false }
+        // Their hold on touch ends too: space types on release, and came only with the next key.
+        view.window?.gestureRecognizers?.forEach { $0.delaysTouchesBegan = false; $0.delaysTouchesEnded = false }
         if haptics, hasFullAccess { Self.haptic.prepare() }
     }
 
+    /// No nearby keys or learning where what's typed is private (passwords, codes, cards); a
+    /// new field can come with the keyboard still up.
+    private func checkSensitive() {
+        let type = textDocumentProxy.textContentType ?? nil
+        let now = [.password, .newPassword, .oneTimeCode, .creditCardNumber].contains(type)
+        guard now != sensitive else { return }
+        sensitive = now
+        forgetTouches()
+        updateOffsets()
+    }
+
     override func textDidChange(_ textInput: UITextInput?) {
+        checkSensitive()
         TraceLog.write("textDidChange ctx=[\(textDocumentProxy.documentContextBeforeInput ?? "nil")] client.marked=[\(client.marked)]")
         documentChanged()
     }
 
-    override func selectionDidChange(_ textInput: UITextInput?) { documentChanged() }
+    override func selectionDidChange(_ textInput: UITextInput?) { checkSensitive(); documentChanged() }
 
     /// The cursor moved away from the word being composed: it stays as typed, the next key
     /// starts a new word there (like azooKey, which ends the composition on a cursor jump).
     private func documentChanged() {
         guard Self.session != nil, client.resetIfMovedAway() else { return }
         session.commitForNewContext(client: nil)
+        forgetTouches()
+        lastInput = nil
         refreshCandidates()
     }
 
@@ -207,6 +235,7 @@ final class KeyboardViewController: UIInputViewController {
         repeating = nil
         popup.isHidden = true
         session.commit(client: client)
+        forgetTouches()
         converter?.save()
         refreshCandidates()
         TraceLog.write("DISAPPEAR \(TraceLog.footprint)")
@@ -222,13 +251,14 @@ final class KeyboardViewController: UIInputViewController {
         keyButtons = []
         letterKeys = []
         keyConstraints = []
+        (downAt, keysBefore, gestured, lastInput) = ([:], [:], [], nil)
         shifted = false
         numbers = false
     }
 
     private func makeRow(_ keys: [(String, CGFloat)]) -> UIStackView {
         let row = UIStackView(arrangedSubviews: keys.map { makeKey($0.0, units: $0.1) })
-        row.spacing = Self.gap
+        row.spacing = shape.gap
         return row
     }
 
@@ -237,7 +267,7 @@ final class KeyboardViewController: UIInputViewController {
         let isCharacter = letter.map { !"⇧⌫".contains($0) } ?? false
         var config = UIButton.Configuration.filled()
         config.baseForegroundColor = .label
-        config.background.cornerRadius = 6
+        config.background.cornerRadius = shape.radius
         config.contentInsets = .zero
         config.titleAlignment = .center
         let button = UIButton(configuration: config)
@@ -249,17 +279,29 @@ final class KeyboardViewController: UIInputViewController {
         keyConstraints += [
             // units of a pitch, minus one gap: a row of 10 units spans the width inside the margins
             button.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: units / 10,
-                                          constant: (Self.gap - 2 * Self.margin) * units / 10 - Self.gap),
-            button.heightAnchor.constraint(equalToConstant: Self.bottomRow.contains(title) ? Self.keyHeight - Self.clipped : Self.keyHeight),
+                                          constant: (shape.gap - 2 * Self.margin) * units / 10 - shape.gap),
+            button.heightAnchor.constraint(equalToConstant: Self.keyHeight * shape.height - (Self.bottomRow.contains(title) ? Self.clipped : 0)),
         ]
         if let letter, letter.isLetter {
             letterKeys.append((button, letter))
+            // its swipe-up symbol in the corner (hidden in 123 mode and with swiping off)
+            let hint = UILabel()
+            hint.tag = Self.hintTag
+            hint.text = Self.symbols[letter].map(String.init)
+            hint.font = .systemFont(ofSize: 9)
+            hint.textColor = .secondaryLabel
+            hint.isUserInteractionEnabled = false
+            hint.translatesAutoresizingMaskIntoConstraints = false
+            button.addSubview(hint)
+            NSLayoutConstraint.activate([hint.topAnchor.constraint(equalTo: button.topAnchor, constant: 2),
+                                         hint.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -3)])
             label(button, letter)
         } else {
             button.configuration?.attributedTitle = Self.functionTitle(title, size: isCharacter ? 22 : 16)
         }
         if title == "한あA" { switchKey = button }
         if title == "123" { numbersKey = button }
+        if title == "space" { spaceKey = button }
         if title == "🌐" {
             button.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
         } else {
@@ -270,9 +312,37 @@ final class KeyboardViewController: UIInputViewController {
                 if let o = keyStack?.offset(of: button) { TraceLog.write(String(format: "TOUCH %@ %.1f %.1f lag=%.0fms", title, o.dx, o.dy,
                                                                                         (ProcessInfo.processInfo.systemUptime - (keyStack?.lastTouchTime ?? 0)) * 1000)) }
                 feedback(title)
+                let id = ObjectIdentifier(button)
+                downAt[id] = keyStack?.lastTouch ?? .zero
+                if title == "space" { cursorFrom = nil; return } // acts on release: dragged sideways, it moves the cursor
+                // another key while a space is held: that space goes first, as pressed
+                if let space = spaceKey, downAt[ObjectIdentifier(space)] != nil, gestured.insert(ObjectIdentifier(space)).inserted {
+                    tap("space")
+                    lastInput = nil
+                }
                 if isCharacter { showPopup(over: button) }
-                tap(title)
+                let touch = letter?.isLetter == true && !numbers ? keyStack?.lastTouch : nil
+                if letter?.isLetter == true { keysBefore[id] = session.keys }
+                tap(title, touch: touch)
+                lastInput = id
             }, for: .touchDown)
+            button.addTarget(self, action: #selector(dragged(_:event:)), for: [.touchDragInside, .touchDragOutside])
+            button.addAction(UIAction { [unowned self, unowned button] action in
+                let id = ObjectIdentifier(button)
+                if title == "space" {
+                    if downAt[id] != nil, !gestured.contains(id) { tap("space"); lastInput = nil }
+                    cursorFrom = nil
+                }
+                downAt[id] = nil
+                gestured.remove(id)
+                keysBefore[id] = nil
+            }, for: [.touchUpInside, .touchUpOutside])
+            button.addAction(UIAction { [unowned self, unowned button] _ in
+                let id = ObjectIdentifier(button)
+                (downAt[id], keysBefore[id]) = (nil, nil)
+                gestured.remove(id)
+                if title == "space" { cursorFrom = nil }
+            }, for: .touchCancel)
             if isCharacter {
                 button.addAction(UIAction { [unowned self, unowned button] _ in
                     if popupKey === button { popup.isHidden = true }
@@ -340,6 +410,7 @@ final class KeyboardViewController: UIInputViewController {
                 while !Task.isCancelled {
                     guard self != nil else { return }
                     self?.feedback("⌫")
+                    self?.lastInput = nil
                     self?.tap("⌫")
                     try? await Task.sleep(nanoseconds: 100_000_000)
                 }
@@ -348,8 +419,68 @@ final class KeyboardViewController: UIInputViewController {
         button.addAction(UIAction { [unowned self] _ in repeating?.cancel(); repeating = nil }, for: [.touchUpInside, .touchUpOutside, .touchCancel])
     }
 
+    // MARK: - Swipes
+
+    private static let hintTag = 77
+    /// A swipe up this far (pt) types the letter's symbol; space dragged this far sideways starts
+    /// moving the cursor, one character per `cursorStep` (Android's values).
+    private static let swipeUp: CGFloat = 18, cursorStart: CGFloat = 14, cursorStep: CGFloat = 9
+    private weak var spaceKey: UIButton?
+    /// Per key held: where it went down (KeyStack's coordinates), the word's keys before its
+    /// letter (for a swipe up to replace it), and whether it became a gesture (no tap on release).
+    private var downAt: [ObjectIdentifier: CGPoint] = [:]
+    private var keysBefore: [ObjectIdentifier: String] = [:]
+    private var gestured: Set<ObjectIdentifier> = []
+    /// The key that typed last (nil: a repeat delete, a space): a swipe up replaces only its own letter.
+    private var lastInput: ObjectIdentifier?
+    private var cursorFrom: CGFloat?
+
+    /// A finger moving on a key: up from a letter types its symbol once; sideways on space moves
+    /// the cursor. Anything else stays the key pressed.
+    @objc private func dragged(_ button: UIButton, event: UIEvent) {
+        let id = ObjectIdentifier(button)
+        guard let keyStack, let start = downAt[id], let point = event.touches(for: button)?.first?.location(in: keyStack) else { return }
+        if button === spaceKey {
+            if cursorFrom == nil {
+                guard abs(point.x - start.x) >= Self.cursorStart else { return }
+                gestured.insert(id) // no space on release
+                cursorFrom = start.x
+                lastInput = nil
+                if !session.keys.isEmpty || session.conversion != nil {
+                    session.commit(client: client) // the word goes in as it is
+                    forgetTouches()
+                    refreshCandidates()
+                }
+            }
+            let from = cursorFrom ?? start.x
+            let steps = Int((point.x - from) / Self.cursorStep)
+            if steps != 0 {
+                textDocumentProxy.adjustTextPosition(byCharacterOffset: steps)
+                cursorFrom = from + CGFloat(steps) * Self.cursorStep
+            }
+            return
+        }
+        guard Self.preferences?.swipeSymbols != false, !numbers, !gestured.contains(id), start.y - point.y > Self.swipeUp,
+              let letter = letterKeys.first(where: { $0.button === button })?.letter else { return }
+        gestured.insert(id)
+        // only while its letter is the last thing typed (no other finger, no repeat delete since)
+        guard lastInput == id, let before = keysBefore[id], let symbol = Self.symbols[letter] else { return }
+        replaceLastKey(before: before, symbol: symbol)
+        if popupKey === button { popup.text = String(symbol) }
+    }
+
+    /// A letter swiped up becomes `symbol`: Delete takes it back; where Delete took more (a kana:
+    /// か for its a), the keys before it are typed again first.
+    private func replaceLastKey(before: String, symbol: Character) {
+        send(.delete)
+        let now = session.keys
+        if before.hasPrefix(now) { for c in before.dropFirst(now.count) { send(c.isLetter ? .letter(c) : .printable(c)) } }
+        send(.printable(symbol))
+    }
+
     /// English letter, with its 2-set jamo below: "q / ㅂ", shifted "Q / ㅃ"; in 123 mode the symbol.
     private func label(_ button: UIButton, _ letter: Character) {
+        button.viewWithTag(Self.hintTag)?.isHidden = numbers || Self.preferences?.swipeSymbols == false
         if numbers {
             button.configuration?.attributedTitle = Self.functionTitle(String(Self.symbols[letter]!), size: 22)
             button.configuration?.attributedSubtitle = nil
@@ -365,7 +496,7 @@ final class KeyboardViewController: UIInputViewController {
 
     // MARK: - Keys
 
-    private func tap(_ title: String) {
+    private func tap(_ title: String, touch: CGPoint? = nil) {
         let key: InputSession.Key
         switch title {
         case "⇧":
@@ -404,14 +535,24 @@ final class KeyboardViewController: UIInputViewController {
             key = c.isLetter ? .letter(c) : .printable(c)
             if shifted { tap("⇧") } // one-shot shift
         }
+        send(key, touch: touch)
+    }
+
+    /// A key to the session (or the app), the touches following the session's keys.
+    private func send(_ key: InputSession.Key, touch: CGPoint? = nil) {
+        let before = touchKeys
         Self.keyCount += 1
-        TraceLog.write("KEY \(title) \(key)" + (Self.keyCount % 100 == 0 ? " #\(Self.keyCount) \(TraceLog.footprint)" : ""))
+        TraceLog.write("KEY \(key)" + (Self.keyCount % 100 == 0 ? " #\(Self.keyCount) \(TraceLog.footprint)" : ""))
         (converter as? AzooKeyConverter)?.forgetNextWords() // a commit by this key brings new ones
         if !session.handle(key, client: client) {
             TraceLog.write("  passToApp")
             passToApp(key)
         }
         if let trace = session.lastTrace { TraceLog.write("  decided \(trace.decision.language) [\(trace.keys)] \(trace.decision.explanation)") }
+        switch key {
+        case .letter(let c), .printable(let c): follow(before: before, typed: c, touch: touch)
+        default: follow(before: before, typed: nil, touch: nil)
+        }
         scheduleCandidates()
     }
 
@@ -495,7 +636,7 @@ final class KeyboardViewController: UIInputViewController {
         let neighbor = letterKeys.filter { $0.letter != letter }
             .map { (letter: $0.letter, distance: keyStack.distance(point, $0.button)) }
             .min { $0.distance < $1.distance }
-        guard let neighbor, neighbor.distance < Self.gap / 2 + Self.correctionShift else { return letter }
+        guard let neighbor, neighbor.distance < shape.gap / 2 + Self.correctionShift else { return letter }
         let keys = session.keys
         let shift: (Character) -> String = { [shifted] in shifted ? $0.uppercased() : String($0) }
         let typedScore = Self.plausibility(keys + shift(letter), heuristic)
@@ -518,6 +659,94 @@ final class KeyboardViewController: UIInputViewController {
             .compactMap { $0 }.max() ?? -.infinity
     }
 
+    // MARK: - Nearby keys and touch learning
+
+    /// Where each key of the word being typed was touched (KeyStack's coordinates), for nearby-key
+    /// suggestions and touch learning; nil for a key not touched (the engine's, a candidate's).
+    private var touches: [CGPoint?] = []
+    /// The keys `touches` are for (the session's keys when they were last matched).
+    private var touchKeys = ""
+    private var calibration = TouchCalibration()
+    private var sensitive = false
+    private static var shortcuts: [String: String] = [:]
+    /// How far toward a neighbor key (0 the typed key's center, 1 the neighbor's) a touch must lie
+    /// for the neighbor's word to be offered when the typed word is fine (Android's value).
+    private static let near: CGFloat = 0.33
+
+    private var nearbyKeys: Bool { Self.preferences?.nearbyKeys != false && !sensitive }
+    private var adaptToTouch: Bool { Self.preferences?.adaptToTouch != false && !sensitive }
+
+    /// Matches `touches` to the session's keys after a key: a letter added keeps them and adds its
+    /// touch; the engine keeping only the end (a Japanese prefix committed) keeps the end's;
+    /// anything else keeps the touches of the keys still in front and knows no others.
+    private func follow(before: String, typed: Character?, touch: CGPoint?) {
+        let after = session.keys
+        let withKey = typed.map { before + String($0) } ?? before
+        if after.isEmpty {
+            touches = []
+        } else if typed != nil, after == withKey {
+            touches.append(touch)
+        } else if typed != nil, withKey.hasSuffix(after) {
+            touches = Array((touches + [touch]).suffix(after.count))
+        } else {
+            let same = before.commonPrefix(with: after).count
+            touches = Array(touches.prefix(same)) + Array(repeating: nil, count: max(after.count - same, 0))
+        }
+        touchKeys = after
+    }
+
+    /// The word ended (committed, replaced, the cursor moved): its touches go with it.
+    private func forgetTouches() { touches = []; touchKeys = "" }
+
+    private func keyCenter(_ letter: Character) -> CGPoint? {
+        guard let keyStack, let key = letterKeys.first(where: { $0.letter == letter })?.button else { return nil }
+        let frame = key.convert(key.bounds, to: keyStack)
+        return CGPoint(x: frame.midX, y: frame.midY)
+    }
+
+    /// How far (0 at key t's center, 1 at n's) the touch for the key at `i` lay toward n.
+    private func toward(_ i: Int, _ n: Character, _ keys: String) -> CGFloat? {
+        let chars = Array(keys)
+        guard i < touches.count, i < chars.count, let p = touches[i],
+              let t = keyCenter(Character(chars[i].lowercased())), let c = keyCenter(Character(n.lowercased())) else { return nil }
+        let (vx, vy) = (c.x - t.x, c.y - t.y)
+        return ((p.x - t.x) * vx + (p.y - t.y) * vy) / (vx * vx + vy * vy)
+    }
+
+    /// The key a fix swapped (its index and new key), if it swapped exactly one.
+    private static func swapped(_ typed: String, _ fix: String) -> (Int, Character)? {
+        let (a, b) = (Array(typed), Array(fix))
+        guard a.count == b.count else { return nil }
+        let diff = a.indices.filter { a[$0] != b[$0] }
+        return diff.count == 1 ? (diff[0], b[diff[0]]) : nil
+    }
+
+    /// A picked fix that swapped one key: that key was meant where it was touched.
+    private func learn(_ typed: String, _ fixKeys: String?, _ touchesThen: [CGPoint?]) {
+        guard adaptToTouch, nearbyKeys, let fixKeys, let (i, n) = Self.swapped(typed, fixKeys),
+              i < touchesThen.count, let p = touchesThen[i] else { return }
+        let key = Character(n.lowercased())
+        guard let c = keyCenter(key) else { return }
+        calibration.add(key, dx: p.x - c.x, dy: p.y - c.y)
+        TraceLog.write("LEARN \(key) \(p.x - c.x) \(p.y - c.y)")
+        updateOffsets()
+    }
+
+    /// The learned touch areas, for KeyStack (none where learning is off).
+    private func updateOffsets() {
+        guard let keyStack else { return }
+        keyStack.offsets = [:]
+        guard adaptToTouch else { return }
+        for (button, letter) in letterKeys {
+            if let o = calibration.offset(letter, size: button.bounds.size) { keyStack.offsets[ObjectIdentifier(button)] = o }
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateOffsets()
+    }
+
     // MARK: - Candidates
 
     /// Kanji candidates: while typing Japanese (tap one to pick it), after Space (the selected
@@ -537,17 +766,46 @@ final class KeyboardViewController: UIInputViewController {
                 }
             }
         }
+        // a text shortcut typed (brb): its phrase first, put in with a space when picked
+        if let phrase = Self.shortcuts[session.keys.lowercased()] {
+            entries.insert((phrase, false, { [unowned self] in
+                replaceWord(with: phrase)
+                textDocumentProxy.insertText(" ")
+            }), at: 0)
+        }
         suggestions = Suggestions()
         if candidates.isEmpty, Self.preferences?.suggestions != false, let (typed, found) = wordSuggestions() {
             suggestions = found
+            let keys = session.keys
+            if found.autocorrect == nil, nearbyKeys, let language = session.lastTrace?.decision.language {
+                // a fine word, but a touch near a neighbor key: what that key would have made
+                let near: (Int, Character) -> Bool = { [unowned self] i, n in (toward(i, n, keys) ?? 0) >= Self.near }
+                let nearby: Suggestions = switch language {
+                case .korean: .nearby(keys: keys, korean: heuristic.korean, english: nil, near: near)
+                case .english: .nearby(keys: keys, korean: nil, english: heuristic.english, near: near)
+                default: Suggestions()
+                }
+                suggestions.words += nearby.words.filter { !suggestions.words.contains($0) && $0 != typed }
+                suggestions.keys.merge(nearby.keys) { a, _ in a }
+            }
             if !suggestions.words.isEmpty {
-                // The word as typed, then the suggestions; a tap puts the word in with a space.
+                // The word as typed, then the fix Space puts in, then the others by how close the
+                // touch was to the key they swap in; a tap puts the word in with a space.
                 addCandidate("“\(typed)”", selected: false) { [unowned self] in
                     replaceWord(with: typed)
                     textDocumentProxy.insertText(" ")
                 }
-                for suggestion in suggestions.words {
-                    addCandidate(suggestion, selected: suggestion == suggestions.autocorrect) { [unowned self] in
+                let auto = suggestions.autocorrect
+                let keysOf = suggestions.keys
+                let closeness = { [unowned self] (word: String) -> CGFloat in
+                    Self.swapped(keys, keysOf[word] ?? word).flatMap { toward($0.0, $0.1, keys) } ?? -1
+                }
+                let others = suggestions.words.filter { $0 != auto }.enumerated()
+                    .sorted { (closeness($0.element), -$0.offset) > (closeness($1.element), -$1.offset) }.map(\.element)
+                let touchesNow = touches
+                for suggestion in (auto.map { [$0] } ?? []) + others {
+                    addCandidate(suggestion, selected: suggestion == auto) { [unowned self] in
+                        learn(keys, keysOf[suggestion] ?? suggestion, touchesNow)
                         replaceWord(with: suggestion)
                         textDocumentProxy.insertText(" ")
                     }
@@ -607,6 +865,7 @@ final class KeyboardViewController: UIInputViewController {
     private func replaceWord(with text: String) {
         guard !client.marked.isEmpty,
               textDocumentProxy.documentContextBeforeInput?.hasSuffix(client.marked) == true else { return }
+        forgetTouches()
         session.commit(client: nil) // finish without replacing the displayed word with a new decision
         session.commit(client: nil) // and close the 한あA window on the word as typed
         client.insertText(text, replacing: nil)
@@ -625,6 +884,8 @@ final class KeyboardViewController: UIInputViewController {
         button.addAction(UIAction { [unowned self] _ in
             guard pendingCandidates == nil else { return flushCandidates() }
             actions[index]()
+            lastInput = nil
+            follow(before: touchKeys, typed: nil, touch: nil) // a candidate may have committed the word, or kept some of it
             refreshCandidates()
         }, for: .touchUpInside)
         candidateRow.addArrangedSubview(button)
@@ -635,6 +896,8 @@ final class KeyboardViewController: UIInputViewController {
 /// the system keyboard (the gaps are a fifth of the keyboard's area; touches there were lost).
 final class KeyStack: UIStackView {
     var keys: [UIButton] = []
+    /// Learned touch areas: each key's shift (TouchCalibration).
+    var offsets: [ObjectIdentifier: CGVector] = [:]
     /// Where the latest touch went down, for typing correction.
     private(set) var lastTouch: CGPoint?
     /// When the latest touch happened (system uptime), to trace how long it waited for us.
@@ -655,8 +918,13 @@ final class KeyStack: UIStackView {
         let shifted = CGPoint(x: point.x + Self.touchShift.dx, y: point.y + Self.touchShift.dy)
         lastTouch = shifted
         lastTouchTime = event?.timestamp
-        guard let nearest = keys.min(by: { distance(shifted, $0) < distance(shifted, $1) }),
-              distance(shifted, nearest) < 12 else { return hit }
+        // a key whose learned area holds the touch wins first, then the nearest
+        func area(_ key: UIButton) -> CGFloat {
+            guard let o = offsets[ObjectIdentifier(key)] else { return distance(shifted, key) }
+            return distance(CGPoint(x: shifted.x - o.dx, y: shifted.y - o.dy), key) - 0.001
+        }
+        guard let nearest = keys.min(by: { area($0) < area($1) }),
+              area(nearest) < 12 else { return hit }
         if nearest !== hit { TraceLog.write("NEAR \(nearest.accessibilityLabel ?? "") (was \((hit as? UIButton)?.accessibilityLabel ?? "gap"))") }
         return nearest
     }

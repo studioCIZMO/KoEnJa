@@ -28,11 +28,17 @@ struct LanguagePreferences: Equatable {
     var autocorrect = true
     var touchCorrection = true
     var nextWords = true
+    /// Kej's typing help: words a neighbor key would have made (offered, never put in), learning
+    /// where each key is touched from the ones picked, and a swipe up on a letter for its symbol.
+    var nearbyKeys = true
+    var adaptToTouch = true
+    var swipeSymbols = true
     private static let options: [(String, WritableKeyPath<Self, Bool>)] = [
         ("returnConfirmsOnly", \.returnConfirmsOnly), ("fullWidthDigits", \.fullWidthDigits),
         ("fullWidthSpace", \.fullWidthSpace), ("liveConversion", \.liveConversion),
         ("suggestions", \.suggestions), ("autocorrect", \.autocorrect),
         ("touchCorrection", \.touchCorrection), ("nextWords", \.nextWords),
+        ("nearbyKeys", \.nearbyKeys), ("adaptToTouch", \.adaptToTouch), ("swipeSymbols", \.swipeSymbols),
     ]
 
     /// The usual setups: who you talk to decides the pair.

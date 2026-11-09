@@ -74,6 +74,20 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    Toggle("주변 키 후보", isOn: $preferences.nearbyKeys)
+                    Toggle("내 터치에 맞추기", isOn: $preferences.adaptToTouch)
+                    Toggle("위로 쓸어 기호 입력", isOn: $preferences.swipeSymbols)
+                    Button("터치 학습 지우기", role: .destructive) { TouchCalibration.clear() }
+                } header: {
+                    Text("오타 도움")
+                } footer: {
+                    Text("주변 키 후보: 옆 키 쪽을 누른 단어에 그 키로 만든 단어를 후보로 보여 줍니다(자동으로 바꾸지는 않습니다). 내 터치에 맞추기: 고른 후보로 키마다 내가 누르는 위치를 배웁니다. 스페이스를 누른 채 좌우로 밀면 커서가 움직입니다.")
+                }
+
+                shapeSection
+                shortcutSection
+
+                Section {
                     Toggle("키 소리", isOn: $sound)
                     Toggle("햅틱", isOn: $haptics)
                 } header: {
@@ -115,6 +129,76 @@ struct SettingsView: View {
         }
         .padding(.vertical, 4)
     }
+
+    // MARK: Keyboard shape
+
+    @State private var shape = KeyShape.load()
+
+    private var shapeSection: some View {
+        Section {
+            ForEach(KeyShape.settings, id: \.key) { setting in
+                let (lo, hi, step) = setting.range
+                VStack(alignment: .leading) {
+                    let value = shape[keyPath: setting.path]
+                    Text("\(Self.shapeNames[setting.key]!)  \(["kbHeight", "kbSideKeys"].contains(setting.key) ? String(format: "×%.2f", value) : String(format: "%.0f pt", value))")
+                    Slider(value: Binding(get: { shape[keyPath: setting.path] }, set: {
+                        shape[keyPath: setting.path] = $0
+                        LanguagePreferences.defaults?.set($0, forKey: setting.key)
+                    }), in: lo...hi, step: step)
+                }
+            }
+            VStack(alignment: .leading) {
+                Text("색  \(shape.hue.map { "\(Int($0))°" } ?? "기본")")
+                // 0: the system keyboard's grays; then every 10° of hue
+                Slider(value: Binding(get: { shape.hue.map { $0 / 10 + 1 } ?? 0 }, set: {
+                    shape.hue = $0 < 0.5 ? nil : ($0.rounded() - 1) * 10
+                    LanguagePreferences.defaults?.set(shape.hue ?? -1, forKey: KeyShape.hueKey)
+                }), in: 0...36, step: 1)
+            }
+            Button("모양 기본값으로") { KeyShape.reset(); shape = KeyShape() }
+        } header: {
+            Text("키보드 모양")
+        } footer: {
+            Text("키보드를 다음에 열 때 바뀝니다.")
+        }
+    }
+
+    private static let shapeNames = ["kbHeight": "키 높이", "kbBottom": "아래 여백", "kbGap": "키 간격",
+                                     "kbRowGap": "줄 간격", "kbRadius": "모서리", "kbSideKeys": "Shift·삭제 키 폭"]
+
+    // MARK: Text shortcuts
+
+    @State private var shortcuts = Shortcuts.load().map { Shortcut(keys: $0.keys, phrase: $0.phrase) }
+    @State private var newKeys = ""
+    @State private var newPhrase = ""
+
+    struct Shortcut: Hashable { var keys, phrase: String }
+
+    private var shortcutSection: some View {
+        Section {
+            ForEach(shortcuts, id: \.self) { s in
+                HStack { Text(s.keys).monospaced(); Spacer(); Text(s.phrase).foregroundStyle(.secondary).lineLimit(1) }
+            }
+            .onDelete { shortcuts.remove(atOffsets: $0); saveShortcuts() }
+            TextField("줄임말 (예: brb)", text: $newKeys)
+                .textInputAutocapitalization(.never).autocorrectionDisabled()
+            TextField("문구 (예: Be right back)", text: $newPhrase)
+            Button("추가") {
+                let keys = newKeys.trimmingCharacters(in: .whitespaces).lowercased()
+                shortcuts.removeAll { $0.keys == keys }
+                shortcuts.append(Shortcut(keys: keys, phrase: newPhrase))
+                saveShortcuts()
+                (newKeys, newPhrase) = ("", "")
+            }
+            .disabled(!Shortcuts.isValid(newKeys.trimmingCharacters(in: .whitespaces).lowercased()) || newPhrase.trimmingCharacters(in: .whitespaces).isEmpty)
+        } header: {
+            Text("텍스트 단축어")
+        } footer: {
+            Text("줄임말을 치면 문구가 후보 맨 앞에 나옵니다. 줄임말은 영문 소문자 32자까지입니다. iOS 설정의 텍스트 대치도 그대로 쓸 수 있습니다.")
+        }
+    }
+
+    private func saveShortcuts() { Shortcuts.save(shortcuts.map { ($0.keys, $0.phrase) }) }
 
     private static let licenses = Bundle.main.url(forResource: "Licenses", withExtension: "txt")
         .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""

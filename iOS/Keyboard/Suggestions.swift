@@ -14,6 +14,8 @@ import UIKit
 struct Suggestions: Equatable {
     var words: [String] = []
     var autocorrect: String?
+    /// Each word's keys (a Korean word's 2-set keys), to tell which key a pick swapped.
+    var keys: [String: String] = [:]
 
     private static let checker = UITextChecker()
 
@@ -81,7 +83,9 @@ struct Suggestions: Equatable {
         guard word.count >= 2, !model.isVocabularyWord(word), known.isEmpty,
               HangulComposer.compose(keys: keys)?.isBroken == false else { return Suggestions(words: completions) }
         // Fixes ranked: a word seen in real text first, then by how common its syllables are.
-        let fixes = Set(oneSlip(keys).compactMap { HangulComposer.compose(keys: $0)?.text })
+        var keysOf: [String: String] = [:]
+        for k in oneSlip(keys) { if let w = HangulComposer.compose(keys: k)?.text, keysOf[w] == nil { keysOf[w] = k } }
+        let fixes = keysOf.keys
             .filter { $0.count == word.count && model.isVocabularyWord($0) }
             .sorted { a, b in
                 let (ka, kb) = (model.isKnownWord(a), model.isKnownWord(b))
@@ -89,7 +93,30 @@ struct Suggestions: Equatable {
                 let (sa, sb) = (syllableScore(a, model), syllableScore(b, model))
                 return sa != sb ? sa > sb : a < b
             }
-        return Suggestions(words: Array(fixes.prefix(2)), autocorrect: fixes.first)
+        return Suggestions(words: Array(fixes.prefix(2)), autocorrect: fixes.first, keys: keysOf)
+    }
+
+    /// Words one neighbor key away from a word that is itself fine, where `near` says the touch at
+    /// that key lay close to the neighbor (Kej's nearby-key suggestions): offered, never put in.
+    static func nearby(keys: String, korean: KoreanModel?, english: EnglishModel?, near: (Int, Character) -> Bool) -> Suggestions {
+        guard (2...32).contains(keys.count) else { return Suggestions() }
+        let chars = Array(keys)
+        var words: [String] = [], keysOf: [String: String] = [:]
+        for i in chars.indices {
+            for n in neighbors[Character(chars[i].lowercased())] ?? "" where near(i, n) {
+                var c = chars
+                c[i] = chars[i].isUppercase ? Character(n.uppercased()) : n
+                let k = String(c)
+                let word: String?
+                if let korean {
+                    word = HangulComposer.compose(keys: k).map(\.text).flatMap { korean.isVocabularyWord($0) ? $0 : nil }
+                } else {
+                    word = english?.isCommonWord(k) == true ? k : nil
+                }
+                if let word, keysOf[word] == nil { keysOf[word] = k; words.append(word) }
+            }
+        }
+        return Suggestions(words: Array(words.prefix(3)), keys: keysOf)
     }
 
     private static func syllableScore(_ word: String, _ model: KoreanModel) -> Double {
