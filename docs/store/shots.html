@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<!-- App Store screenshots, 1320×2868 (6.9"). Render: docs/store/render.sh → docs/store/out/<lang>/<n>.png
+     Captures (iPhone 17 Pro, UITests/TypingTests testScreenshot*) are read from ./captures/. -->
+<html><head><meta charset="utf-8"><style>
+  * { margin: 0; box-sizing: border-box; }
+  html, body { width: 1320px; height: 2868px; overflow: hidden; }
+  body { background: #1e7a63; color: #fff; font-family: "Apple SD Gothic Neo", "Hiragino Sans", -apple-system, sans-serif;
+         font-weight: 800; position: relative; }
+  body.ja { font-family: "Hiragino Sans", -apple-system, sans-serif; }
+  body.en { font-family: -apple-system, "SF Pro Display", sans-serif; }
+  .head { position: absolute; top: 170px; left: 0; right: 0; text-align: center; }
+  .small { font-size: 62px; font-weight: 600; opacity: .85; letter-spacing: -1px; }
+  .big { font-size: 112px; line-height: 1.12; letter-spacing: -3px; margin-top: 18px; }
+  .big em { font-style: normal; color: #ffd27a; }
+  .phone { position: absolute; top: 640px; left: 140px; width: 1040px; border-radius: 120px; padding: 22px;
+           background: #0f1412; box-shadow: 0 40px 120px rgba(0,0,0,.35); }
+  .phone img { display: block; width: 100%; border-radius: 100px; }
+  /* hero */
+  .hero { position: absolute; top: 260px; left: 110px; right: 110px; }
+  .hero .big { font-size: 190px; line-height: 1.08; letter-spacing: -8px; text-align: left; margin: 0; }
+  .hero .big span { background: #0f4f3f; padding: 0 18px; }
+  .hero .sub { font-size: 66px; font-weight: 600; margin-top: 60px; opacity: .9; line-height: 1.35; }
+  .chips { position: absolute; left: 110px; right: 110px; top: 1300px; display: flex; flex-direction: column; gap: 44px; }
+  .chip { align-self: flex-start; background: #fff; color: #1b1c1e; border-radius: 80px; padding: 34px 52px; font-size: 56px; white-space: nowrap;
+          box-shadow: 0 20px 60px rgba(0,0,0,.2); font-family: ui-monospace, Menlo, monospace; font-weight: 600; }
+  .chip:nth-child(2) { align-self: center; } .chip:nth-child(3) { align-self: flex-end; }
+  .chip b { font-family: "Apple SD Gothic Neo", "Hiragino Sans", -apple-system, sans-serif; font-weight: 800; }
+  .chip .ko { color: #2b5a9e; } .chip .ja { color: #d9822b; } .chip .en { color: #1e7a63; }
+  .brand { position: absolute; bottom: 150px; left: 0; right: 0; display: flex; justify-content: center; align-items: center; gap: 40px; }
+  .mark { width: 220px; height: 220px; border-radius: 54px; background: #f4f4f1; color: #1b1c1e; display: flex; flex-direction: column;
+          align-items: center; justify-content: center; gap: 6px; font-size: 54px; font-weight: 900; line-height: 1; }
+  .brand .name { font-size: 96px; letter-spacing: -2px; }
+  /* privacy */
+  .list { position: absolute; top: 980px; left: 150px; right: 150px; display: flex; flex-direction: column; gap: 56px; }
+  .row { background: rgba(255,255,255,.1); border-radius: 60px; padding: 64px 70px; font-size: 72px; display: flex; gap: 40px; align-items: center; }
+  .row i { font-style: normal; font-size: 92px; }
+</style></head><body>
+<div id="root"></div>
+<script>
+const q = new URLSearchParams(location.search), lang = q.get('l') || 'ko', n = +(q.get('s') || 1);
+document.body.className = lang;
+const T = {
+  ko: {
+    hero: ['한·영·일을', '<span>자연스럽게</span>', '변환'], heroSub: '전환 키 없이 그냥 치면<br>알아서 바뀌는 키보드',
+    shots: [
+      ['전환 키 없이', '그냥 치면<br><em>알아서</em> 바뀝니다'],
+      ['일본어는 로마자로', '<em>한자 변환</em>까지<br>한 번에'],
+      ['영어와 한국어를', '한 문장에<br><em>섞어 써도</em> OK'],
+      ['오타를 내도', '<em>알맞은 단어</em>를<br>추천합니다'],
+      ['애매한 단어는', '<em>한あA</em> 키 한 번으로<br>바꿉니다'],
+    ],
+    privacy: ['입력은 기기 안에서만', '<em>안심</em>하고 쓰세요'],
+    rows: [['📱', '입력 내용은 어디로도<br>보내지 않습니다'], ['🚫', '광고·추적·분석 없음'], ['🔓', '오픈소스 (MIT)']],
+    name: '한영일'
+  },
+  ja: {
+    hero: ['韓・英・日を', '<span>自然に</span>', '変換'], heroSub: '切り替えキーなしで<br>打つだけで変わるキーボード',
+    shots: [
+      ['切り替えキーなしで', '打つだけで<br><em>自動で</em>変わる'],
+      ['日本語はローマ字で', '<em>漢字変換</em>も<br>そのまま'],
+      ['英語と韓国語を', '一つの文に<br><em>混ぜても</em> OK'],
+      ['打ち間違えても', '<em>正しい単語</em>を<br>候補に'],
+      ['迷う単語は', '<em>한あA</em> キー一回で<br>切り替え'],
+    ],
+    privacy: ['入力は端末の中だけ', '<em>安心</em>して使える'],
+    rows: [['📱', '入力内容はどこにも<br>送信しません'], ['🚫', '広告・追跡・分析なし'], ['🔓', 'オープンソース (MIT)']],
+    name: 'KoEnJa 韓英日'
+  },
+  en: {
+    hero: ['Korean,', 'English, <span>Japanese</span>', 'naturally'], heroSub: 'No switch key. Just type,<br>and it knows the language.',
+    shots: [
+      ['No switch key', 'Just type.<br>It <em>knows</em>.'],
+      ['Japanese in romaji', '<em>Kanji</em> right<br>as you type'],
+      ['English and Korean', '<em>Mix them</em><br>in one sentence'],
+      ['Slipped a key?', 'The <em>right word</em><br>is suggested'],
+      ['Read it wrong?', 'One tap of <em>한あA</em><br>switches it'],
+    ],
+    privacy: ['Typing stays on your iPhone', '<em>Private</em> by design'],
+    rows: [['📱', 'Nothing you type<br>leaves the device'], ['🚫', 'No ads, tracking or analytics'], ['🔓', 'Open source (MIT)']],
+    name: 'KoEnJa'
+  },
+}[lang];
+const caps = ['1-ko', '2-ja', '3-en', '4-fix', '5-switch'];
+const root = document.getElementById('root');
+const mark = `<div class="mark"><div>한영일</div><div>韓英日</div></div>`;
+if (n === 1) {
+  const hero = lang === 'en' ? 'font-size:150px' : '';
+  root.innerHTML = `<div class="hero"><div class="big" style="${hero}">${T.hero.join('<br>')}</div><div class="sub">${T.heroSub}</div></div>
+    <div class="chips">
+      <div class="chip">dkssudgktpdy → <b class="ko">안녕하세요</b></div>
+      <div class="chip">hello → <b class="en">hello</b></div>
+      <div class="chip">kyouhaiitenki → <b class="ja">今日はいい天気</b></div>
+    </div>
+    <div class="brand">${mark}<div class="name">${T.name}</div></div>`;
+} else if (n <= 6) {
+  const [s, b] = T.shots[n - 2];
+  root.innerHTML = `<div class="head"><div class="small">${s}</div><div class="big">${b}</div></div>
+    <div class="phone"><img src="captures/${caps[n - 2]}.png"></div>`;
+} else {
+  root.innerHTML = `<div class="head"><div class="small">${T.privacy[0]}</div><div class="big">${T.privacy[1]}</div></div>
+    <div class="list">${T.rows.map(([i, t]) => `<div class="row"><i>${i}</i><div>${t}</div></div>`).join('')}</div>
+    <div class="brand">${mark}<div class="name">${T.name}</div></div>`;
+}
+</script></body></html>

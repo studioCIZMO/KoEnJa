@@ -15,6 +15,10 @@ final class TypingTests: XCTestCase {
         let preset = app.buttons["한국어 > 일본어 > 영어"]
         if preset.waitForExistence(timeout: 2) { preset.tap() }
         XCTAssertTrue(app.textFields["tryField"].waitForExistence(timeout: 5))
+        // Japanese among the languages (an earlier setup may have left it out).
+        let addJapanese = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] '일본어' OR label CONTAINS '日本語' OR label CONTAINS[c] 'Japanese'"))
+            .matching(NSPredicate(format: "label CONTAINS '추가' OR label CONTAINS[c] 'add' OR label CONTAINS '追加'")).firstMatch
+        if addJapanese.exists { addJapanese.tap(); app.textFields["tryField"].tap() }
         sleep(2) // the keyboard comes up
         // System keyboards show their keys to accessibility, 한영일 (another app's) doesn't.
         for _ in 0..<4 where app.keyboards.firstMatch.exists {
@@ -141,6 +145,8 @@ final class TypingTests: XCTestCase {
     func testScreenshotKorean() { shot("1-ko", "dhsmf meetingdptj designdmf reviewgoTek ", "go") }
     func testScreenshotJapanese() { shot("2-ja", "kyouhaiitenkidesune⏎", "kaiginoshiryou") }
     func testScreenshotEnglish() { shot("3-en", "See you at the meeting tomorrow. ", "dhsmf meetingdms ", "Thank") }
+    func testScreenshotFix() { shot("4-fix", "dhsmf ", "dkssudgktpdu") }
+    func testScreenshotSwitch() { shot("5-switch", "sksms ", "go ※") }
 
     func shot(_ name: String, _ keys: String...) {
         // The field keeps the last run's text; a word still being composed takes more than one ⌫ a letter.
