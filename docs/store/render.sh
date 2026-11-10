@@ -10,3 +10,9 @@ for l in ko ja en; do
       --allow-file-access-from-files --virtual-time-budget=6000 --screenshot="$PWD/out/$l/$n.png" "file://$PWD/shots.html?l=$l&s=$n" 2>/dev/null
   done
 done
+# The required 6.1"/6.3" set (1206×2622): the same images scaled down.
+python3 -c "
+from PIL import Image; import os
+for l in ['ko','ja','en']:
+  os.makedirs(f'out/61/{l}', exist_ok=True)
+  for n in range(1, 8): Image.open(f'out/{l}/{n}.png').convert('RGB').resize((1206, 2622), Image.LANCZOS).save(f'out/61/{l}/{n}.png')"
