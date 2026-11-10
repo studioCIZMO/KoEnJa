@@ -8,6 +8,8 @@
 	<string>KoEnJa</string>
 	<key>CFBundleExecutable</key>
 	<string>KoEnJa</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.cizmo.inputmethod.KoEnJa</string>
 	<key>CFBundleLocalizations</key>
@@ -20,9 +22,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.3.11</string>
+	<string>0.3.12</string>
 	<key>CFBundleVersion</key>
-	<string>14</string>
+	<string>15</string>
 	<key>InputMethodConnectionName</key>
 	<string>com.cizmo.inputmethod.KoEnJa_Connection</string>
 	<key>InputMethodServerControllerClass</key>

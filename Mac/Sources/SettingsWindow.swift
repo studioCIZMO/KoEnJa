@@ -82,7 +82,6 @@ enum AppName {
 func runSettingsApp(tab: SettingsTab) -> Never {
     let app = NSApplication.shared
     app.setActivationPolicy(.regular)
-    if let icon = KoEnJaMark.appIcon() { app.applicationIconImage = icon }
     let model = SettingsModel(tab: tab)
     let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(model: model)))
     window.title = L("KoEnJa Settings")
@@ -340,7 +339,7 @@ extension Language {
     }
 }
 
-/// KoEnJa's mark, as its app icon: 한영일 over 韓英日 on a plate.
+/// KoEnJa's mark (as Resources/AppIcon.icns, scripts/make-app-icon.swift): 한영일 over 韓英日 on a plate.
 struct KoEnJaMark: View {
     var height: CGFloat = 96
     /// Fixed colors for a picture; nil follows the appearance.
@@ -360,17 +359,6 @@ struct KoEnJaMark: View {
             }
             .frame(width: height, height: height)
             .accessibilityHidden(true)
-    }
-
-    /// The app icon, drawn at launch (an input method has none of its own in the Dock).
-    @MainActor static func appIcon() -> NSImage? {
-        let icon = KoEnJaMark(height: 824, plateColor: Color(red: 0.85, green: 0.85, blue: 0.84),
-                              letterColor: Color(red: 0.07, green: 0.07, blue: 0.08))
-            .shadow(color: .black.opacity(0.3), radius: 12, y: 8)
-            .frame(width: 1024, height: 1024)
-        let renderer = ImageRenderer(content: icon)
-        renderer.scale = 1
-        return renderer.nsImage
     }
 }
 
