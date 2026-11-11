@@ -86,8 +86,15 @@ final class KeyboardViewController: UIInputViewController {
     /// a 36pt candidate bar. The system's last row reaches 3⅔pt lower than iOS lets a third-party
     /// keyboard draw (it clips there), so our last row is that much shorter (`clipped`).
     /// Every key is a multiple of one key pitch (a tenth of the width inside the margins).
-    private static let gap: CGFloat = 6, margin: CGFloat = 20 / 3, keyHeight: CGFloat = 127 / 3,
-                       rowGap: CGFloat = 54 - 127 / 3, barHeight: CGFloat = 36, clipped: CGFloat = 11 / 3
+    private static let margin: CGFloat = 20 / 3, keyHeight: CGFloat = 127 / 3, barHeight: CGFloat = 36, clipped: CGFloat = 11 / 3
+    /// On a full-width iPad keyboard, heights, margins and type are this much bigger (widths follow
+    /// the screen already); 1 on iPhone and the iPad's floating (compact) keyboard.
+    /// ponytail: one factor for every iPad size, per-model numbers if one looks off.
+    private static var scale: CGFloat = 1
+    private static func font(_ size: CGFloat) -> UIFont { .systemFont(ofSize: size * scale) }
+    private var currentScale: CGFloat {
+        traitCollection.userInterfaceIdiom == .pad && traitCollection.horizontalSizeClass == .regular ? 1.3 : 1
+    }
 
     /// What the letter keys type in 123 mode, like the system keyboard's first symbol page.
     static let symbols: [Character: Character] = Dictionary(uniqueKeysWithValues: zip(
@@ -108,7 +115,7 @@ final class KeyboardViewController: UIInputViewController {
             "zxcvbnm".map { (String($0), 1) },
             [("123", 1.25)] + (globe ? [("🌐", 1.25)] : []) + [("한あA", 1.25), ("space", globe ? 3.25 : 4.5), (".", 1), ("return", 2)],
         ]
-        let rowGap = shape.rowGap
+        let rowGap = shape.rowGap * Self.scale
         candidateRow.spacing = 4
         let candidates = UIScrollView()
         candidates.showsHorizontalScrollIndicator = false
@@ -129,6 +136,7 @@ final class KeyboardViewController: UIInputViewController {
         views += [thirdRow, makeRow(rows[3])]
         let stack = KeyStack(arrangedSubviews: views)
         stack.keys = keyButtons
+        stack.reach = 12 * Self.scale
         keyStack = stack
         stack.axis = .vertical
         stack.alignment = .center
@@ -141,9 +149,9 @@ final class KeyboardViewController: UIInputViewController {
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stack.topAnchor.constraint(equalTo: view.topAnchor),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -shape.bottom),
-            candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
-            candidates.heightAnchor.constraint(equalToConstant: Self.barHeight),
-            thirdRow.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * 2),
+            candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * Self.scale * 2),
+            candidates.heightAnchor.constraint(equalToConstant: Self.barHeight * Self.scale),
+            thirdRow.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * Self.scale * 2),
             candidateRow.leadingAnchor.constraint(equalTo: candidates.contentLayoutGuide.leadingAnchor),
             candidateRow.trailingAnchor.constraint(equalTo: candidates.contentLayoutGuide.trailingAnchor),
             candidateRow.topAnchor.constraint(equalTo: candidates.contentLayoutGuide.topAnchor),
@@ -164,6 +172,7 @@ final class KeyboardViewController: UIInputViewController {
             DispatchQueue.global(qos: .userInitiated).async { KoreanModel.warmUp() }
         }
         if keyStack == nil {
+            Self.scale = currentScale
             shape = KeyShape.load()
             let colors = shape.colors()
             (Self.keyColor, Self.pressedKeyColor) = (colors.key, colors.pressed)
@@ -189,7 +198,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private static func functionTitle(_ title: String, size: CGFloat = 16) -> AttributedString {
-        AttributedString(title, attributes: .init([.font: UIFont.systemFont(ofSize: size)]))
+        AttributedString(title, attributes: .init([.font: font(size)]))
     }
 
     /// The system holds touches near the screen's left and right edges (for its edge gestures)
@@ -245,6 +254,10 @@ final class KeyboardViewController: UIInputViewController {
     /// Off screen: drop the keys (iOS may keep this controller); they're rebuilt if it comes back.
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
+        dropKeys()
+    }
+
+    private func dropKeys() {
         view.subviews.forEach { $0.removeFromSuperview() }
         candidateRow.arrangedSubviews.forEach { $0.removeFromSuperview() }
         keyStack = nil
@@ -279,8 +292,8 @@ final class KeyboardViewController: UIInputViewController {
         keyConstraints += [
             // units of a pitch, minus one gap: a row of 10 units spans the width inside the margins
             button.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: units / 10,
-                                          constant: (shape.gap - 2 * Self.margin) * units / 10 - shape.gap),
-            button.heightAnchor.constraint(equalToConstant: Self.keyHeight * shape.height - (Self.bottomRow.contains(title) ? Self.clipped : 0)),
+                                          constant: (shape.gap - 2 * Self.margin * Self.scale) * units / 10 - shape.gap),
+            button.heightAnchor.constraint(equalToConstant: (Self.keyHeight * shape.height - (Self.bottomRow.contains(title) ? Self.clipped : 0)) * Self.scale),
         ]
         if let letter, letter.isLetter {
             letterKeys.append((button, letter))
@@ -288,7 +301,7 @@ final class KeyboardViewController: UIInputViewController {
             let hint = UILabel()
             hint.tag = Self.hintTag
             hint.text = Self.symbols[letter].map(String.init)
-            hint.font = .systemFont(ofSize: 9)
+            hint.font = Self.font(9)
             hint.textColor = .secondaryLabel
             hint.isUserInteractionEnabled = false
             hint.translatesAutoresizingMaskIntoConstraints = false
@@ -357,7 +370,6 @@ final class KeyboardViewController: UIInputViewController {
     private weak var popupKey: UIButton?
     private lazy var popup: UILabel = {
         let label = UILabel()
-        label.font = .systemFont(ofSize: 32)
         label.textAlignment = .center
         label.layer.backgroundColor = Self.keyColor.resolvedColor(with: traitCollection).cgColor
         label.layer.cornerRadius = 8
@@ -371,12 +383,13 @@ final class KeyboardViewController: UIInputViewController {
 
     private func showPopup(over key: UIButton) {
         popupKey = key
+        popup.font = Self.font(32)
         let frame = key.convert(key.bounds, to: view)
         let width = frame.width + 16
         popup.text = key.configuration?.attributedTitle.map { String($0.characters) }
         popup.layer.backgroundColor = Self.keyColor.resolvedColor(with: view.traitCollection).cgColor
         popup.frame = CGRect(x: min(max(frame.midX - width / 2, 2), view.bounds.width - width - 2),
-                             y: max(frame.minY - 52, 0), width: width, height: 48)
+                             y: max(frame.minY - 52 * Self.scale, 0), width: width, height: 48 * Self.scale)
         if popup.superview == nil { view.addSubview(popup) }
         popup.isHidden = false
     }
@@ -488,9 +501,9 @@ final class KeyboardViewController: UIInputViewController {
         }
         let jamo = Self.jamo[letter].map { shifted ? ($0.1 ?? $0.0) : $0.0 } ?? ""
         button.configuration?.attributedTitle = AttributedString(shifted ? letter.uppercased() : String(letter),
-                                                                 attributes: .init([.font: UIFont.systemFont(ofSize: 20)]))
+                                                                 attributes: .init([.font: Self.font(20)]))
         button.configuration?.attributedSubtitle = AttributedString(jamo, attributes: .init([
-            .font: UIFont.systemFont(ofSize: 11), .foregroundColor: UIColor.secondaryLabel]))
+            .font: Self.font(11), .foregroundColor: UIColor.secondaryLabel]))
         button.configuration?.titlePadding = 0
     }
 
@@ -744,6 +757,13 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        // The iPad keyboard went floating or docked while up: keys at the other size.
+        if keyStack != nil, currentScale != Self.scale {
+            dropKeys()
+            Self.scale = currentScale
+            buildKeys()
+            return
+        }
         updateOffsets()
     }
 
@@ -877,7 +897,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func addButton(_ text: String, selected: Bool, index: Int) {
         var config = selected ? UIButton.Configuration.filled() : UIButton.Configuration.plain()
-        config.attributedTitle = AttributedString(text, attributes: .init([.font: UIFont.systemFont(ofSize: 20)]))
+        config.attributedTitle = AttributedString(text, attributes: .init([.font: Self.font(20)]))
         config.baseForegroundColor = selected ? .systemBackground : .label
         config.baseBackgroundColor = .label
         let button = UIButton(configuration: config)
@@ -896,6 +916,8 @@ final class KeyboardViewController: UIInputViewController {
 /// the system keyboard (the gaps are a fifth of the keyboard's area; touches there were lost).
 final class KeyStack: UIStackView {
     var keys: [UIButton] = []
+    /// How far from a key a touch in a gap still goes to it (bigger with the iPad's spacing).
+    var reach: CGFloat = 12
     /// Learned touch areas: each key's shift (TouchCalibration).
     var offsets: [ObjectIdentifier: CGVector] = [:]
     /// Where the latest touch went down, for typing correction.
@@ -924,7 +946,7 @@ final class KeyStack: UIStackView {
             return distance(CGPoint(x: shifted.x - o.dx, y: shifted.y - o.dy), key) - 0.001
         }
         guard let nearest = keys.min(by: { area($0) < area($1) }),
-              area(nearest) < 12 else { return hit }
+              area(nearest) < reach else { return hit }
         if nearest !== hit { TraceLog.write("NEAR \(nearest.accessibilityLabel ?? "") (was \((hit as? UIButton)?.accessibilityLabel ?? "gap"))") }
         return nearest
     }

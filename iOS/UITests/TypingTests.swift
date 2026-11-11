@@ -22,34 +22,48 @@ final class TypingTests: XCTestCase {
         sleep(2) // the keyboard comes up
         // System keyboards show their keys to accessibility, 한영일 (another app's) doesn't.
         for _ in 0..<4 where app.keyboards.firstMatch.exists {
-            app.buttons.matching(NSPredicate(format: "label IN %@", ["다음 키보드", "次のキーボード", "Next keyboard"])).firstMatch.tap()
+            let next = app.buttons.matching(NSPredicate(format: "label IN %@", ["다음 키보드", "次のキーボード", "Next keyboard"])).firstMatch
+            // iPadOS: the globe shares the bottom-left key with emoji
+            (next.exists ? next : app.keyboards.buttons["emoji"]).tap()
             sleep(2)
         }
         XCTAssertFalse(app.keyboards.firstMatch.exists, "한영일 isn't up")
         sleep(2) // taps right after it comes up were lost
+        Self.measure(app.windows.firstMatch.frame.size)
     }
 
-    // Layout, in points: rows start 598⅓ and are 54 apart; a pitch is a tenth of the width
-    // inside 6⅔ margins; the bottom row is 123, 한あA, space, ., return (1.25, 1.25, 4.5, 1, 2).
-    static let margin = 20.0 / 3, top = 598.0 + 1 / 3, pitch = (402 - 2 * margin + 6) / 10
+    // Layout, in points, on an iPhone 17 Pro: rows start 598⅓ and are 54 apart; a pitch is a tenth
+    // of the width inside 6⅔ margins; the bottom row is 123, 한あA, space, ., return (1.25, 1.25, 4.5, 1, 2).
+    // On an iPad (KeyboardViewController.scale) heights and margins are 1.3×, rows start 280 above
+    // the screen's bottom, and the globe key (1.25) follows 123, taking space down to 3.25.
+    static var width = 402.0, top = 598.0 + 1 / 3, scale = 1.0
+    static var margin: Double { 20.0 / 3 * scale }
+    static var pitch: Double { (width - 2 * margin + 6) / 10 }
+
+    /// Docked, portrait keyboards only (what the screenshots use); a floating one isn't covered.
+    static func measure(_ screen: CGSize) {
+        (width, top, scale) = screen.width > 600 ? (screen.width, screen.height - 280, 1.3) : (402, 598 + 1 / 3, 1)
+    }
 
     static func center(_ key: String) -> CGPoint {
-        let rows = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
-        for (r, row) in rows.enumerated() {
-            if key.count == 1, let i = row.firstIndex(of: Character(key.lowercased())) {
-                let left = margin + [0, 0.5, 1.5][r] * pitch + Double(row.distance(from: row.startIndex, to: i)) * pitch
-                return CGPoint(x: left + (pitch - 6) / 2, y: top + Double(r) * 54 + 127.0 / 6)
+        let rows = ["qwertyuiop", "asdfghjkl", "zxcvbnm"], row = 54 * scale, half = 127.0 / 6 * scale
+        for (r, letters) in rows.enumerated() {
+            if key.count == 1, let i = letters.firstIndex(of: Character(key.lowercased())) {
+                let left = margin + [0, 0.5, 1.5][r] * pitch + Double(letters.distance(from: letters.startIndex, to: i)) * pitch
+                return CGPoint(x: left + (pitch - 6) / 2, y: top + Double(r) * row + half)
             }
         }
         let side = (1.3 * pitch - 6) / 2
         switch key {
-        case "⇧": return CGPoint(x: margin + side, y: top + 108 + 127.0 / 6)
-        case "⌫": return CGPoint(x: 402 - margin - side, y: top + 108 + 127.0 / 6)
+        case "⇧": return CGPoint(x: margin + side, y: top + 2 * row + half)
+        case "⌫": return CGPoint(x: width - margin - side, y: top + 2 * row + half)
         default:
-            let bottom: [(String, Double)] = [("123", 1.25), ("한あA", 1.25), ("space", 4.5), (".", 1), ("return", 2)]
+            let globe = scale > 1
+            let bottom: [(String, Double)] = [("123", 1.25)] + (globe ? [("🌐", 1.25)] : []) +
+                [("한あA", 1.25), ("space", globe ? 3.25 : 4.5), (".", 1), ("return", 2)]
             var left = margin
             for (name, units) in bottom {
-                if name == key { return CGPoint(x: left + (units * pitch - 6) / 2, y: top + 162 + 19.3) }
+                if name == key { return CGPoint(x: left + (units * pitch - 6) / 2, y: top + 3 * row + (127.0 - 11) / 6 * scale) }
                 left += units * pitch
             }
             fatalError("no key \(key)")

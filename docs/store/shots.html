@@ -1,6 +1,6 @@
 <!DOCTYPE html>
-<!-- App Store screenshots, 1320×2868 (6.9"). Render: docs/store/render.sh → docs/store/out/<lang>/<n>.png
-     Captures (iPhone 17 Pro, UITests/TypingTests testScreenshot*) are read from ./captures/. -->
+<!-- App Store screenshots, 1320×2868 (6.9"); &d=pad: 2064×2752 (13" iPad). Render: docs/store/render.sh → docs/store/out/
+     Captures (UITests/TypingTests testScreenshot*: iPhone 17 Pro, iPad Pro 13" simulator) are read from ./captures/(pad/). -->
 <html><head><meta charset="utf-8"><style>
   * { margin: 0; box-sizing: border-box; }
   html, body { width: 1320px; height: 2868px; overflow: hidden; }
@@ -34,11 +34,24 @@
   .list { position: absolute; top: 980px; left: 150px; right: 150px; display: flex; flex-direction: column; gap: 56px; }
   .row { background: rgba(255,255,255,.1); border-radius: 60px; padding: 64px 70px; font-size: 72px; display: flex; gap: 40px; align-items: center; }
   .row i { font-style: normal; font-size: 92px; }
+  /* iPad: wider page, a tablet frame with the whole screen (the keyboard is at its bottom) */
+  html.pad, html.pad body { width: 2064px; height: 2752px; }
+  .pad .phone { top: 690px; left: 262px; width: 1540px; border-radius: 96px; }
+  .pad .small { font-size: 80px; } .pad .big { font-size: 148px; }
+  .pad .hero .big { font-size: 240px; } .pad .hero .sub { font-size: 86px; }
+  .pad .chips { top: 1560px; gap: 60px; } .pad .chip { font-size: 74px; padding: 44px 68px; }
+  .pad .list { top: 1100px; gap: 70px; } .pad .row { font-size: 92px; padding: 80px 90px; } .pad .row i { font-size: 116px; }
+  .pad .mark { width: 280px; height: 280px; border-radius: 68px; font-size: 68px; } .pad .brand .name { font-size: 124px; }
+  .pad .phone img { border-radius: 76px; }
+  .pad .hero, .pad .chips { left: 220px; right: 220px; }
+  .pad .list { left: 380px; right: 380px; }
 </style></head><body>
 <div id="root"></div>
 <script>
 const q = new URLSearchParams(location.search), lang = q.get('l') || 'ko', n = +(q.get('s') || 1);
 document.body.className = lang;
+const pad = q.get('d') === 'pad';
+if (pad) document.documentElement.className = 'pad';
 const T = {
   ko: {
     hero: ['한·영·일을', '<span>자연스럽게</span>', '변환'], heroSub: '전환 키 없이 그냥 치면<br>알아서 바뀌는 키보드',
@@ -75,7 +88,7 @@ const T = {
       ['Slipped a key?', 'The <em>right word</em><br>is suggested'],
       ['Read it wrong?', 'One tap of <em>한あA</em><br>switches it'],
     ],
-    privacy: ['Typing stays on your iPhone', '<em>Private</em> by design'],
+    privacy: [pad ? 'Typing stays on your iPad' : 'Typing stays on your iPhone', '<em>Private</em> by design'],
     rows: [['📱', 'Nothing you type<br>leaves the device'], ['🚫', 'No ads, tracking or analytics'], ['🔓', 'Open source (MIT)']],
     name: 'KoEnJa'
   },
@@ -84,7 +97,7 @@ const caps = ['1-ko', '2-ja', '3-en', '4-fix', '5-switch'];
 const root = document.getElementById('root');
 const mark = `<div class="mark"><div>한영일</div><div>韓英日</div></div>`;
 if (n === 1) {
-  const hero = lang === 'en' ? 'font-size:150px' : '';
+  const hero = lang === 'en' ? `font-size:${pad ? 196 : 150}px` : '';
   root.innerHTML = `<div class="hero"><div class="big" style="${hero}">${T.hero.join('<br>')}</div><div class="sub">${T.heroSub}</div></div>
     <div class="chips">
       <div class="chip">dkssudgktpdy → <b class="ko">안녕하세요</b></div>
@@ -95,7 +108,7 @@ if (n === 1) {
 } else if (n <= 6) {
   const [s, b] = T.shots[n - 2];
   root.innerHTML = `<div class="head"><div class="small">${s}</div><div class="big">${b}</div></div>
-    <div class="phone"><img src="captures/${caps[n - 2]}.png"></div>`;
+    <div class="phone"><img src="captures/${pad ? 'pad/' : ''}${caps[n - 2]}.png"></div>`;
 } else {
   root.innerHTML = `<div class="head"><div class="small">${T.privacy[0]}</div><div class="big">${T.privacy[1]}</div></div>
     <div class="list">${T.rows.map(([i, t]) => `<div class="row"><i>${i}</i><div>${t}</div></div>`).join('')}</div>
