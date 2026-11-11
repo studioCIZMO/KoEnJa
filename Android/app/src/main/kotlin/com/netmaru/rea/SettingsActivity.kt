@@ -170,7 +170,7 @@ class SettingsActivity : Activity() {
         showShortcuts()
         list.addView(shortcutList)
         val newKeys = EditText(this).apply { hint = "brb"; isSingleLine = true }
-        val newPhrase = EditText(this).apply { hint = "Be right back"; isSingleLine = true }
+        val newPhrase = EditText(this).apply { hint = tr("문구 (예: Be right back)", "文（例：Be right back）", "Phrase (e.g. Be right back)"); isSingleLine = true }
         list.addView(newKeys); list.addView(newPhrase)
         list.addView(Button(this).apply {
             text = tr("단축어 추가", "ショートカットを追加", "Add shortcut")

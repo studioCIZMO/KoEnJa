@@ -140,7 +140,7 @@ struct SettingsView: View {
                 let (lo, hi, step) = setting.range
                 VStack(alignment: .leading) {
                     let value = shape[keyPath: setting.path]
-                    Text("\(Self.shapeNames[setting.key]!)  \(["kbHeight", "kbSideKeys"].contains(setting.key) ? String(format: "×%.2f", value) : String(format: "%.0f pt", value))")
+                    Text("\(NSLocalizedString(Self.shapeNames[setting.key]!, comment: ""))  \(["kbHeight", "kbSideKeys"].contains(setting.key) ? String(format: "×%.2f", value) : String(format: "%.0f pt", value))")
                     Slider(value: Binding(get: { shape[keyPath: setting.path] }, set: {
                         shape[keyPath: setting.path] = $0
                         LanguagePreferences.defaults?.set($0, forKey: setting.key)
@@ -148,7 +148,7 @@ struct SettingsView: View {
                 }
             }
             VStack(alignment: .leading) {
-                Text("색  \(shape.hue.map { "\(Int($0))°" } ?? "기본")")
+                Text("색  \(shape.hue.map { "\(Int($0))°" } ?? String(localized: "기본"))")
                 // 0: the system keyboard's grays; then every 10° of hue
                 Slider(value: Binding(get: { shape.hue.map { $0 / 10 + 1 } ?? 0 }, set: {
                     shape.hue = $0 < 0.5 ? nil : ($0.rounded() - 1) * 10

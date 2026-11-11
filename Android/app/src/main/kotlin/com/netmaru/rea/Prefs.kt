@@ -4,7 +4,11 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.netmaru.rea.engine.Language
 
-val Language.label get() = mapOf(Language.KOREAN to "한국어", Language.JAPANESE to "日本語").getOrElse(this) { "English" }
+val Language.label get() = when (this) {
+    Language.KOREAN -> tr("한국어", "韓国語", "Korean")
+    Language.JAPANESE -> tr("일본어", "日本語", "Japanese")
+    else -> tr("영어", "英語", "English")
+}
 
 /** The app's text in the phone's language: Korean, Japanese, else English. */
 fun tr(ko: String, ja: String, en: String) = when (java.util.Locale.getDefault().language) { "ko" -> ko; "ja" -> ja; else -> en }
@@ -15,12 +19,12 @@ object Prefs {
     fun of(context: Context): SharedPreferences = context.getSharedPreferences("rea", Context.MODE_PRIVATE)
 
     /** The usual setups: who you talk to decides the pair. */
-    val presets = listOf(
-        "한국어 + 영어" to listOf(Language.KOREAN, Language.ENGLISH),
-        "日本語 + English" to listOf(Language.JAPANESE, Language.ENGLISH),
-        "한국어 > 일본어 > 영어" to listOf(Language.KOREAN, Language.JAPANESE, Language.ENGLISH),
-        "日本語 > 한국어 > English" to listOf(Language.JAPANESE, Language.KOREAN, Language.ENGLISH),
-    )
+    val presets get() = listOf(
+        listOf(Language.KOREAN, Language.ENGLISH),
+        listOf(Language.JAPANESE, Language.ENGLISH),
+        listOf(Language.KOREAN, Language.JAPANESE, Language.ENGLISH),
+        listOf(Language.JAPANESE, Language.KOREAN, Language.ENGLISH),
+    ).map { order -> order.joinToString(if (order.size == 2) " + " else " > ") { it.label } to order }
 
     /** Enabled languages, most used first; English is always on. */
     fun order(p: SharedPreferences): List<Language> {

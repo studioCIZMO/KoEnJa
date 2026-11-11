@@ -6,7 +6,7 @@ val upload = Properties().apply { file("${System.getProperty("user.home")}/.koen
 android {
     namespace = "com.netmaru.rea"
     compileSdk = 36
-    defaultConfig { applicationId = "com.cizmo.koenja"; minSdk = 26; targetSdk = 36; versionCode = 6; versionName = "0.2.4" }
+    defaultConfig { applicationId = "com.cizmo.koenja"; minSdk = 26; targetSdk = 36; versionCode = 7; versionName = "0.2.5" }
     if (upload.isNotEmpty()) {
         signingConfigs.create("upload") {
             storeFile = file(upload.getProperty("storeFile")); storePassword = upload.getProperty("storePassword")

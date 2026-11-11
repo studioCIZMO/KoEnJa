@@ -9,7 +9,8 @@ struct LanguagePreferences: Equatable {
     enum Language: String, CaseIterable, Identifiable {
         case korean, japanese, english
         var id: String { rawValue }
-        var name: String { ["korean": "한국어", "japanese": "日本語", "english": "English"][rawValue]! }
+        /// In the app's language (App/*.lproj).
+        var name: String { NSLocalizedString(["korean": "한국어", "japanese": "일본어", "english": "영어"][rawValue]!, comment: "") }
         var mark: String { ["korean": "한", "japanese": "あ", "english": "A"][rawValue]! }
     }
 
@@ -42,12 +43,10 @@ struct LanguagePreferences: Equatable {
     ]
 
     /// The usual setups: who you talk to decides the pair.
-    static let presets: [(title: String, order: [Language])] = [
-        ("한국어 + 영어", [.korean, .english]),
-        ("日本語 + English", [.japanese, .english]),
-        ("한국어 > 일본어 > 영어", [.korean, .japanese, .english]),
-        ("日本語 > 한국어 > English", [.japanese, .korean, .english]),
-    ]
+    static var presets: [(title: String, order: [Language])] {
+        [[.korean, .english], [.japanese, .english], [.korean, .japanese, .english], [.japanese, .korean, .english]]
+            .map { order in (order.map(\.name).joined(separator: order.count == 2 ? " + " : " > "), order) }
+    }
 
     /// Score per rank step (average log-probability per key, the engine's scale; its context
     /// bias for the previous word's language is 0.8).
