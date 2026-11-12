@@ -39,7 +39,7 @@ kinouemailwookutta⏎                                       →  きのうemail�
 <p align="center">
   <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest/download/KoEnJa-Mac.zip"><img src="https://img.shields.io/badge/Mac%EC%9A%A9%20%EB%B0%9B%EA%B8%B0-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Mac용 받기"></a>
   <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="https://img.shields.io/badge/Windows%EC%9A%A9%20%EB%B0%9B%EA%B8%B0-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows용 받기"></a>
-  <a href="https://apps.apple.com/app/id6824875642"><img src="https://img.shields.io/badge/App%20Store%20%28iPhone%29-0d96f6?style=for-the-badge&logo=appstore&logoColor=white" alt="App Store (iPhone)"></a>
+  <a href="https://apps.apple.com/app/id6824875642"><img src="https://img.shields.io/badge/App%20Store%20%28iPhone%20%C2%B7%20iPad%29-0d96f6?style=for-the-badge&logo=appstore&logoColor=white" alt="App Store (iPhone · iPad)"></a>
   <a href="https://play.google.com/store/apps/details?id=com.cizmo.koenja"><img src="https://img.shields.io/badge/Google%20Play%20%28Android%29-01875f?style=for-the-badge&logo=googleplay&logoColor=white" alt="Google Play (Android)"></a>
 </p>
 
@@ -276,8 +276,8 @@ Araso는 macOS 입력기만 있습니다. 그래서 Mac은 Araso와 같은 바�
 | --- | --- | --- |
 | 공통: 언어 엔진 | Swift 엔진(`ArasoCore`) | 같은 엔진에 KoEnJa의 변경: 한국어 단어 목록을 해시로 두어 메모리를 줄임, Space·Return은 화면에 보인 그대로 확정, 영어 대문자 단어 뒤 일본어, 주소 뒤 조사, URL 속 점 파일 처리. Kotlin(Android)과 C++(Windows)로 옮긴 엔진도 같은 골든 테스트 1,932줄을 한 줄도 다르지 않게 통과 |
 | Mac | macOS 입력기 「Araso」 | Araso 입력기를 가져와 이름(한영일)·번들 ID·저장 위치를 바꿈. Araso와 함께 설치해도 설정·학습 단어를 따로 둠. 업데이트는 KoEnJa 릴리스에서 받고, 입력 메뉴에 설치된 버전과(새 버전이 있을 때) 업데이트 항목을 보여 줌. 메뉴 아이콘은 「한영일」. 사전 키에 숫자 허용(k8s). Developer ID 서명·Apple 공증, Finder로 풀어도 열리는 zip |
-| iPhone | 없음 | 직접 만든 키보드: `한あA` 전환 키, 일본어 변환 후보와 다음 말 예측이 나오는 후보 막대, 추천 단어·자동 고침·가장자리 터치 보정, 1.0.4부터 키보드 모양·색, 이웃 키 추천과 터치 학습, 위로 밀어 기호, Space 밀어 커서 이동, 텍스트 단축어 |
-| Android | 없음 | 직접 만든 키보드(Kotlin 엔진)와 Mozc 사전 위의 일본어 변환기. 0.2.4: 키보드 모양·색, 이웃 키 추천과 터치 학습, 위로 밀어 기호, Space 밀어 커서 이동, 텍스트 단축어, 사전을 줄여 APK 9.5 MB |
+| iPhone · iPad | 없음 | 직접 만든 키보드: `한あA` 전환 키, 일본어 변환 후보와 다음 말 예측이 나오는 후보 막대, 추천 단어·자동 고침·가장자리 터치 보정, 1.0.4부터 키보드 모양·색, 이웃 키 추천과 터치 학습, 위로 밀어 기호, Space 밀어 커서 이동, 텍스트 단축어, 1.0.5부터 iPad(큰 키)와 기기 언어를 따르는 설정 화면 |
+| Android | 없음 | 직접 만든 키보드(Kotlin 엔진)와 Mozc 사전 위의 일본어 변환기. 0.2.4: 키보드 모양·색, 이웃 키 추천과 터치 학습, 위로 밀어 기호, Space 밀어 커서 이동, 텍스트 단축어, 사전을 줄여 APK 9.5 MB. 0.2.5: 기기 언어를 따르는 설정 화면 |
 | Windows | 없음 | 직접 만든 TSF 입력기(C++ 엔진): Microsoft IME식 한자 변환(Space·変換, F6–F10, Shift+←/→ 문절), 키보드 종류(한국어·미국식·JIS), 고를 수 있는 전환 키, 우선 언어(한국어 우선 ↔ 日本語優先), 설치 프로그램 |
 
 Araso의 원래 저작권 고지는

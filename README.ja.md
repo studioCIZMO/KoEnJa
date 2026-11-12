@@ -39,7 +39,7 @@ kinouemailwookutta⏎                                       →  きのうemail�
 <p align="center">
   <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest/download/KoEnJa-Mac.zip"><img src="https://img.shields.io/badge/Mac%20%E7%89%88%E3%82%92%E3%83%80%E3%82%A6%E3%83%B3%E3%83%AD%E3%83%BC%E3%83%89-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Mac 版をダウンロード"></a>
   <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="https://img.shields.io/badge/Windows%20%E7%89%88%E3%82%92%E3%83%80%E3%82%A6%E3%83%B3%E3%83%AD%E3%83%BC%E3%83%89-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Windows 版をダウンロード"></a>
-  <a href="https://apps.apple.com/app/id6824875642"><img src="https://img.shields.io/badge/App%20Store%20%28iPhone%29-0d96f6?style=for-the-badge&logo=appstore&logoColor=white" alt="App Store (iPhone)"></a>
+  <a href="https://apps.apple.com/app/id6824875642"><img src="https://img.shields.io/badge/App%20Store%20%28iPhone%20%C2%B7%20iPad%29-0d96f6?style=for-the-badge&logo=appstore&logoColor=white" alt="App Store (iPhone · iPad)"></a>
   <a href="https://play.google.com/store/apps/details?id=com.cizmo.koenja"><img src="https://img.shields.io/badge/Google%20Play%20%28Android%29-01875f?style=for-the-badge&logo=googleplay&logoColor=white" alt="Google Play (Android)"></a>
 </p>
 
@@ -279,8 +279,8 @@ Araso は macOS の入力メソッドだけです。Mac は同じ土台から何
 | --- | --- | --- |
 | 共通：言語エンジン | Swift のエンジン（`ArasoCore`） | 同じエンジンに KoEnJa の変更：韓国語の単語リストをハッシュにしてメモリを削減、Space・Return は表示どおりに確定、英語の大文字語に続く日本語、住所の後の助詞、URL 内のドットファイル。Kotlin（Android）と C++（Windows）に移したエンジンも同じゴールデンテスト 1,932 行を 1 行も違わずに通過 |
 | Mac | macOS 入力メソッド「Araso」 | Araso の入力メソッドを取り込み、名前（한영일）・バンドル ID・保存場所を変更。Araso と同時に入れても設定・学習語は別。更新は KoEnJa のリリースから取得し、入力メニューにインストール中のバージョンと（新しい版があれば）更新項目を表示。メニューアイコンは「한영일」。辞書のキーに数字（k8s）。Developer ID 署名・Apple 公証、Finder で展開しても開ける zip |
-| iPhone | なし | 独自のキーボード：`한あA` 切り替えキー、日本語変換候補と次の語の予測が出る候補バー、おすすめ語・自動修正・端のタッチ補正、1.0.4 からはキーボードの形・色、近いキーの候補とタッチ学習、上フリックで記号、Space スライドでカーソル移動、ユーザ辞書の短縮入力 |
-| Android | なし | 独自のキーボード（Kotlin エンジン）と Mozc 辞書による日本語変換。0.2.4：キーボードの形・色、近いキーの候補とタッチ学習、上フリックで記号、Space スライドでカーソル移動、短縮入力、辞書を絞って APK 9.5 MB |
+| iPhone・iPad | なし | 独自のキーボード：`한あA` 切り替えキー、日本語変換候補と次の語の予測が出る候補バー、おすすめ語・自動修正・端のタッチ補正、1.0.4 からはキーボードの形・色、近いキーの候補とタッチ学習、上フリックで記号、Space スライドでカーソル移動、ユーザ辞書の短縮入力、1.0.5 からは iPad（大きなキー）と端末の言語に合わせた設定画面 |
+| Android | なし | 独自のキーボード（Kotlin エンジン）と Mozc 辞書による日本語変換。0.2.4：キーボードの形・色、近いキーの候補とタッチ学習、上フリックで記号、Space スライドでカーソル移動、短縮入力、辞書を絞って APK 9.5 MB。0.2.5：端末の言語に合わせた設定画面 |
 | Windows | なし | 独自の TSF 入力メソッド（C++ エンジン）：Microsoft IME 風の漢字変換（Space・変換、F6–F10、Shift+←/→ で文節）、キーボードの種類（韓国語・米国・JIS）、選べる切り替えキー、優先言語（한국어 우선 ↔ 日本語優先）、インストーラー |
 
 エンジンを MIT ライセンスで公開して
