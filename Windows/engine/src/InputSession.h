@@ -279,6 +279,11 @@ private:
     /** Whether [forced] is the user's choice (the switch key) rather than "back to kana" after converting
      *  a phrase the engine read as Japanese anyway: only the user's choices are corrections. */
     bool forcedByUser = false;
+    /** The keys when a switch key last changed the word being typed. More keys after it learn that
+     *  reading for these keys at once (`learnSwitchBeforeMore`), not for the word they make. */
+    std::optional<std::u16string> switchedKeys;
+    /** The switch was learned as more keys came: the word, ending so, isn't learned again. */
+    bool switchLearned = false;
     /** The language the engine itself showed last, before any switch: what a commit compares
      *  against, so a forced reading is never mistaken for the engine's own choice. */
     std::optional<Language> enginePreview;
@@ -393,6 +398,7 @@ private:
     std::optional<std::u16string> hangul();
     void dropNMarker();
     void record(const std::u16string& keys, Language language, Language engineChoice);
+    void learnSwitchBeforeMore();
     bool engineSplits(const std::u16string& keys);
     std::optional<Committed> cycle(const Committed& commit, TextClient& client);
     void closeFlipWindow();

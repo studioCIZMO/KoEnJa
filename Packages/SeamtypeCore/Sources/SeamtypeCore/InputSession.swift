@@ -332,6 +332,11 @@ public final class InputSession {
     /// Whether `forced` is the user's choice (Esc) rather than "back to kana" after converting
     /// a phrase the engine read as Japanese anyway: only the user's choices are corrections.
     private var forcedByUser = false
+    /// The keys when a switch key last changed the word being typed. More keys after it learn that
+    /// reading for these keys at once (`learnSwitchBeforeMore`), not for the word they make.
+    private var switchedKeys: String?
+    /// The switch was learned as more keys came: the word, ending so, isn't learned again.
+    private var switchLearned = false
     /// The language the engine itself showed last, before any Esc: what a commit compares
     /// against, so a forced reading is never mistaken for the engine's own choice.
     private var enginePreview: Language?
@@ -485,6 +490,10 @@ public final class InputSession {
     /// Whether keys currently go straight to vim (normal, visual or command-line mode).
     public var inVimNormalMode: Bool { vimMode == .normal }
 
+    /// The mode vim last reported here, for the session that replaces this one when a setting
+    /// changes: vim says nothing again until its next mode change.
+    public var vimSignal: VimSignal? { vimMode }
+
     /// `handle` for a key typed with Caps Lock on or off. The letter comes in the case Shift alone
     /// gives it (the controller's job), so a word reads the same either way (GKAUS is 하면); what
     /// the word puts in the field goes through `cased`. Caps Lock changing inside a word commits
@@ -531,11 +540,12 @@ public final class InputSession {
         let switched = readings != nil && !keys.isEmpty && conversion == nil
         let listed = readings // what a digit right after a switch picks from
         let arrow = key == .left || key == .right || key == .shiftLeft || key == .shiftRight
-        if let deferred = fixAfterArrow { fixAfterArrow = nil; learnUnmarked(deferred.commit) }
         readings = nil
         learned = nil
         guesses = nil
         fixedSlip = nil
+        // After the clears: what this teaches is `learned`, the strip's note for this key.
+        if let deferred = fixAfterArrow { fixAfterArrow = nil; learnUnmarked(deferred.commit) }
         let inKoreanSymbols = afterKoreanSymbol
         afterKoreanSymbol = false
         guard policy.enabled, !paused else { return false }
@@ -547,7 +557,9 @@ public final class InputSession {
             resetRun()
             return false
         }
-        if key == .up || key == .down, let listed, conversion == nil { return stepReadings(listed, down: key == .down, client) }
+        if key == .up || key == .down, let listed, conversion == nil, listApplies(client) {
+            return stepReadings(listed, down: key == .down, client)
+        }
         if fixing != nil, key == .guess { return true } // guesses are for the word just committed, not a fix
         if fixing != nil { return handleFixing(key, client: client) } // ⇧Space confirms it first, as any key
         if guessing != nil, let handled = handleGuessing(key, client: client) { return handled }
@@ -692,6 +704,8 @@ public final class InputSession {
             }
             if keys.isEmpty { // a new word
                 lastRecorded = nil
+                switchedKeys = nil
+                switchLearned = false
                 liveSuppressed = false
                 liveKept = nil
                 let cursor = client.selectedRange()
@@ -704,6 +718,7 @@ public final class InputSession {
             }
             addedNMarker = false
             pinned = nil
+            learnSwitchBeforeMore()
             keys.append(ch)
             updatePreview(client)
             return true
@@ -770,6 +785,8 @@ public final class InputSession {
             pinned = nil
             forcedByUser = true
             if next != .japanese { dropNMarker() }
+            switchedKeys = keys // after the n marker went: the keys the word goes on from
+            switchLearned = false
             updatePreview(client)
             readings = readings(of: keys, as: next, decided: committedLanguage()) { _, language in self.rendering(as: language) }
             // Numbered, a digit picking one, except on 3-set, whose digit keys are jamo of the word.
@@ -799,6 +816,7 @@ public final class InputSession {
                 if previousLanguage == .japanese {
                     if ch == " ", fullWidthSpace, japaneseEnabled, policy.fullWidth {
                         client.insertText("　", replacing: nil)
+                        noteRun("　") // a space: the run ends, as after ⇧Space's
                         return true
                     }
                     // A number after Japanese text starts a Japanese word: １２３, ３がつ → ３月.
@@ -822,6 +840,7 @@ public final class InputSession {
             // A symbol that makes the run a URL or path (ho@, www.) ends the word, half-width.
             let endsInURL = inURLRun || Self.hasURLMarker(run(client) + keys + String(ch))
             if japaneseEnabled, !endsInURL, belongsToJapanesePhrase(ch) {
+                learnSwitchBeforeMore()
                 keys.append(ch)
                 // Digits don't read as anything: the phrase stays Japanese, as it was shown.
                 if ch.isNumber, forced == nil { forced = .japanese; forcedByUser = false }
@@ -829,6 +848,7 @@ public final class InputSession {
                 return true
             }
             if !endsInURL, keepsInWord(ch) {
+                learnSwitchBeforeMore()
                 keys.append(ch) // k8s, utf-8, 안녕1: one word, read piece by piece (`SplittingEngine.decideJoined`)
                 updatePreview(client)
                 return true
@@ -1613,11 +1633,13 @@ public final class InputSession {
                                  boundary: "", typedBoundary: nil, learns: !inURLRun, typed: true)
         fixing = Fixing(start: marked.location, original: original, end: NSMaxRange(marked), markOriginal: original,
                         shown: original, firstEntry: recent.count, pieces: [piece], trailing: "", language: shown)
-        fixing?.chosen = forced != nil && forcedByUser
+        fixing?.chosen = forced != nil && forcedByUser && !switchLearned // learned already, for the keys it was picked on
         fixing?.typedKeys = keys
         keys = ""
         forced = nil
         forcedByUser = false
+        switchedKeys = nil
+        switchLearned = false
         pinned = nil
         syllableStart = nil
         addedNMarker = false
@@ -1727,6 +1749,17 @@ public final class InputSession {
 
     /// ↓ or ↑ in the readings a switch key listed: the next or the one before, as presses of the
     /// switch key leave it. At the list's end nothing changes and it stays up.
+    /// Whether the readings a switch key listed are still of the word at the caret. A click with
+    /// nothing marked tells the input method nothing, so the list of the word just committed can
+    /// outlive the caret's place: ↑/↓ are then the app's, not presses of the switch key elsewhere.
+    private func listApplies(_ client: TextClient) -> Bool {
+        if fixing != nil || !keys.isEmpty { return true }
+        guard let commit = lastCommit else { return false }
+        // A word switched in the line too: `switchInPlace` puts the caret at its end first.
+        let caret = client.selectedRange()
+        return caret.length == 0 && caret.location == commit.location + utf16(commit.text)
+    }
+
     private func stepReadings(_ listed: Readings, down: Bool, _ client: TextClient) -> Bool {
         let target = listed.selected + (down ? 1 : -1)
         guard listed.texts.indices.contains(target) else {
@@ -1762,6 +1795,7 @@ public final class InputSession {
         forced = language
         pinned = nil
         forcedByUser = true
+        switchLearned = false
         if language != .japanese { dropNMarker() }
         updatePreview(client)
         readings = nil
@@ -2617,7 +2651,7 @@ public final class InputSession {
     /// よろ), unless the user taught Araso otherwise for these keys. English shortcuts are left
     /// to the engine: "go" may be one, and still be ご in a Japanese sentence.
     private func shortcutReading(partial: Bool) -> (language: Language, text: String)? {
-        guard !replacements.isEmpty, !keys.isEmpty, engine.learned[keys] == nil else { return nil }
+        guard !replacements.isEmpty, !keys.isEmpty, engine.rememberedLanguage(keys, app: app) == nil else { return nil }
         if let hangul = hangul(), replacements[hangul] != nil { return (.korean, hangul) }
         if japaneseEnabled {
             let kana = RomajiComposer.compose(keys, partial: partial)
@@ -3454,7 +3488,7 @@ public final class InputSession {
     private func wordEnds(as language: Language, engineChoice: Language) {
         guard !inURLRun else { return }
         if forced != nil, forcedByUser {
-            record(keys, as: language, engineChoice: engineChoice)
+            if !switchLearned { record(keys, as: language, engineChoice: engineChoice) }
         } else {
             engine.used(keys, as: language)
             noteRemembered(as: language)
@@ -3480,6 +3514,8 @@ public final class InputSession {
         keys = ""
         forced = nil
         forcedByUser = false
+        switchedKeys = nil
+        switchLearned = false
         pinned = nil
         syllableStart = nil
         addedNMarker = false
@@ -3557,6 +3593,16 @@ public final class InputSession {
     private func dropNMarker() {
         if addedNMarker, keys.hasSuffix("'") { keys.removeLast() }
         addedNMarker = false
+    }
+
+    /// A reading a switch key picked, then more keys typed onto it: the pick is learned now, for the
+    /// keys it was picked on (so → English, then rk: so, not sork). The word goes on as forced, and
+    /// isn't learned again when it ends, unless a switch key changes it again on the way.
+    private func learnSwitchBeforeMore() {
+        defer { switchedKeys = nil }
+        guard let switched = switchedKeys, switched == keys, let language = forced, forcedByUser, !inURLRun else { return }
+        record(keys, as: language, engineChoice: committedLanguage())
+        switchLearned = true
     }
 
     /// The last correction handed to the learning engine, for the word being typed or just

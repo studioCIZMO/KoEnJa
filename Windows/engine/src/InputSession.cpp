@@ -123,6 +123,8 @@ bool InputSession::handle(Key key, TextClient& client) {
             }
             if (keys.empty()) { // a new word
                 lastRecorded.reset();
+                switchedKeys.reset();
+                switchLearned = false;
                 liveSuppressed = false;
                 liveKept.reset();
                 auto cursor = client.selectedRange();
@@ -135,6 +137,7 @@ bool InputSession::handle(Key key, TextClient& client) {
             }
             addedNMarker = false;
             pinned.reset();
+            learnSwitchBeforeMore();
             keys += key.ch;
             updatePreview(client);
             return true;
@@ -185,6 +188,8 @@ bool InputSession::handle(Key key, TextClient& client) {
             pinned.reset();
             forcedByUser = true;
             if (next != Language::JAPANESE) dropNMarker();
+            switchedKeys = keys; // after the n marker went: the keys the word goes on from
+            switchLearned = false;
             updatePreview(client);
             return true;
         }
@@ -203,6 +208,7 @@ bool InputSession::handle(Key key, TextClient& client) {
                 if (previousLanguage == Language::JAPANESE) {
                     if (ch == u' ' && fullWidthSpace && japaneseEnabled && policy.fullWidth) {
                         client.insertText(u"　", std::nullopt);
+                        noteRun(u"　"); // a space: the run ends, as after ⇧Space's
                         return true;
                     }
                     // A number after Japanese text starts a Japanese word: １２３, ３がつ → ３月.
@@ -226,6 +232,7 @@ bool InputSession::handle(Key key, TextClient& client) {
             // A symbol that makes the run a URL or path (ho@, www.) ends the word, half-width.
             bool endsInURL = inURLRun || hasURLMarker(run(client) + keys + ch);
             if (japaneseEnabled && !endsInURL && belongsToJapanesePhrase(ch)) {
+                learnSwitchBeforeMore();
                 keys += ch;
                 // Digits don't read as anything: the phrase stays Japanese, as it was shown.
                 if (isNumber(ch) && !forced) { forced = Language::JAPANESE; forcedByUser = false; }
@@ -233,6 +240,7 @@ bool InputSession::handle(Key key, TextClient& client) {
                 return true;
             }
             if (!endsInURL && keepsInWord(ch)) {
+                learnSwitchBeforeMore();
                 keys += ch; // k8s, utf-8, 안녕1: one word, read piece by piece (`SplittingEngine::decideJoined`)
                 updatePreview(client);
                 return true;
@@ -353,6 +361,8 @@ void InputSession::cancelComposition(TextClient& client) {
     keys = u"";
     forced.reset();
     forcedByUser = false;
+    switchedKeys.reset();
+    switchLearned = false;
     pinned.reset();
     syllableStart.reset();
     addedNMarker = false;
@@ -801,6 +811,8 @@ void InputSession::startConversion(TextClient& client) {
     keys = u"";
     forced.reset();
     forcedByUser = false;
+    switchedKeys.reset();
+    switchLearned = false;
     pinned.reset();
     syllableStart.reset();
     enginePreview.reset();
@@ -823,6 +835,8 @@ void InputSession::showKanaForms(bool katakanaFirst, std::optional<std::u16strin
     keys = u"";
     forced.reset();
     forcedByUser = false;
+    switchedKeys.reset();
+    switchLearned = false;
     pinned.reset();
     syllableStart.reset();
     enginePreview.reset();
@@ -1267,7 +1281,7 @@ std::optional<std::u16string> InputSession::preview(Language language) {
  *  saying so stays). Inside a URL or path it isn't a word: neither. */
 void InputSession::wordEnds(Language language, Language engineChoice) {
     if (inURLRun) return;
-    if (forced && forcedByUser) record(keys, language, engineChoice);
+    if (forced && forcedByUser) { if (!switchLearned) record(keys, language, engineChoice); }
     else engine->used(keys, language);
 }
 
@@ -1292,6 +1306,8 @@ InputSession::Word InputSession::finishWord() {
     keys = u"";
     forced.reset();
     forcedByUser = false;
+    switchedKeys.reset();
+    switchLearned = false;
     pinned.reset();
     syllableStart.reset();
     addedNMarker = false;
@@ -1355,6 +1371,17 @@ std::optional<std::u16string> InputSession::hangul() {
 void InputSession::dropNMarker() {
     if (addedNMarker && endsWith(keys, u"'")) keys = dropLast(keys, 1);
     addedNMarker = false;
+}
+
+/** A reading a switch key picked, then more keys typed onto it: the pick is learned now, for the
+ *  keys it was picked on (so → English, then rk: so, not sork). The word goes on as forced, and
+ *  isn't learned again when it ends, unless a switch key changes it again on the way. */
+void InputSession::learnSwitchBeforeMore() {
+    auto switched = switchedKeys;
+    switchedKeys.reset();
+    if (!switched || *switched != keys || !forced || !forcedByUser || inURLRun) return;
+    record(keys, *forced, committedLanguage());
+    switchLearned = true;
 }
 
 void InputSession::record(const std::u16string& keys, Language language, Language engineChoice) {

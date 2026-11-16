@@ -978,3 +978,15 @@ onnna⏎
 ren'ai⏎
 rennai 
 konnnichihahiragana⏎
+#reset
+so※on 
+so 
+soon 
+#reset
+so※※on 
+so 
+soon 
+#reset
+so※ 
+so 
+soon 

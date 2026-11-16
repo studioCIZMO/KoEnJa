@@ -128,8 +128,12 @@ final class Updater: ObservableObject {
 
     private func finishCheck(_ release: Release?, failed: Bool, noMac: Bool) {
         guard state == .checking else { return } // an install started meanwhile owns the state
+        let defaults = UserDefaults.standard
         if !failed, release == nil, noMac {
-            UserDefaults.standard.set(Date(), forKey: Key.checked)
+            // The check counts, so it isn't made again every hour; nothing kept from an earlier one.
+            defaults.set(Date(), forKey: Key.checked)
+            for key in [Key.version, Key.package, Key.page, Key.notes] { defaults.removeObject(forKey: key) }
+            available = nil
             state = .upToDate
             menuDone()
             return
@@ -139,7 +143,6 @@ final class Updater: ObservableObject {
             menuDone()
             return
         }
-        let defaults = UserDefaults.standard
         defaults.set(Date(), forKey: Key.checked)
         defaults.set(release.version, forKey: Key.version)
         defaults.set(release.package.absoluteString, forKey: Key.package)
