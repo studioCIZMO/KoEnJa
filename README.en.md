@@ -84,8 +84,8 @@ macOS 13 or later (Apple silicon, Intel). In Terminal:
 curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh | sh
 ```
 
-Or download `KoEnJa-Mac.zip` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest), unzip it and move
-`KoEnJa.app` to `~/Library/Input Methods`. Then add it in System Settings → Keyboard → Input Sources → Edit… → + → Korean →
+It installs into `/Library/Input Methods`, asking for your administrator password once, to make that folder (since 0.3.13; an earlier copy in `~/Library` is moved). Or download `KoEnJa-Mac.zip` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest), unzip it and move
+`KoEnJa.app` to `/Library/Input Methods`. Then add it in System Settings → Keyboard → Input Sources → Edit… → + → Korean →
 **KoEnJa** (log out and back in once if it isn't listed). The app is signed with CIZMO's Developer ID and notarized by Apple.
 Installed beside Araso, it keeps its settings and learned words apart (`~/Library/Application Support/KoEnJa`).
 Uninstall from the settings window's About tab or with `… | sh -s -- --uninstall`. If you mistype one letter of a Korean word, hold the switch key to see corrected guesses (Settings → Fix typos, off by default). The source is in `Mac/`.

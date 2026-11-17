@@ -1215,7 +1215,7 @@ private struct AboutPane: View {
                               isOn: Binding(get: { model.settings.checkForUpdates }, set: { model.set(\.checkForUpdates, $0) }))
                 SeamToggleRow(title: L("Install updates automatically"),
                               detail: Updater.replaceable ? L("An update the daily check finds installs without asking, once it is checked as CIZMO's and notarized. KoEnJa restarts on the next key.")
-                                  : L("Only for KoEnJa in ~/Library/Input Methods."),
+                                  : L("Only for a copy get.sh installed in /Library/Input Methods; run the install command once to move it there."),
                               isOn: Binding(get: { model.settings.autoInstallUpdates }, set: { model.set(\.autoInstallUpdates, $0) }))
                     .disabled(!model.settings.checkForUpdates || !Updater.replaceable)
             }
@@ -1235,7 +1235,7 @@ private struct AboutPane: View {
                 }
                 if Uninstaller.isAvailable {
                     SeamRow(title: L("Uninstall KoEnJa"),
-                            detail: L("Removes KoEnJa from this Mac and switches to another input source. If it was installed with the installer, macOS asks for your password.")) {
+                            detail: L("Removes KoEnJa from this Mac and switches to another input source. From /Library/Input Methods, macOS asks for your password.")) {
                         Button(L("Uninstall…"), role: .destructive) { Uninstaller.confirmAndRun() }
                     }
                 }

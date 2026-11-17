@@ -158,18 +158,19 @@ final class Updater: ObservableObject {
         }
     }
 
-    /// The copy get.sh installs, which this updater can replace (the user owns the folder).
+    /// The copy get.sh installs, which this updater can replace: the bundle in /Library/Input
+    /// Methods, owned by the user (get.sh makes it so), whose Contents get.sh swaps without a
+    /// password. A copy elsewhere (earlier versions' ~/Library, a build folder) would need the
+    /// password get.sh asks in a terminal to move there, so it gets the release page instead.
     nonisolated static var replaceable: Bool {
-        let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath()
-        let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Input Methods")
-        return bundle.deletingLastPathComponent().standardizedFileURL == folder.resolvingSymlinksInPath().standardizedFileURL
-            && FileManager.default.isWritableFile(atPath: folder.path)
+        let bundle = Bundle.main.bundleURL.resolvingSymlinksInPath().standardizedFileURL
+        return bundle.path == "/Library/Input Methods/KoEnJa.app" && FileManager.default.isWritableFile(atPath: bundle.path)
     }
 
     /// KoEnJa: downloads `KoEnJa-Mac.zip` and installs it with the bundled get.sh, which checks
-    /// that the app is CIZMO's and notarized before it replaces this copy, then stops the old one
-    /// (macOS starts the new one on the next key) and registers the new one. No password: the copy
-    /// is in ~/Library/Input Methods. A copy elsewhere gets the release page instead.
+    /// that the app is CIZMO's and notarized before it replaces this copy's Contents, then stops the
+    /// old one (macOS starts the new one on the next key) and registers the new one. No password:
+    /// the user owns the bundle. A copy that isn't theirs gets the release page instead.
     func install() {
         guard let release = available, state != .downloading, state != .checking else { return }
         guard Self.replaceable, let script = Bundle.main.url(forResource: "get", withExtension: "sh") else {

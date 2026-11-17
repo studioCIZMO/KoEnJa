@@ -113,7 +113,7 @@
 /* 정보: 제거 */
 "Uninstall KoEnJa" = "한영일 제거";
 "Uninstall…" = "제거…";
-"Removes KoEnJa from this Mac and switches to another input source. If it was installed with the installer, macOS asks for your password." = "이 Mac에서 한영일를 지우고 다른 입력 소스로 바꿉니다. 설치 파일(.pkg)로 설치했다면 macOS가 암호를 묻습니다.";
+"Removes KoEnJa from this Mac and switches to another input source. From /Library/Input Methods, macOS asks for your password." = "이 Mac에서 한영일를 지우고 다른 입력 소스로 바꿉니다. /Library/Input Methods에서 지울 때는 macOS가 암호를 묻습니다.";
 "Uninstall KoEnJa?" = "한영일를 제거할까요?";
 "KoEnJa is removed from your input sources and from this Mac. You can install it again any time." = "입력 소스와 이 Mac에서 한영일를 지웁니다. 언제든 다시 설치할 수 있습니다.";
 "Uninstall" = "제거";
@@ -309,4 +309,4 @@
 "%@ first" = "%@ 우선";
 "Install updates automatically" = "업데이트 자동 설치";
 "An update the daily check finds installs without asking, once it is checked as CIZMO's and notarized. KoEnJa restarts on the next key." = "하루 한 번 확인에서 찾은 업데이트를 묻지 않고 설치합니다. CIZMO 서명과 Apple 공증을 확인한 뒤 설치하며, 다음 키부터 새 버전이 동작합니다.";
-"Only for KoEnJa in ~/Library/Input Methods." = "~/Library/Input Methods에 설치한 경우에만 쓸 수 있습니다.";
+"Only for a copy get.sh installed in /Library/Input Methods; run the install command once to move it there." = "get.sh로 /Library/Input Methods에 설치한 경우에만 쓸 수 있습니다. 설치 명령을 한 번 실행하면 그곳으로 옮겨집니다.";

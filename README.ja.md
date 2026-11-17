@@ -84,8 +84,8 @@ macOS 13 以降（Apple シリコン、Intel）。ターミナルで実行して
 curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh | sh
 ```
 
-または[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)から `KoEnJa-Mac.zip` を入手して展開し、`KoEnJa.app` を
-`~/Library/Input Methods` に移します。続いてシステム設定 → キーボード → 入力ソース → 編集… → ＋ → 韓国語 → **KoEnJa** を
+`/Library/Input Methods` にインストールし、そのフォルダを作る一度だけ管理者パスワードを求めます（0.3.13 から。以前の `~/Library` のコピーは移動します）。または[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)から `KoEnJa-Mac.zip` を入手して展開し、`KoEnJa.app` を
+`/Library/Input Methods` に移します。続いてシステム設定 → キーボード → 入力ソース → 編集… → ＋ → 韓国語 → **KoEnJa** を
 追加します（一覧にない場合は一度ログアウトして再ログイン）。アプリは CIZMO の Developer ID で署名し、Apple の公証を受けています。
 Araso と一緒にインストールしても、設定と学習した単語は別に保存します（`~/Library/Application Support/KoEnJa`）。
 削除は設定ウインドウの情報タブか `… | sh -s -- --uninstall` で行います。韓国語の単語を1文字打ち間違えたときは、切り替えキーを長押しすると直した候補が出ます（設定 → Fix typos、初期設定はオフ）。ソースは `Mac/` にあります。
