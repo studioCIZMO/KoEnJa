@@ -37,7 +37,7 @@
 - Xcode 프로젝트는 생성물: `cd iOS && xcodegen`, `cd Mac && xcodegen`(project.yml). `.gitignore`에 있음.
 - Android `local.properties`(sdk.dir)는 PC별로 새로 만듦.
 - Windows 테스트 PC: Windows 11 x64, LAN 192.168.4.71(바뀔 수 있음), 사용자 `netma`, SSH 키 `~/.ssh/rea_windows`(이 Mac에만 있음). git 없음 → `git archive` tar를 scp. VS 2022 BuildTools, Inno Setup 6. 설치 빌드는 `C:\Program Files\KoEnJa\<ver>`. 바탕화면은 OneDrive 동기화 → 바이너리 복사 금지.
-- Mac 입력기 로컬 설치: `KOENJA_ZIP=<zip> sh Mac/get.sh`. 입력 메뉴에서 회색으로 죽으면: `/usr/bin/log show --last 10m --predicate 'process == "KoEnJa"'`에서 "Activate Server" 유무 확인; 바이너리를 직접 실행하거나 imklaunchagent를 죽이지 말 것; 11/13 사례는 사용자가 키보드 > 입력 소스를 만진 뒤 등록 상태가 꼬인 것 → 입력 소스 삭제 후 재추가(원인 미확정, 재발 시 다시 볼 것).
+- Mac 입력기 로컬 설치: `KOENJA_ZIP=<zip> sh Mac/get.sh`. **입력 메뉴에서 회색으로 죽는 현상(11/02, 11/13, 11/17 재발)**: `/usr/bin/log show --last 10m --predicate 'process == "imklaunchagent" AND messageType == error'`에 `LaunchInputMethod() status=-50` / `Refusing connection name for bundle: unrecognized 'InputMethodConnectionName' value` / `Request for Endpoint Invalid`가 찍히면 그 상태. 앱 서명·공증·LS 등록·폴더 권한·Info.plist는 모두 정상이었고, 입력 소스 재추가·imklaunchagent 재시작(kill)·`open -b` 수동 실행으로는 안 풀림. **재부팅만 복구**. 11/17부터 실험으로 KoEnJa.app을 `/Library/Input Methods`(Araso와 같은 곳, 거기선 한 번도 안 죽음)로 옮겨 둠(`sudo mv`). 이 상태에서는 Updater가 자동 설치 대신 릴리스 페이지를 연다(`Updater.replaceable`). 재발하지 않으면 get.sh/문서를 /Library 설치로 바꿀 것. 바이너리를 직접 실행하거나 imklaunchagent를 죽이지 말 것; 정상 여부는 `process == "KoEnJa"`의 "Activate Server"로 확인.
 
 ## 4. 반복 절차 (명령)
 
