@@ -9,8 +9,8 @@
 |---|---|---|---|
 | Mac 입력기 | 0.3.13 (GitHub v0.3.13, Latest, 11/18) | 0.3.13 (16) | 공개됨; 이 Mac에는 /Library/Input Methods에 설치 |
 | iOS 키보드 | 1.0.5 (App Store) | **1.0.6 (16)** | 아카이브·업로드 **아직 안 함** |
-| Android 키보드 | 0.2.5 (Play), 0.2.6 Play 심사 중(11/18) → 0.2.7로 교체 예정, APK 0.2.6 (GitHub v0.3.13) | **0.2.7 (9)** | 11/18 Codex 리뷰 지적(변환 취소 후 전체 단어 학습) 수정판; AAB/APK 빌드 후 Play 교체 + GitHub 에셋 추가 |
-| Windows 입력기 | 0.3.2 (GitHub v0.3.13, 11/18) | **0.3.3** | 같은 수정판; push 후 CI Setup 0.3.3을 v0.3.13 에셋에 추가 |
+| Android 키보드 | 0.2.5 (Play 공개), APK 0.2.7 (GitHub v0.3.13; 0.2.6 에셋은 내림) | 0.2.7 (9) | Play: 0.2.6+등록정보 9건은 11/18 승인됐으나 **공개 보류**(관리형 게시), 0.2.7 심사 중 → 승인되면 공개 개요에서 전부 함께 공개 |
+| Windows 입력기 | 0.3.3 (GitHub v0.3.13, 11/18; 0.3.2 에셋은 내림) | 0.3.3 | 공개됨 |
 
 이 커밋 = **Araso main b19e054 동기화** (0.6.1 → main 3커밋, 2026-11-14):
 - 엔진(Swift): 전환 키로 고른 읽기를 그 글자들만 즉시 학습(`switchedKeys`/`switchLearned`/`learnSwitchBeforeMore`), ↑/↓는 커서가 단어 끝일 때만(`listApplies`), 전각 스페이스 뒤 `noteRun`, `rememberedLanguage(keys, app:)`, `vimSignal`.

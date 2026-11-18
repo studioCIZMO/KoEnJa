@@ -92,8 +92,8 @@ Araso と一緒にインストールしても、設定と学習した単語は�
 
 ### Windows
 
-1. [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) から `KoEnJa-Setup-0.3.2.exe` をダウンロードして実行します。
-2. 0.3.2 はまだコード署名がないため、SmartScreen の「**Windows によって PC が保護されました**」が表示されます。
+1. [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) から `KoEnJa-Setup-0.3.3.exe` をダウンロードして実行します。
+2. 0.3.3 はまだコード署名がないため、SmartScreen の「**Windows によって PC が保護されました**」が表示されます。
    「**詳細情報**」→「**実行**」を押し、続く管理者の確認で「**はい**」を押してください。
 3. 最後の画面で「**KoEnJa の設定を開く**」にチェックしたまま完了すると、キーボードの種類、使う言語、切り替えキーを
    選べます。あとからはスタートメニューの「**KoEnJa 설정**」で変更できます。
@@ -225,7 +225,7 @@ MSVC のゴールデンテストは `main` への push のたびに [CI](.github
 
 ## 既知の制限
 
-- Windows 0.3.2 はコード署名がありません（[コード署名ポリシー](#コード署名ポリシー)）。x64 専用で、ARM64 版 Windows には対応していません。
+- Windows 0.3.3 はコード署名がありません（[コード署名ポリシー](#コード署名ポリシー)）。x64 専用で、ARM64 版 Windows には対応していません。
 - 2 つの言語のどちらでも意味が通るキー（`go`/해、`so`/내）は間違えることがあります。切り替えキーで直してください。
 - 英単語に日本語の助詞をつけると、日本語として読まれることがあります（`sitede` → `してで`、`tokenwo` → `とけんを`）。
 - 漢字変換の第 1 候補が原文と一致するのは、フレーズで 5 件に 4 件、文で 3 件に 2 件ほどです（iOS の経路）。残りは候補一覧から選んでください。
@@ -296,7 +296,7 @@ Araso は macOS の入力メソッドだけです。Mac は同じ土台から何
 ## コード署名ポリシー
 
 無償のコード署名は [SignPath.io](https://about.signpath.io) が、証明書は [SignPath Foundation](https://signpath.org) が
-提供しています。（0.3.2 は未署名です。SignPath Foundation にプロジェクトが承認され次第、署名を始めます。）
+提供しています。（0.3.3 は未署名です。SignPath Foundation にプロジェクトが承認され次第、署名を始めます。）
 
 > Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
 
