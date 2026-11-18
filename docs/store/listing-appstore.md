@@ -41,7 +41,7 @@
 • 편의 기능: 위로 밀어 기호 입력, 스페이스를 밀어 커서 이동, 텍스트 단축어, 키보드 모양·색 설정. iPad 전체 폭 키보드 지원. 설정은 기기 언어(한국어·일본어·영어)로 나옵니다.
 
 개인정보
-입력한 내용은 모두 기기 안에서만 처리되고 어디로도 전송되지 않습니다. 「전체 접근 허용」이 필요 없고, 네트워크 통신·광고·분석 도구가 없습니다. 계정도 필요 없습니다.
+입력한 내용은 모두 기기 안에서만 처리되고 어디로도 전송되지 않습니다. 「전체 접근 허용」은 앱에서 고른 언어 순서와 설정을 키보드가 읽고 햅틱을 쓰는 데만 쓰입니다. 네트워크 통신·광고·분석 도구가 없고, 계정도 필요 없습니다.
 
 오픈소스
 언어 엔진은 오픈소스 Araso(MIT)를 바탕으로 하고, 소스 코드는 GitHub(studioCIZMO/KoEnJa)에 공개되어 있습니다. 같은 엔진의 Mac·Windows 입력기와 Android 키보드도 있어 어느 기기에서나 같은 방식으로 칩니다.
@@ -84,7 +84,7 @@ KoEnJa（한영일）は、韓国語・英語・日本語をひとつの QWERTY 
 • 便利機能：上フリックで記号、スペースをスライドしてカーソル移動、短縮入力、キーボードの形と色の設定。iPad のフル幅キーボードに対応。設定は端末の言語（日本語・韓国語・英語）で表示されます。
 
 プライバシー
-入力した内容はすべて端末内だけで処理され、どこにも送信されません。「フルアクセスを許可」は不要で、通信機能・広告・解析ツールもありません。アカウントも不要です。
+入力した内容はすべて端末内だけで処理され、どこにも送信されません。「フルアクセスを許可」は、アプリで選んだ言語の順番や設定をキーボードが読むことと、触覚フィードバックにだけ使います。通信機能・広告・解析ツールはなく、アカウントも不要です。
 
 オープンソース
 言語エンジンはオープンソースの Araso（MIT）をもとにしており、ソースコードは GitHub（studioCIZMO/KoEnJa）で公開しています。同じエンジンの Mac・Windows 版入力メソッドと Android 版キーボードもあり、どの端末でも同じ打ち方ができます。
@@ -127,7 +127,7 @@ Features
 • Comfort: swipe up for symbols, slide the space bar to move the cursor, text shortcuts, keyboard shape and colors, a full-width iPad keyboard. Settings follow your device language (English, Korean, Japanese).
 
 Privacy
-Everything you type stays on your device. No Full Access needed, no network access, no ads, no analytics, no account.
+Everything you type stays on your device. Full Access is used only to read the language order and settings you choose in the app and for haptics. No network access, no ads, no analytics, no account.
 
 Open source
 The language engine is based on the open-source Araso (MIT) and the code is on GitHub (studioCIZMO/KoEnJa). The same engine powers KoEnJa for Mac and Windows and the Android keyboard, so you type the same way on every device.
