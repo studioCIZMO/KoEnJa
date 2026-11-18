@@ -100,8 +100,8 @@ gh release create v0.3.13 -R studioCIZMO/KoEnJa --target main --title "KoEnJa 0.
 
 1. Codex 리뷰 1회 → 지적 수정 → 테스트 재실행.
 2. ~~Mac 0.3.13 공증 빌드 → Android 0.2.6 AAB/APK → CI Setup 0.3.2 → GitHub v0.3.13 릴리스~~ 11/18 완료. 빌드 뒤 `sh Mac/lsclean.sh` 잊지 말 것.
-3. iOS 1.0.6 아카이브·업로드 → ASC 버전·whatsNew·심사 제출(사용자 확인).
-4. Android AAB Play 업로드(사용자) + Play 노트(store-notes.md ko/ja/en).
+3. iOS 1.0.6 (16) 아카이브·ASC 업로드 11/18 완료 → ASC에서 1.0.6 버전 만들기, whatsNew(store-notes.md), 메타데이터를 docs/store/listing-appstore.md로 갱신(ko/ja/en: 이름·부제·키워드·프로모션·설명), 스크린샷 docs/store/out/{ko,ja,en} + pad, 심사 제출(사용자가 승인함, 11/18).
+4. ~~Android AAB Play 업로드 + Play 노트~~ 11/18 제출 완료: 프로덕션 8 (0.2.6)과 스토어 등록정보 개정(ko 문안 개정, ja/en 등록정보 신설, 스크린샷 7장 세트 ×3 언어)을 함께 심사에 보냄(관리형 게시). 문안 원본: docs/store/listing-play.md, App Store용 docs/store/listing-appstore.md.
 5. ~~README 3종, cizmo-renewal 버전 줄~~ 11/18 완료(iOS 1.0.6·Play 0.2.6이 나오면 다시).
 6. **오타 고치기(SlipGuesser) 모바일 이식 — 사용자 승인(11/18)**: 역할 분담은 "스페이스 자동 교정은 기존 `Suggestions`, 전환 키 길게 누름 후보는 SeamtypeCore `SlipGuesser`". iOS 먼저: 한あA 길게 누름(0.5 s) → `Key.guess`, `session.guesses`를 후보 바에 표시(바뀐 글자 강조)·탭으로 `pickGuess`, `fixSlips` 설정 토글(기본 꺼짐) + ko/ja/en 문구, `InputSession` 생성 시 `fixSlips` 전달. 그다음 Android: `SlipGuesser` Kotlin 이식(약 400줄 + `KoreanModel.vocabularyCount`/`knowsSyllableIncludingRare`, SlipTests 이식), Windows C++도 동일, 골든에 오타 케이스 추가, 앱의 길게 누름·후보 바·설정.
 7. 보류: GitHub 릴리스에 남아 있는 옛 APK(0.2.4) 교체 여부; Threads 홍보 글은 사용자가 올림; Mac 입력기 회색 현상 재발 추적.
