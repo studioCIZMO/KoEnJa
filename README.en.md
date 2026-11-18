@@ -92,8 +92,8 @@ Uninstall from the settings window's About tab or with `… | sh -s -- --uninsta
 
 ### Windows
 
-1. Download `KoEnJa-Setup-0.3.1.exe` from [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) and run it.
-2. 0.3.1 isn't code-signed yet, so SmartScreen shows **Windows protected your PC**. Click **More info** →
+1. Download `KoEnJa-Setup-0.3.2.exe` from [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) and run it.
+2. 0.3.2 isn't code-signed yet, so SmartScreen shows **Windows protected your PC**. Click **More info** →
    **Run anyway**, then **Yes** at the administrator prompt.
 3. Leave **Open KoEnJa settings** checked on the last page and finish: pick your keyboard, your languages and the
    switch key. You can change them later in **KoEnJa 설정** in the Start menu.
@@ -232,7 +232,7 @@ The MSVC golden test runs in [CI](.github/workflows/windows.yml) on every push t
 
 ## Known limitations
 
-- Windows 0.3.1 is not code-signed ([Code signing policy](#code-signing-policy)). It's x64 only; ARM64 Windows isn't supported.
+- Windows 0.3.2 is not code-signed ([Code signing policy](#code-signing-policy)). It's x64 only; ARM64 Windows isn't supported.
 - Keys that are words in two languages (`go`/해, `so`/내) can come out wrong; fix them with the switch key.
 - An English word with a Japanese particle can be read as Japanese (`sitede` → `してで`, `tokenwo` → `とけんを`).
 - The top kanji candidate matches the original in about 4 of 5 phrases and 2 of 3 sentences (the iOS path); pick the others from the list.
@@ -296,7 +296,7 @@ We are grateful to Araso's author for publishing the engine under the MIT Licens
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.3.1 is unsigned; signing starts once SignPath Foundation accepts the project.)
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.3.2 is unsigned; signing starts once SignPath Foundation accepts the project.)
 
 - Committers and reviewers: [studioCIZMO](https://github.com/studioCIZMO)
 - Approvers: [studioCIZMO](https://github.com/studioCIZMO)

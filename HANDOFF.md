@@ -7,10 +7,10 @@
 
 | 플랫폼 | 공개 버전 | 이 커밋의 버전 | 상태 |
 |---|---|---|---|
-| Mac 입력기 | 0.3.12 (GitHub v0.3.12, Latest) | **0.3.13 (16)** | 빌드·공증·릴리스 **아직 안 함** |
+| Mac 입력기 | 0.3.13 (GitHub v0.3.13, Latest, 11/18) | 0.3.13 (16) | 공개됨; 이 Mac에는 /Library/Input Methods에 설치 |
 | iOS 키보드 | 1.0.5 (App Store) | **1.0.6 (16)** | 아카이브·업로드 **아직 안 함** |
-| Android 키보드 | 0.2.5 (Play), APK 0.2.5 | **0.2.6 (8)** | bundleRelease **아직 안 함** |
-| Windows 입력기 | 0.3.1 (GitHub) | **0.3.2** | push 시 CI가 Setup exe 빌드 |
+| Android 키보드 | 0.2.5 (Play), APK 0.2.6 (GitHub v0.3.13) | 0.2.6 (8) | AAB 빌드됨(`Android/app/build/outputs/bundle/release/app-release.aab`), **Play 업로드는 사용자** |
+| Windows 입력기 | 0.3.2 (GitHub v0.3.13, 11/18) | 0.3.2 | CI 산출물을 릴리스에 올림 |
 
 이 커밋 = **Araso main b19e054 동기화** (0.6.1 → main 3커밋, 2026-11-14):
 - 엔진(Swift): 전환 키로 고른 읽기를 그 글자들만 즉시 학습(`switchedKeys`/`switchLearned`/`learnSwitchBeforeMore`), ↑/↓는 커서가 단어 끝일 때만(`listApplies`), 전각 스페이스 뒤 `noteRun`, `rememberedLanguage(keys, app:)`, `vimSignal`.
@@ -99,12 +99,13 @@ gh release create v0.3.13 -R studioCIZMO/KoEnJa --target main --title "KoEnJa 0.
 ## 5. 남은 일 (우선순위순)
 
 1. Codex 리뷰 1회 → 지적 수정 → 테스트 재실행.
-2. Mac 0.3.13 공증 빌드 → Android 0.2.6 AAB/APK → push → CI Setup 0.3.2 받기 → GitHub v0.3.13 릴리스(사용자 확인 후 공개).
+2. ~~Mac 0.3.13 공증 빌드 → Android 0.2.6 AAB/APK → CI Setup 0.3.2 → GitHub v0.3.13 릴리스~~ 11/18 완료. 빌드 뒤 `sh Mac/lsclean.sh` 잊지 말 것.
 3. iOS 1.0.6 아카이브·업로드 → ASC 버전·whatsNew·심사 제출(사용자 확인).
 4. Android AAB Play 업로드(사용자) + Play 노트(store-notes.md ko/ja/en).
-5. README 3종, cizmo-renewal 버전 줄.
-6. 보류: GitHub 릴리스에 남아 있는 옛 APK(0.2.4) 교체 여부; Threads 홍보 글은 사용자가 올림; Mac 입력기 회색 현상 재발 추적.
-7. 열린 품질 이슈: iOS 시뮬레이터 UI TypingTests 불안정(실기기/TestFlight로 판단), Mozc 변환 순위(kinou→機能 등), 포트에 없는 기능(fixing, readings 화살표, 앱별 기억). 경쟁앱 Kej 분석에서 가져올 것: 키보드 높이·위치, 키 간격, 근접키 보정, Space 스와이프 후보 선택, 설정 백업.
+5. ~~README 3종, cizmo-renewal 버전 줄~~ 11/18 완료(iOS 1.0.6·Play 0.2.6이 나오면 다시).
+6. **오타 고치기(SlipGuesser) 모바일 이식 — 사용자 승인(11/18)**: 역할 분담은 "스페이스 자동 교정은 기존 `Suggestions`, 전환 키 길게 누름 후보는 SeamtypeCore `SlipGuesser`". iOS 먼저: 한あA 길게 누름(0.5 s) → `Key.guess`, `session.guesses`를 후보 바에 표시(바뀐 글자 강조)·탭으로 `pickGuess`, `fixSlips` 설정 토글(기본 꺼짐) + ko/ja/en 문구, `InputSession` 생성 시 `fixSlips` 전달. 그다음 Android: `SlipGuesser` Kotlin 이식(약 400줄 + `KoreanModel.vocabularyCount`/`knowsSyllableIncludingRare`, SlipTests 이식), Windows C++도 동일, 골든에 오타 케이스 추가, 앱의 길게 누름·후보 바·설정.
+7. 보류: GitHub 릴리스에 남아 있는 옛 APK(0.2.4) 교체 여부; Threads 홍보 글은 사용자가 올림; Mac 입력기 회색 현상 재발 추적.
+8. 열린 품질 이슈: iOS 시뮬레이터 UI TypingTests 불안정(실기기/TestFlight로 판단), Mozc 변환 순위(kinou→機能 등), 포트에 없는 기능(fixing, readings 화살표, 앱별 기억). 경쟁앱 Kej 분석에서 가져올 것: 키보드 높이·위치, 키 간격, 근접키 보정, Space 스와이프 후보 선택, 설정 백업.
 
 ## 6. Codex 리뷰 프롬프트 요지 (이 커밋용)
 
