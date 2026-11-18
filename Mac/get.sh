@@ -45,7 +45,9 @@ if [ ! -d "$app" ]; then
     sudo sh -c 'mkdir -p "$1" && mkdir "$2" && chown "$3" "$2"' sh "$dest" "$app" "$(id -un)"
   fi
 fi
-[ -w "$app" ] || { echo "$app isn't yours to update: remove it as an administrator and run this again." >&2; exit 1; }
+# macOS lets only the owner, with App Management for the terminal, change an app in /Library.
+[ -w "$app" ] && mkdir "$app/.probe.$$" 2>/dev/null && rmdir "$app/.probe.$$" ||
+  { echo "$app can't be changed from here. If it is yours, allow this terminal under System Settings → Privacy & Security → App Management and run this again; if not, remove it as an administrator first." >&2; exit 1; }
 
 # One install at a time (the input method and the settings window can both start one).
 lock="$app/.install"
