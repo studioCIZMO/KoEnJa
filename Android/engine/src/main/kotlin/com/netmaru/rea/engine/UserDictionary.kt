@@ -136,6 +136,9 @@ class DictionaryEngine(
     /** Language entries that win: keys → language. */
     val learned: Map<String, Language> @Synchronized get() = store.entries.filter { it.wins }.associate { it.keys to it.language }
 
+    /** The entry for keys, weak ones too (tests: Swift's `UserDictionary.languageEntry(for:)`). */
+    internal fun entry(keys: String): UserDictionary.Entry? = synchronized(this) { byKeys[keys] }
+
     override fun decide(keys: String, context: DecisionContext): Decision {
         val entry = synchronized(this) { byKeys[keys] }
         if (entry != null && entry.wins) {

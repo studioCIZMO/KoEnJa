@@ -470,6 +470,27 @@ int main(int argc, char** argv) {
         CHECK(type(u"mp3fmf utf-8dmf mp3fmf-1 ") == u"mp3를 utf-8을 mp3fmf-1 ");
     }
 
+    { // so switched to Japanese (そ), then me: the pick was learned for so when m came. Space converts,
+      // Esc puts the kana back as the forced word, Enter sends it in: some isn't learned on top.
+        Test t(false);
+        t.type(u"so");
+        for (int n = 0; n < 4 && t.field.value != u"そ"; n++) t.key(CYCLE);
+        CHECK(t.field.value == u"そ");
+        t.type(u"me");
+        auto so = t.session->engine->entry(u"so");
+        CHECK(so && so->language == Language::JAPANESE);
+        t.type(u" ");
+        CHECK(t.session->conversion.has_value());
+        t.key(ESCAPE);
+        CHECK(!t.session->conversion.has_value());
+        t.key(ENTER);
+        CHECK(t.field.value == u"そめ");
+        CHECK(!t.session->engine->entry(u"some"));
+        auto soAfter = t.session->engine->entry(u"so");
+        CHECK(soAfter && soAfter->language == Language::JAPANESE);
+    }
+
+
     printf("session: %d/%d\n", checks - failures, checks);
     return failures ? 1 : 0;
 }

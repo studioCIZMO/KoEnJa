@@ -812,7 +812,7 @@ void InputSession::startConversion(TextClient& client) {
     forced.reset();
     forcedByUser = false;
     switchedKeys.reset();
-    switchLearned = false;
+    // switchLearned stays, as in Swift: a conversion cancelled back to the forced word must not learn it again.
     pinned.reset();
     syllableStart.reset();
     enginePreview.reset();
@@ -836,7 +836,7 @@ void InputSession::showKanaForms(bool katakanaFirst, std::optional<std::u16strin
     forced.reset();
     forcedByUser = false;
     switchedKeys.reset();
-    switchLearned = false;
+    // switchLearned stays, as in Swift: a conversion cancelled back to the forced word must not learn it again.
     pinned.reset();
     syllableStart.reset();
     enginePreview.reset();

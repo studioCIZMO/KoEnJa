@@ -47,6 +47,25 @@ class JapaneseSessionTest {
 
     private fun clear() { field.text = ""; field.marked = TextRange(TextRange.NOT_FOUND, 0) }
 
+    /** so switched to Japanese (そ), then me: the pick was learned for so when m came. Space converts,
+     *  Esc puts the kana back as the forced word, Enter sends it in: some isn't learned on top. */
+    @Test
+    fun aConversionCancelledBackToTheSwitchedWordDoesNotLearnIt() {
+        type("so")
+        for (n in 0 until 4) { if (field.text == "そ") break; session.handle(InputSession.Key.Cycle, field) }
+        assertEquals("そ", field.text)
+        type("me")
+        assertEquals(Language.JAPANESE, engine.entry("so")?.language)
+        type(" ")
+        assertNotNull(session.conversion)
+        session.handle(InputSession.Key.Escape, field)
+        assertNull(session.conversion)
+        session.handle(InputSession.Key.Enter, field)
+        assertEquals("そめ", field.text)
+        assertNull(engine.entry("some"))
+        assertEquals(Language.JAPANESE, engine.entry("so")?.language)
+    }
+
     @Test
     fun aNumberIsANumber() {
         assertEquals("a number", trilingual.decide("2026", DecisionContext()).explanation)

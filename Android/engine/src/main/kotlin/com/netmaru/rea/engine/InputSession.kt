@@ -875,7 +875,7 @@ class InputSession(
         forced = null
         forcedByUser = false
         switchedKeys = null
-        switchLearned = false
+        // switchLearned stays, as in Swift: a conversion cancelled back to the forced word must not learn it again.
         pinned = null
         syllableStart = null
         enginePreview = null
@@ -900,7 +900,7 @@ class InputSession(
         forced = null
         forcedByUser = false
         switchedKeys = null
-        switchLearned = false
+        // switchLearned stays, as in Swift: a conversion cancelled back to the forced word must not learn it again.
         pinned = null
         syllableStart = null
         enginePreview = null

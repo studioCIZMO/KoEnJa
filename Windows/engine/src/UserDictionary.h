@@ -108,6 +108,8 @@ public:
 
     /** Language entries that win: keys → language. */
     std::unordered_map<std::u16string, Language> learned() const;
+    /** The entry for keys, weak ones too (tests: Swift's `UserDictionary.languageEntry(for:)`). */
+    const UserDictionary::Entry* entry(const std::u16string& keys) const;
 
     Decision decide(const std::u16string& keys, const DecisionContext& context) override;
 
@@ -141,7 +143,6 @@ private:
     std::unordered_map<std::u16string, UserDictionary::Entry> byKeys;
     std::optional<std::filesystem::path> storeFile;
 
-    const UserDictionary::Entry* entry(const std::u16string& keys) const;
     bool readsAsKoreanWord(const std::u16string& keys) const;
     void persist();
     static std::optional<std::u16string> koreanParticle(const std::u16string& tail);

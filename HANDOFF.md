@@ -9,8 +9,8 @@
 |---|---|---|---|
 | Mac 입력기 | 0.3.13 (GitHub v0.3.13, Latest, 11/18) | 0.3.13 (16) | 공개됨; 이 Mac에는 /Library/Input Methods에 설치 |
 | iOS 키보드 | 1.0.5 (App Store) | **1.0.6 (16)** | 아카이브·업로드 **아직 안 함** |
-| Android 키보드 | 0.2.5 (Play), APK 0.2.6 (GitHub v0.3.13) | 0.2.6 (8) | AAB 빌드됨(`Android/app/build/outputs/bundle/release/app-release.aab`), **Play 업로드는 사용자** |
-| Windows 입력기 | 0.3.2 (GitHub v0.3.13, 11/18) | 0.3.2 | CI 산출물을 릴리스에 올림 |
+| Android 키보드 | 0.2.5 (Play), 0.2.6 Play 심사 중(11/18) → 0.2.7로 교체 예정, APK 0.2.6 (GitHub v0.3.13) | **0.2.7 (9)** | 11/18 Codex 리뷰 지적(변환 취소 후 전체 단어 학습) 수정판; AAB/APK 빌드 후 Play 교체 + GitHub 에셋 추가 |
+| Windows 입력기 | 0.3.2 (GitHub v0.3.13, 11/18) | **0.3.3** | 같은 수정판; push 후 CI Setup 0.3.3을 v0.3.13 에셋에 추가 |
 
 이 커밋 = **Araso main b19e054 동기화** (0.6.1 → main 3커밋, 2026-11-14):
 - 엔진(Swift): 전환 키로 고른 읽기를 그 글자들만 즉시 학습(`switchedKeys`/`switchLearned`/`learnSwitchBeforeMore`), ↑/↓는 커서가 단어 끝일 때만(`listApplies`), 전각 스페이스 뒤 `noteRun`, `rememberedLanguage(keys, app:)`, `vimSignal`.
@@ -98,7 +98,7 @@ gh release create v0.3.13 -R studioCIZMO/KoEnJa --target main --title "KoEnJa 0.
 
 ## 5. 남은 일 (우선순위순)
 
-1. Codex 리뷰 1회 → 지적 수정 → 테스트 재실행.
+1. ~~Codex 리뷰 1회 → 지적 수정 → 테스트 재실행~~ 11/18 완료: 지적 1건(Kotlin/C++ `startConversion`이 `switchLearned`를 지워 변환 취소 후 전체 단어를 학습) 수정, 세 포트에 회귀 테스트(ConversionAfterSwitchTests / JapaneseSessionTest / session_test) 추가. Swift 560, Kotlin 전부, C++ 171/171, 골든 1950 통과.
 2. ~~Mac 0.3.13 공증 빌드 → Android 0.2.6 AAB/APK → CI Setup 0.3.2 → GitHub v0.3.13 릴리스~~ 11/18 완료. 빌드 뒤 `sh Mac/lsclean.sh` 잊지 말 것.
 3. iOS 1.0.6 (16) 아카이브·ASC 업로드 11/18 완료 → ASC에서 1.0.6 버전 만들기, whatsNew(store-notes.md), 메타데이터를 docs/store/listing-appstore.md로 갱신(ko/ja/en: 이름·부제·키워드·프로모션·설명), 스크린샷 docs/store/out/{ko,ja,en} + pad, 심사 제출(사용자가 승인함, 11/18).
 4. ~~Android AAB Play 업로드 + Play 노트~~ 11/18 제출 완료: 프로덕션 8 (0.2.6)과 스토어 등록정보 개정(ko 문안 개정, ja/en 등록정보 신설, 스크린샷 7장 세트 ×3 언어)을 함께 심사에 보냄(관리형 게시). 문안 원본: docs/store/listing-play.md, App Store용 docs/store/listing-appstore.md.
