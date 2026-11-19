@@ -43,6 +43,11 @@ kinouemailwookutta⏎                                       →  きのうemail�
   <a href="https://play.google.com/store/apps/details?id=com.cizmo.koenja"><img src="https://img.shields.io/badge/Google%20Play%20%28Android%29-01875f?style=for-the-badge&logo=googleplay&logoColor=white" alt="Google Play (Android)"></a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="docs/qr-download.svg" width="120" alt="다운로드 페이지 QR"></a><br>
+  <sub>휴대폰으로 스캔하면 다운로드 페이지가 열립니다</sub>
+</p>
+
 ## 한눈에 보기
 
 - **단어마다 알아서**: 영어, 한국어, 일본어 가운데 맞는 언어를 단어마다 고릅니다. 문장 중간에 언어가 바뀌어도 됩니다.

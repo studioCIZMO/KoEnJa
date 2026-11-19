@@ -43,6 +43,11 @@ kinouemailwookutta⏎                                       →  きのうemail�
   <a href="https://play.google.com/store/apps/details?id=com.cizmo.koenja"><img src="https://img.shields.io/badge/Google%20Play%20%28Android%29-01875f?style=for-the-badge&logo=googleplay&logoColor=white" alt="Google Play (Android)"></a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="docs/qr-download.svg" width="120" alt="QR code to the download page"></a><br>
+  <sub>Scan with your phone to open the download page</sub>
+</p>
+
 ## At a glance
 
 - **Word by word**: it picks English, Korean or Japanese for each word, also when the language changes mid-sentence.

@@ -43,6 +43,11 @@ kinouemailwookutta⏎                                       →  きのうemail�
   <a href="https://play.google.com/store/apps/details?id=com.cizmo.koenja"><img src="https://img.shields.io/badge/Google%20Play%20%28Android%29-01875f?style=for-the-badge&logo=googleplay&logoColor=white" alt="Google Play (Android)"></a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/studioCIZMO/KoEnJa/releases/latest"><img src="docs/qr-download.svg" width="120" alt="ダウンロードページのQRコード"></a><br>
+  <sub>スマートフォンで読み取るとダウンロードページが開きます</sub>
+</p>
+
 ## ひと目でわかる KoEnJa
 
 - **単語ごとに自動で**：英語・韓国語・日本語のうち合う言語を単語ごとに選びます。文の途中で言語が変わっても大丈夫です。
