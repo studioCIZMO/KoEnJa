@@ -128,8 +128,15 @@ final class KeyboardViewController: UIInputViewController {
         candidates.addSubview(candidateRow)
         candidateRow.translatesAutoresizingMaskIntoConstraints = false
 
+        #if NOTYPE
+        // NoType (voice dictation) shares this keyboard: its mic and translate keys sit at the bar's end.
+        let bar = UIStackView(arrangedSubviews: [candidates, VoiceBar(controller: self)])
+        bar.spacing = 6
+        #else
+        let bar = candidates
+        #endif
         // The third row's letters line up under the others; shift and delete take what's left.
-        var views: [UIView] = [candidates, makeRow(rows[0]), makeRow(rows[1])]
+        var views: [UIView] = [bar, makeRow(rows[0]), makeRow(rows[1])]
         let side = shape.sideKeys
         let thirdRow = UIStackView(arrangedSubviews: [makeKey("⇧", units: side), makeRow(rows[2]), makeKey("⌫", units: side)])
         thirdRow.distribution = .equalSpacing
@@ -141,7 +148,7 @@ final class KeyboardViewController: UIInputViewController {
         stack.axis = .vertical
         stack.alignment = .center
         stack.spacing = rowGap
-        stack.setCustomSpacing(0, after: candidates)
+        stack.setCustomSpacing(0, after: bar)
         stack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(stack)
         NSLayoutConstraint.activate(keyConstraints + [
@@ -149,8 +156,8 @@ final class KeyboardViewController: UIInputViewController {
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             stack.topAnchor.constraint(equalTo: view.topAnchor),
             stack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -shape.bottom),
-            candidates.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * Self.scale * 2),
-            candidates.heightAnchor.constraint(equalToConstant: Self.barHeight * Self.scale),
+            bar.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * Self.scale * 2),
+            bar.heightAnchor.constraint(equalToConstant: Self.barHeight * Self.scale),
             thirdRow.widthAnchor.constraint(equalTo: view.widthAnchor, constant: -Self.margin * Self.scale * 2),
             candidateRow.leadingAnchor.constraint(equalTo: candidates.contentLayoutGuide.leadingAnchor),
             candidateRow.trailingAnchor.constraint(equalTo: candidates.contentLayoutGuide.trailingAnchor),
@@ -238,6 +245,17 @@ final class KeyboardViewController: UIInputViewController {
         lastInput = nil
         refreshCandidates()
     }
+
+    #if NOTYPE
+    /// NoType: a finished dictation goes in after the word being composed, which is committed first.
+    func insertDictation(_ text: String) {
+        session.commitForNewContext(client: client)
+        textDocumentProxy.insertText(text)
+        forgetTouches()
+        lastInput = nil
+        refreshCandidates()
+    }
+    #endif
 
     override func viewWillDisappear(_ animated: Bool) {
         repeating?.cancel()
