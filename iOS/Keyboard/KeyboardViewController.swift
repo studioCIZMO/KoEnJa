@@ -503,13 +503,15 @@ final class KeyboardViewController: UIInputViewController {
     /// A letter swiped up becomes `symbol`: Delete takes it back; where Delete took more (a kana:
     /// か for its a), the keys before it are typed again first.
     private func replaceLastKey(before: String, symbol: Character) {
+        (lastLetter, deletedLetter) = (nil, nil) // the letter became a symbol: no retype to learn from
         send(.delete)
         let now = session.keys
         if before.hasPrefix(now) { for c in before.dropFirst(now.count) { send(c.isLetter ? .letter(c) : .printable(c)) } }
         send(.printable(symbol))
     }
 
-    /// English letter, with its 2-set jamo below: "q / ㅂ", shifted "Q / ㅃ"; in 123 mode the symbol.
+    /// English letter with its 2-set jamo below, both the same size and weight: "q / ㅂ", shifted
+    /// "Q / ㅃ"; in 123 mode the symbol. 17 pt twice is what a 42 pt key holds.
     private func label(_ button: UIButton, _ letter: Character) {
         button.viewWithTag(Self.hintTag)?.isHidden = numbers || Self.preferences?.swipeSymbols == false
         if numbers {
@@ -518,16 +520,15 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
         let jamo = Self.jamo[letter].map { shifted ? ($0.1 ?? $0.0) : $0.0 } ?? ""
-        button.configuration?.attributedTitle = AttributedString(shifted ? letter.uppercased() : String(letter),
-                                                                 attributes: .init([.font: Self.font(20)]))
-        button.configuration?.attributedSubtitle = AttributedString(jamo, attributes: .init([
-            .font: Self.font(11), .foregroundColor: UIColor.secondaryLabel]))
+        let font = UIFont.systemFont(ofSize: 17 * Self.scale, weight: .semibold)
+        button.configuration?.attributedTitle = AttributedString(shifted ? letter.uppercased() : String(letter), attributes: .init([.font: font]))
+        button.configuration?.attributedSubtitle = AttributedString(jamo, attributes: .init([.font: font]))
         button.configuration?.titlePadding = 0
     }
 
     // MARK: - Keys
 
-    private func tap(_ title: String, touch: CGPoint? = nil) {
+    func tap(_ title: String, touch: CGPoint? = nil) {
         let key: InputSession.Key
         switch title {
         case "⇧":
@@ -566,8 +567,46 @@ final class KeyboardViewController: UIInputViewController {
             key = c.isLetter ? .letter(c) : .printable(c)
             if shifted { tap("⇧") } // one-shot shift
         }
+        let before = session.keys
         send(key, touch: touch)
+        learnFromBackspace(key, touch: touch, keysBefore: before)
     }
+
+    /// The letter last typed, where it was touched and the keys before it; after ⌫ took it back,
+    /// the same for the letter it may be retyped as.
+    private var lastLetter: (letter: Character, touch: CGPoint, keysBefore: String)?
+    private var deletedLetter: (letter: Character, touch: CGPoint, keysBefore: String)?
+
+    /// A letter taken back with ⌫ and retyped as a neighbor key (ㅏ, ⌫, ㅣ) is a fix like a picked
+    /// nearby-key suggestion: they meant the neighbor where they first touched, a sample for it,
+    /// when that touch lay at least a quarter of the way toward the neighbor (a change of mind,
+    /// cat → car, touches t in the middle). Most people fix typos this way and never touch the bar.
+    private func learnFromBackspace(_ key: InputSession.Key, touch: CGPoint?, keysBefore: String) {
+        defer { if case .delete = key {} else { deletedLetter = nil } }
+        switch key {
+        case .letter(let c):
+            let typed = Character(c.lowercased())
+            if let d = deletedLetter, adaptToTouch, d.letter != typed, d.keysBefore == keysBefore,
+               let center = keyCenter(typed), let wrong = keyCenter(d.letter),
+               case let (vx, vy) = (center.x - wrong.x, center.y - wrong.y), hypot(vx, vy) < Self.neighborReach * Self.scale,
+               ((d.touch.x - wrong.x) * vx + (d.touch.y - wrong.y) * vy) / (vx * vx + vy * vy) >= 0.25 {
+                calibration.add(typed, dx: d.touch.x - center.x, dy: d.touch.y - center.y)
+                TraceLog.write("LEARN-BS \(d.letter)→\(typed) \(d.touch.x - center.x) \(d.touch.y - center.y)")
+                updateOffsets()
+            }
+            lastLetter = touch.map { (typed, $0, keysBefore) }
+        case .delete:
+            // ⌫ took back exactly the last letter: a retype of it may follow
+            deletedLetter = lastLetter.flatMap { $0.keysBefore == session.keys ? $0 : nil }
+            lastLetter = nil
+        default:
+            lastLetter = nil
+        }
+    }
+
+    /// How far apart (centers, pt at scale 1) two keys can be and still be a slip of the thumb:
+    /// one key pitch sideways or one row down with half a pitch sideways (k→m, l→m), not across.
+    static let neighborReach: CGFloat = 60
 
     /// A key to the session (or the app), the touches following the session's keys.
     private func send(_ key: InputSession.Key, touch: CGPoint? = nil) {
@@ -697,7 +736,7 @@ final class KeyboardViewController: UIInputViewController {
     private var touches: [CGPoint?] = []
     /// The keys `touches` are for (the session's keys when they were last matched).
     private var touchKeys = ""
-    private var calibration = TouchCalibration()
+    private(set) var calibration = TouchCalibration()
     private var sensitive = false
     private static var shortcuts: [String: String] = [:]
     /// How far toward a neighbor key (0 the typed key's center, 1 the neighbor's) a touch must lie
@@ -727,7 +766,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     /// The word ended (committed, replaced, the cursor moved): its touches go with it.
-    private func forgetTouches() { touches = []; touchKeys = "" }
+    private func forgetTouches() { touches = []; touchKeys = ""; lastLetter = nil; deletedLetter = nil }
 
     private func keyCenter(_ letter: Character) -> CGPoint? {
         guard let keyStack, let key = letterKeys.first(where: { $0.letter == letter })?.button else { return nil }

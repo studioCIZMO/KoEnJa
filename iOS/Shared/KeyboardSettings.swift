@@ -77,6 +77,9 @@ final class TouchCalibration {
         return CGVector(dx: clamp(s.x / s.n, size.width), dy: clamp(s.y / s.n, size.height))
     }
 
+    /// How many samples `key` has (for tests).
+    func samples(_ key: Character) -> Int { Int(samples[key]?.n ?? 0) }
+
     static func clear() { LanguagePreferences.defaults?.removeObject(forKey: key) }
 }
 

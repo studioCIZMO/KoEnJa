@@ -285,6 +285,41 @@ final class KeyboardTests: XCTestCase {
 
     /// iOS makes a new controller each time the keyboard comes up and may keep the old ones:
     /// off screen, a controller drops its keys, and the engine is shared.
+    /// ㅏ typed at the bottom of k, taken back with ⌫ and retyped as m (ㅡ): that first touch is a
+    /// sample for m. A letter retyped as a key across the board, or after more was typed, is not.
+    func testBackspaceRetypeTeachesTouch() {
+        TouchCalibration.clear()
+        let keyboard = KeyboardViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 237))
+        window.rootViewController = keyboard
+        window.makeKeyAndVisible()
+        keyboard.view.layoutIfNeeded()
+        let low = CGPoint(x: 300, y: 150)
+        keyboard.tap("k", touch: low)
+        keyboard.tap("⌫")
+        keyboard.tap("m", touch: CGPoint(x: 300, y: 190))
+        XCTAssertEqual(keyboard.calibration.samples("m"), 1, "k, ⌫, m: a sample for m where k was touched")
+        keyboard.tap("⌫")
+        keyboard.tap("k", touch: low)
+        keyboard.tap("⌫")
+        keyboard.tap("q", touch: CGPoint(x: 20, y: 60))
+        XCTAssertEqual(keyboard.calibration.samples("q"), 0, "q is not next to k")
+        keyboard.tap("⌫")
+        keyboard.tap("k", touch: CGPoint(x: 300, y: 128)) // k's middle (home row): a change of mind, not a slip
+        keyboard.tap("⌫")
+        keyboard.tap("l", touch: CGPoint(x: 340, y: 128))
+        XCTAssertEqual(keyboard.calibration.samples("l"), 0, "k touched in its middle then l: not a slip toward l")
+        keyboard.tap("⌫")
+        keyboard.tap("k", touch: low)
+        keyboard.tap("l", touch: low)
+        keyboard.tap("⌫")
+        keyboard.tap("⌫")
+        keyboard.tap("m", touch: CGPoint(x: 300, y: 190))
+        XCTAssertEqual(keyboard.calibration.samples("m"), 1, "two keys taken back: not a one-key slip")
+        window.rootViewController = nil
+        TouchCalibration.clear()
+    }
+
     func testControllerDropsKeysOffScreen() {
         let start = footprintMB()
         weak var button: UIView?
