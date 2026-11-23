@@ -61,4 +61,55 @@ final class HitAreas: XCTestCase {
         }
         clear()
     }
+
+    /// Does the system keyboard count the space beside its edge keys (the half-key margins next to
+    /// a and l, the gaps beside shift and delete, the row gaps) as those keys? The Korean 2-set
+    /// keyboard has the same geometry (ㅁ…ㅣ on the home row, ㅋ…ㅡ below), so the English one answers
+    /// for ㅏ ㅣ ㅡ. Prints HIT EDGE lines; skipped unless HIT_AREAS=1.
+    func testSystemKeyboardEdges() throws {
+        guard ProcessInfo.processInfo.environment["HIT_AREAS"] == "1" else { throw XCTSkip("set TEST_RUNNER_HIT_AREAS=1") }
+        let app = XCUIApplication()
+        app.launchArguments = ["-focusTry"]
+        app.launch()
+        let field = app.textFields["tryField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        if !app.keyboards.firstMatch.waitForExistence(timeout: 3) { field.tap(); sleep(2) } // -focusTry didn't take
+        let keys = app.keyboards.keys
+        func key(_ k: String) -> XCUIElement { keys[k].exists ? keys[k] : keys[k.uppercased()] }
+        let next = app.buttons.matching(NSPredicate(format: "label IN %@", ["다음 키보드", "次のキーボード", "Next keyboard"])).firstMatch
+        for _ in 0..<6 where !key("q").exists && next.exists {
+            next.tap()
+            sleep(2)
+        }
+        print("HIT keys \(keys.allElementsBoundByIndex.prefix(12).map(\.label))")
+        XCTAssertTrue(key("q").exists, "no English keyboard")
+        let delete = keys.matching(NSPredicate(format: "label IN %@", ["delete", "삭제", "削除"])).firstMatch
+        var text: String { let v = field.value as? String ?? ""; return v == field.placeholderValue ? "" : v }
+        func clear() { for _ in 0..<text.count { delete.tap() } }
+        func typed(_ p: CGPoint) -> String {
+            clear()
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p.x, dy: p.y)).tap()
+            return text.lowercased()
+        }
+        let width = app.frame.width
+        let (a, l, m, q, z) = (key("a").frame, key("l").frame, key("m").frame, key("q").frame, key("z").frame)
+        let shift = app.keyboards.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'shift'")).firstMatch.frame
+        print("HIT EDGE frames a=\(a) l=\(l) m=\(m) q=\(q) shift=\(shift) delete=\(delete.frame) width=\(width)")
+        let probes: [(String, CGPoint)] = [
+            ("left margin, home row (2pt from the edge)", CGPoint(x: 2, y: a.midY)),
+            ("left margin, home row (a.minX - 8)", CGPoint(x: a.minX - 8, y: a.midY)),
+            ("right margin, home row (width - 2)", CGPoint(x: width - 2, y: l.midY)),
+            ("right margin, home row (l.maxX + 8)", CGPoint(x: l.maxX + 8, y: l.midY)),
+            ("right margin, top row (width - 2)", CGPoint(x: width - 2, y: q.midY)),
+            ("gap m|delete middle", CGPoint(x: (m.maxX + delete.frame.minX) / 2, y: m.midY)),
+            ("gap z|shift middle", CGPoint(x: (shift.maxX + z.minX) / 2, y: z.midY)),
+            ("row gap a/z middle", CGPoint(x: a.midX, y: (a.maxY + z.minY) / 2)),
+            ("row gap l/m middle", CGPoint(x: l.midX, y: (l.maxY + m.minY) / 2)),
+            ("above top row (q.minY - 3)", CGPoint(x: q.midX, y: q.minY - 3)),
+        ]
+        for (name, p) in probes {
+            print("HIT EDGE \(name) at \(p) → '\(typed(p))'")
+        }
+        clear()
+    }
 }

@@ -24,8 +24,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: KoEnJa
-        CFBundleShortVersionString: "1.0.6"
-        CFBundleVersion: "16"
+        CFBundleShortVersionString: "1.0.7"
+        CFBundleVersion: "17"
         UILaunchScreen: {}
         ITSAppUsesNonExemptEncryption: false
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
@@ -54,8 +54,8 @@ targets:
       path: Keyboard/Info.plist
       properties:
         CFBundleDisplayName: KoEnJa
-        CFBundleShortVersionString: "1.0.6"
-        CFBundleVersion: "16"
+        CFBundleShortVersionString: "1.0.7"
+        CFBundleVersion: "17"
         ITSAppUsesNonExemptEncryption: false
         NSExtension:
           NSExtensionPointIdentifier: com.apple.keyboard-service

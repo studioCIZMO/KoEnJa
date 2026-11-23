@@ -320,6 +320,49 @@ final class KeyboardTests: XCTestCase {
         TouchCalibration.clear()
     }
 
+    /// The space beside the end key of a row goes to that key: 2 pt from the right edge on the
+    /// home row is l (ㅣ), on the left a (ㅁ); on the top row p; a gap between rows still goes to
+    /// the nearer key; the candidate bar is not a key.
+    func testMarginsBelongToEndKeys() {
+        let keyboard = KeyboardViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 237))
+        window.rootViewController = keyboard
+        window.makeKeyAndVisible()
+        keyboard.view.layoutIfNeeded()
+        let stack = keyboard.view.allSubviews.compactMap { $0 as? KeyStack }.first!
+        func frame(_ label: String) -> CGRect { let b = stack.keys.first { $0.accessibilityLabel == label }!; return b.convert(b.bounds, to: stack) }
+        func hit(_ p: CGPoint) -> String? { (stack.hitTest(p, with: nil) as? UIButton)?.accessibilityLabel }
+        XCTAssertEqual(hit(CGPoint(x: 400, y: frame("l").midY)), "l", "right margin on the home row")
+        XCTAssertEqual(hit(CGPoint(x: 2, y: frame("a").midY)), "a", "left margin on the home row")
+        XCTAssertEqual(hit(CGPoint(x: 400, y: frame("p").midY)), "p")
+        XCTAssertEqual(hit(CGPoint(x: 400, y: frame("delete").midY)), "delete", "the side key, not m")
+        XCTAssertEqual(hit(CGPoint(x: frame("k").midX, y: (frame("k").maxY + frame("m").minY) / 2 - 2)), "k", "row gap, nearer k")
+        XCTAssertNil(hit(CGPoint(x: 200, y: 10)), "the candidate bar")
+        window.rootViewController = nil
+    }
+
+    func testPersonalFixes() {
+        let c = PersonalFixes.isCorrection
+        XCTAssertTrue(c("rlfk", "rlla"), "one key retyped")
+        XCTAssertTrue(c("gksmf", "gksmd"))
+        XCTAssertFalse(c("dkssud", "dkssudgktpdy"), "typing on is not a correction")
+        XCTAssertFalse(c("dkssudg", "dkssud"), "an overshoot taken back is not")
+        XCTAssertFalse(c("rlfk", "rl"), "too short")
+        XCTAssertFalse(c("rlfkrlfk", "dkssudgk"), "another word")
+        XCTAssertEqual(PersonalFixes.editDistance("kitten", "sitting"), 3)
+        PersonalFixes.save([])
+        XCTAssertNil(PersonalFixes.fix(for: "rlfk"))
+        XCTAssertEqual(PersonalFixes.record(wrong: "rlfk", right: "rlla"), 1)
+        XCTAssertEqual(PersonalFixes.record(wrong: "rlfk", right: "rlla"), 2)
+        XCTAssertNil(PersonalFixes.fix(for: "rlfk"), "twice could be a change of mind")
+        XCTAssertEqual(PersonalFixes.record(wrong: "rlfk", right: "rlla"), 3)
+        XCTAssertEqual(PersonalFixes.fix(for: "rlfk"), "rlla")
+        XCTAssertEqual(PersonalFixes.record(wrong: "rlfk", right: "rlfg"), 1, "retyped as something else: starts over")
+        XCTAssertNil(PersonalFixes.fix(for: "rlfk"))
+        PersonalFixes.remove(wrong: "rlfk")
+        XCTAssertTrue(PersonalFixes.load().isEmpty)
+    }
+
     func testControllerDropsKeysOffScreen() {
         let start = footprintMB()
         weak var button: UIView?

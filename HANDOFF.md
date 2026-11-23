@@ -8,7 +8,7 @@
 | 플랫폼 | 공개 버전 | 이 커밋의 버전 | 상태 |
 |---|---|---|---|
 | Mac 입력기 | 0.3.13 (GitHub v0.3.13, Latest, 11/18) | 0.3.13 (16) | 공개됨; 이 Mac에는 /Library/Input Methods에 설치 |
-| iOS 키보드 | 1.0.5 (App Store) | **1.0.6 (16)** | 아카이브·업로드 **아직 안 함** |
+| iOS 키보드 | 1.0.5 (App Store), 1.0.6 (16) 심사 중 | **1.0.7 (17)** | 11/23 TestFlight 업로드(키 라벨, ⌫ 교정 터치 학습) |
 | Android 키보드 | 0.2.5 (Play 공개), APK 0.2.7 (GitHub v0.3.13; 0.2.6 에셋은 내림) | 0.2.7 (9) | Play: 0.2.6+등록정보 9건은 11/18 승인됐으나 **공개 보류**(관리형 게시), 0.2.7 심사 중 → 승인되면 공개 개요에서 전부 함께 공개 |
 | Windows 입력기 | 0.3.3 (GitHub v0.3.13, 11/18; 0.3.2 에셋은 내림) | 0.3.3 | 공개됨 |
 
@@ -104,8 +104,9 @@ gh release create v0.3.13 -R studioCIZMO/KoEnJa --target main --title "KoEnJa 0.
 4. ~~Android AAB Play 업로드 + Play 노트~~ 11/18 제출 완료: 프로덕션 8 (0.2.6)과 스토어 등록정보 개정(ko 문안 개정, ja/en 등록정보 신설, 스크린샷 7장 세트 ×3 언어)을 함께 심사에 보냄(관리형 게시). 문안 원본: docs/store/listing-play.md, App Store용 docs/store/listing-appstore.md.
 5. ~~README 3종, cizmo-renewal 버전 줄~~ 11/18 완료(iOS 1.0.6·Play 0.2.6이 나오면 다시).
 6. **오타 고치기(SlipGuesser) 모바일 이식 — 사용자 승인(11/18)**: 역할 분담은 "스페이스 자동 교정은 기존 `Suggestions`, 전환 키 길게 누름 후보는 SeamtypeCore `SlipGuesser`". iOS 먼저: 한あA 길게 누름(0.5 s) → `Key.guess`, `session.guesses`를 후보 바에 표시(바뀐 글자 강조)·탭으로 `pickGuess`, `fixSlips` 설정 토글(기본 꺼짐) + ko/ja/en 문구, `InputSession` 생성 시 `fixSlips` 전달. 그다음 Android: `SlipGuesser` Kotlin 이식(약 400줄 + `KoreanModel.vocabularyCount`/`knowsSyllableIncludingRare`, SlipTests 이식), Windows C++도 동일, 골든에 오타 케이스 추가, 앱의 길게 누름·후보 바·설정.
-7. 보류: GitHub 릴리스에 남아 있는 옛 APK(0.2.4) 교체 여부; Threads 홍보 글은 사용자가 올림; Mac 입력기 회색 현상 재발 추적.
-8. 열린 품질 이슈: iOS 시뮬레이터 UI TypingTests 불안정(실기기/TestFlight로 판단), Mozc 변환 순위(kinou→機能 등), 포트에 없는 기능(fixing, readings 화살표, 앱별 기억). 경쟁앱 Kej 분석에서 가져올 것: 키보드 높이·위치, 키 간격, 근접키 보정, Space 스와이프 후보 선택, 설정 백업.
+7. **iOS 터치 오타(ㅜㅡㅏㅣ 쪽) 조정 — 11/23**: 사용자 아이폰은 스토어 빌드라 trace.log(DEBUG 전용)도 App Group 학습 데이터도 꺼낼 수 없음(devicectl은 개발자 서명 앱 컨테이너만). 대신 1.0.7에 ⌫ 교정 학습(`learnFromBackspace`: 글자 → ⌫ → 이웃 키, 첫 터치가 그 키 쪽으로 1/4 이상 치우친 경우만 `TouchCalibration` 샘플; `neighborReach` 60 pt×scale)을 넣음. 8샘플부터 키 영역이 이동(최대 30%). 수치 조정이 더 필요하면 Debug 빌드를 실기기에 깔아 `TOUCH`/`NEAR`/`LEARN-BS` 트레이스를 모아 `touchShift`·`correctionShift`를 맞출 것. 키 라벨은 영문·한글 17 pt semibold 둘 다(42 pt 키에 두 줄 한계). **오타 기록(SlipLog)**: 릴리스 빌드에서도 App Group `slips.log`에 SLIP(⌫ 재입력: 잘못 누른 키→맞는 키, 잘못 누른 키 중심 기준 dx dy, toward, learned 여부)·NEAR(틈 터치 재배정)·EDGE(가장자리 보정 적용)·PICK/FIX(후보·자동 고침)·LEARN을 기록(비밀 입력란 제외, 256 KB 넘으면 앞 절반 삭제). 앱 오타 도움 → 오타 기록에서 키 쌍 집계·공유(ShareLink)·비우기. **가장자리(11/23)**: 시스템 키보드 측정(UITests/HitAreas `testSystemKeyboardEdges`, TEST_RUNNER_HIT_AREAS=1): a·l·p는 화면 끝(x=2, 400)까지 자기 키, 틈 한가운데는 무입력. 우리 것도 `KeyStack.ownsMargin`으로 줄 끝 키가 옆 여백을 가짐(단위 테스트 `testMarginsBelongToEndKeys`). **개인 교정(PersonalFixes, 11/23)**: 단어의 최장 키열(`longestKeys`, `follow`가 ⌫ 동안 유지)과 Space 시점 키열이 편집거리 ≤2·서로 접두어 아님이면 기록, 3회부터 `personalFix()`가 Space 교정·후보 첫째(한국어는 compose, 일본어·연락처 이름 제외). App Group `personalFixes`, 앱 오타 기록 → 내가 고친 단어에서 삭제. 다음 단계 후보: 적용된 교정을 바로 ⌫하면 거부(veto) 학습, 교정 적용 횟수 기록. 사용자가 TestFlight로 쓰다 공유해 주면 SLIP 줄의 dx/dy 분포로 ㅏㅣㅜㅡ(k l n m) 쪽 `touchShift`·`correctionShift`·키별 기본 오프셋을 정할 것.
+8. 보류: GitHub 릴리스에 남아 있는 옛 APK(0.2.4) 교체 여부; Threads 홍보 글은 사용자가 올림; Mac 입력기 회색 현상 재발 추적.
+9. 열린 품질 이슈: iOS 시뮬레이터 UI TypingTests 불안정(실기기/TestFlight로 판단), Mozc 변환 순위(kinou→機能 등), 포트에 없는 기능(fixing, readings 화살표, 앱별 기억). 경쟁앱 Kej 분석에서 가져올 것: 키보드 높이·위치, 키 간격, 근접키 보정, Space 스와이프 후보 선택, 설정 백업.
 
 ## 6. Codex 리뷰 프롬프트 요지 (이 커밋용)
 

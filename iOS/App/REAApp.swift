@@ -78,6 +78,7 @@ struct SettingsView: View {
                     Toggle("내 터치에 맞추기", isOn: $preferences.adaptToTouch)
                     Toggle("위로 쓸어 기호 입력", isOn: $preferences.swipeSymbols)
                     Button("터치 학습 지우기", role: .destructive) { TouchCalibration.clear() }
+                    NavigationLink("오타 기록") { SlipLogView() }
                 } header: {
                     Text("오타 도움")
                 } footer: {
@@ -234,5 +235,63 @@ struct SettingsView: View {
         }
         .presentationDetents([.medium])
         .interactiveDismissDisabled(!LanguagePreferences.isConfigured)
+    }
+}
+
+/// What the keyboard corrected (SlipLog), which keys get mistyped for which on top, to read or
+/// share: the field feedback for tuning the touch areas without a debug build.
+struct SlipLogView: View {
+    @State private var text = SlipLog.read()
+    @State private var fixes = PersonalFixes.load()
+
+    var body: some View {
+        List {
+            if !fixes.isEmpty {
+                Section {
+                    ForEach(fixes, id: \.wrong) { f in
+                        HStack {
+                            Text("\(f.wrong) → \(f.right)").monospaced()
+                            Spacer()
+                            Text(f.count >= PersonalFixes.minCount ? "\(f.count)" : "\(f.count)/\(PersonalFixes.minCount)").foregroundStyle(.secondary)
+                        }
+                    }
+                    .onDelete { offsets in
+                        offsets.map { fixes[$0].wrong }.forEach { PersonalFixes.remove(wrong: $0) }
+                        fixes = PersonalFixes.load()
+                    }
+                } header: {
+                    Text("내가 고친 단어")
+                } footer: {
+                    Text("지우고 다시 친 단어를 키 단위로 기억합니다. 세 번째부터는 스페이스가 그 단어로 바꾸고 후보에도 먼저 나옵니다. 왼쪽으로 밀어 지울 수 있습니다.")
+                }
+            }
+            let summary = SlipLog.summary(text)
+            if !summary.isEmpty {
+                Section("자주 빗나간 키") {
+                    ForEach(summary.prefix(12), id: \.pair) { row in
+                        HStack { Text(row.pair).monospaced(); Spacer(); Text("\(row.count)").foregroundStyle(.secondary) }
+                    }
+                }
+            }
+            Section {
+                if text.isEmpty {
+                    Text("아직 기록이 없습니다. 글자를 지우고 옆 키로 다시 치거나, 후보를 고르거나, 자동 고침이 일어나면 여기에 쌓입니다.").foregroundStyle(.secondary)
+                } else {
+                    Text(text.split(separator: "\n").suffix(300).joined(separator: "\n")).font(.caption.monospaced()).textSelection(.enabled)
+                }
+            } header: {
+                Text("기록")
+            } footer: {
+                Text("이 기기에만 저장되며, 공유 버튼을 눌러야 보내집니다. 암호 칸의 입력은 기록하지 않습니다.")
+            }
+        }
+        .navigationTitle("오타 기록")
+        .toolbar {
+            if let url = SlipLog.url, !text.isEmpty {
+                ShareLink(item: url) { Label("공유", systemImage: "square.and.arrow.up") }
+            }
+            Button("비우기", role: .destructive) { SlipLog.clear(); text = "" }
+        }
+        .refreshable { text = SlipLog.read(); fixes = PersonalFixes.load() }
     }
 }

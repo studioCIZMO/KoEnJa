@@ -144,6 +144,7 @@ final class KeyboardViewController: UIInputViewController {
         let stack = KeyStack(arrangedSubviews: views)
         stack.keys = keyButtons
         stack.reach = 12 * Self.scale
+        stack.sensitive = sensitive
         keyStack = stack
         stack.axis = .vertical
         stack.alignment = .center
@@ -224,6 +225,7 @@ final class KeyboardViewController: UIInputViewController {
         let now = [.password, .newPassword, .oneTimeCode, .creditCardNumber].contains(type)
         guard now != sensitive else { return }
         sensitive = now
+        keyStack?.sensitive = now
         forgetTouches()
         updateOffsets()
     }
@@ -586,13 +588,18 @@ final class KeyboardViewController: UIInputViewController {
         switch key {
         case .letter(let c):
             let typed = Character(c.lowercased())
-            if let d = deletedLetter, adaptToTouch, d.letter != typed, d.keysBefore == keysBefore,
+            if let d = deletedLetter, d.letter != typed, d.keysBefore == keysBefore,
                let center = keyCenter(typed), let wrong = keyCenter(d.letter),
-               case let (vx, vy) = (center.x - wrong.x, center.y - wrong.y), hypot(vx, vy) < Self.neighborReach * Self.scale,
-               ((d.touch.x - wrong.x) * vx + (d.touch.y - wrong.y) * vy) / (vx * vx + vy * vy) >= 0.25 {
-                calibration.add(typed, dx: d.touch.x - center.x, dy: d.touch.y - center.y)
-                TraceLog.write("LEARN-BS \(d.letter)→\(typed) \(d.touch.x - center.x) \(d.touch.y - center.y)")
-                updateOffsets()
+               case let (vx, vy) = (center.x - wrong.x, center.y - wrong.y), hypot(vx, vy) < Self.neighborReach * Self.scale {
+                let toward = ((d.touch.x - wrong.x) * vx + (d.touch.y - wrong.y) * vy) / (vx * vx + vy * vy)
+                let learned = adaptToTouch && toward >= 0.25
+                if learned {
+                    calibration.add(typed, dx: d.touch.x - center.x, dy: d.touch.y - center.y)
+                    updateOffsets()
+                }
+                TraceLog.write("LEARN-BS \(d.letter)→\(typed) \(d.touch.x - center.x) \(d.touch.y - center.y) toward=\(toward)")
+                if !sensitive { SlipLog.write(String(format: "SLIP %@→%@ %.0f %.0f toward=%.2f%@", String(d.letter), String(typed),
+                                                     d.touch.x - wrong.x, d.touch.y - wrong.y, toward, learned ? " learned" : "")) }
             }
             lastLetter = touch.map { (typed, $0, keysBefore) }
         case .delete:
@@ -679,9 +686,15 @@ final class KeyboardViewController: UIInputViewController {
         let attached = textDocumentProxy.documentContextBeforeInput?.dropLast(word.count).last
             .map { $0.isPunctuation || $0.isSymbol } ?? false
         guard !attached else { return }
+        // Taken back and retyped with a key or two different: this person's correction, remembered.
+        if personalFixable, PersonalFixes.isCorrection(longest: longestKeys, final: session.keys) {
+            let n = PersonalFixes.record(wrong: longestKeys, right: session.keys)
+            SlipLog.write("RETYPE \(longestKeys) → \(session.keys) ×\(n)")
+        }
         let entry = Self.lexicon?.first { $0.userInput.caseInsensitiveCompare(word) == .orderedSame }
         if let entry, entry.documentText != entry.userInput {
             TraceLog.write("REPLACE \(word) → \(entry.documentText)")
+            if !sensitive { SlipLog.write("PICK \(word) → \(entry.documentText)") }
             replaceWord(with: entry.documentText)
             return
         }
@@ -691,8 +704,9 @@ final class KeyboardViewController: UIInputViewController {
         let leftover = session.lastTrace?.decision.language == .japanese && word.contains(where: \.isASCII)
         // With the bar's suggestions off, the fix is looked up only here, on Space.
         let current = Self.preferences?.suggestions == false ? wordSuggestions()?.suggestions : suggestions
-        if let fix = current?.autocorrect ?? (leftover ? Suggestions.english(word: session.keys, model: heuristic.english).autocorrect : nil) {
+        if let fix = personalFix() ?? current?.autocorrect ?? (leftover ? Suggestions.english(word: session.keys, model: heuristic.english).autocorrect : nil) {
             TraceLog.write("AUTOCORRECT \(word) → \(fix)")
+            if !sensitive { SlipLog.write("FIX \(word) → \(fix)") }
             replaceWord(with: fix)
         }
     }
@@ -712,7 +726,9 @@ final class KeyboardViewController: UIInputViewController {
         let typedScore = Self.plausibility(keys + shift(letter), heuristic)
         let neighborScore = Self.plausibility(keys + shift(neighbor.letter), heuristic)
         TraceLog.write("NEAR-EDGE \(letter)/\(neighbor.letter) \(typedScore) \(neighborScore)")
-        return neighborScore > typedScore + Self.correctionMargin ? neighbor.letter : letter
+        let taken = neighborScore > typedScore + Self.correctionMargin
+        if taken, !sensitive { SlipLog.write(String(format: "EDGE %@→%@ %.1fpt after %@", String(letter), String(neighbor.letter), neighbor.distance, keys)) }
+        return taken ? neighbor.letter : letter
     }
 
     /// How far into a key the neighbor can take it (points past the gap's middle), and how much
@@ -754,19 +770,42 @@ final class KeyboardViewController: UIInputViewController {
         let withKey = typed.map { before + String($0) } ?? before
         if after.isEmpty {
             touches = []
+            longestKeys = ""
         } else if typed != nil, after == withKey {
             touches.append(touch)
+            if after.count > longestKeys.count { longestKeys = after }
         } else if typed != nil, withKey.hasSuffix(after) {
             touches = Array((touches + [touch]).suffix(after.count))
+            longestKeys = after // a prefix committed (Japanese): a new word from here
         } else {
             let same = before.commonPrefix(with: after).count
             touches = Array(touches.prefix(same)) + Array(repeating: nil, count: max(after.count - same, 0))
+            // ⌫ keeps the word's longest form (for PersonalFixes); anything else (the engine
+            // replaced or committed the word) starts over from what is there
+            if !before.hasPrefix(after) { longestKeys = after }
         }
         touchKeys = after
     }
 
     /// The word ended (committed, replaced, the cursor moved): its touches go with it.
-    private func forgetTouches() { touches = []; touchKeys = ""; lastLetter = nil; deletedLetter = nil }
+    private func forgetTouches() { touches = []; touchKeys = ""; lastLetter = nil; deletedLetter = nil; longestKeys = "" }
+
+    /// The longest the word being typed has been (its keys; `follow` keeps it through ⌫), to see
+    /// on commit whether it was taken back and retyped differently (PersonalFixes).
+    private var longestKeys = ""
+
+    /// Korean and English words only: Japanese is kana and kanji from the converter, not keys.
+    private var personalFixable: Bool {
+        guard let language = session.lastTrace?.decision.language, language != .japanese, !sensitive else { return false }
+        // a name from the contacts (the lexicon) is what Space keeps
+        return !(Self.lexicon?.contains { $0.userInput.caseInsensitiveCompare(client.marked) == .orderedSame } ?? false)
+    }
+
+    /// The personal fix for the word being typed, as text: Korean keys composed, others as keys.
+    private func personalFix() -> String? {
+        guard Self.preferences?.autocorrect != false, personalFixable, let fix = PersonalFixes.fix(for: session.keys) else { return nil }
+        return session.lastTrace?.decision.language == .korean ? HangulComposer.compose(keys: fix)?.text ?? fix : fix
+    }
 
     private func keyCenter(_ letter: Character) -> CGPoint? {
         guard let keyStack, let key = letterKeys.first(where: { $0.letter == letter })?.button else { return nil }
@@ -799,6 +838,7 @@ final class KeyboardViewController: UIInputViewController {
         guard let c = keyCenter(key) else { return }
         calibration.add(key, dx: p.x - c.x, dy: p.y - c.y)
         TraceLog.write("LEARN \(key) \(p.x - c.x) \(p.y - c.y)")
+        SlipLog.write(String(format: "LEARN %@ %.0f %.0f", String(key), p.x - c.x, p.y - c.y))
         updateOffsets()
     }
 
@@ -853,6 +893,10 @@ final class KeyboardViewController: UIInputViewController {
         suggestions = Suggestions()
         if candidates.isEmpty, Self.preferences?.suggestions != false, let (typed, found) = wordSuggestions() {
             suggestions = found
+            if let fix = personalFix() { // what this person retyped it as before, first
+                suggestions.autocorrect = fix
+                if !suggestions.words.contains(fix) { suggestions.words.insert(fix, at: 0) }
+            }
             let keys = session.keys
             if found.autocorrect == nil, nearbyKeys, let language = session.lastTrace?.decision.language {
                 // a fine word, but a touch near a neighbor key: what that key would have made
@@ -977,6 +1021,8 @@ final class KeyStack: UIStackView {
     var reach: CGFloat = 12
     /// Learned touch areas: each key's shift (TouchCalibration).
     var offsets: [ObjectIdentifier: CGVector] = [:]
+    /// A password or one-time-code field: nothing about its keys goes in the slip log.
+    var sensitive = false
     /// Where the latest touch went down, for typing correction.
     private(set) var lastTouch: CGPoint?
     /// When the latest touch happened (system uptime), to trace how long it waited for us.
@@ -1003,9 +1049,24 @@ final class KeyStack: UIStackView {
             return distance(CGPoint(x: shifted.x - o.dx, y: shifted.y - o.dy), key) - 0.001
         }
         guard let nearest = keys.min(by: { area($0) < area($1) }),
-              area(nearest) < reach else { return hit }
-        if nearest !== hit { TraceLog.write("NEAR \(nearest.accessibilityLabel ?? "") (was \((hit as? UIButton)?.accessibilityLabel ?? "gap"))") }
+              area(nearest) < reach || ownsMargin(nearest, shifted) else { return hit }
+        if nearest !== hit {
+            TraceLog.write("NEAR \(nearest.accessibilityLabel ?? "") (was \((hit as? UIButton)?.accessibilityLabel ?? "gap"))")
+            if !sensitive { SlipLog.write("NEAR \(nearest.accessibilityLabel ?? "") (was \((hit as? UIButton)?.accessibilityLabel ?? "gap"))") }
+        }
         return nearest
+    }
+
+    /// The key at the end of its row owns the space beside it to the keyboard's edge, as on the
+    /// system keyboard (UITests/HitAreas edges): the half-key margins beside a (ㅁ) and l (ㅣ)
+    /// were dead past `reach`, and ㅣ and ㅏ are typed at the right edge with the thumb.
+    func ownsMargin(_ key: UIButton, _ point: CGPoint) -> Bool {
+        let frame = key.convert(key.bounds, to: self)
+        guard point.y >= frame.minY - reach, point.y <= frame.maxY + reach else { return false }
+        let row = keys.filter { abs($0.convert($0.bounds, to: self).midY - frame.midY) < 1 }
+        if point.x < frame.minX { return !row.contains { $0.convert($0.bounds, to: self).minX < frame.minX } }
+        if point.x > frame.maxX { return !row.contains { $0.convert($0.bounds, to: self).maxX > frame.maxX } }
+        return false
     }
 
     /// Where the touch was from the key's center, for calibrating `touchShift`.

@@ -54,3 +54,12 @@
 "문구 (예: Be right back)" = "Phrase (e.g. Be right back)";
 "추가" = "Add";
 "줄임말을 치면 문구가 후보 맨 앞에 나옵니다. 줄임말은 영문 소문자 32자까지입니다. iOS 설정의 텍스트 대치도 그대로 쓸 수 있습니다." = "Type a shortcut and its phrase comes first in the bar. Shortcuts are up to 32 lowercase letters. Text Replacement in iOS Settings works too.";
+"오타 기록" = "Typo log";
+"자주 빗나간 키" = "Keys mistyped most";
+"기록" = "Log";
+"공유" = "Share";
+"비우기" = "Clear";
+"아직 기록이 없습니다. 글자를 지우고 옆 키로 다시 치거나, 후보를 고르거나, 자동 고침이 일어나면 여기에 쌓입니다." = "Nothing yet. Deleting a letter and retyping it on a neighbor key, picking a suggestion, or an autocorrection adds a line here.";
+"이 기기에만 저장되며, 공유 버튼을 눌러야 보내집니다. 암호 칸의 입력은 기록하지 않습니다." = "Kept on this device only; nothing leaves it unless you tap Share. Password fields are never logged.";
+"내가 고친 단어" = "Words I corrected";
+"지우고 다시 친 단어를 키 단위로 기억합니다. 세 번째부터는 스페이스가 그 단어로 바꾸고 후보에도 먼저 나옵니다. 왼쪽으로 밀어 지울 수 있습니다." = "Words you deleted and retyped, remembered by their keys. From the third time, Space puts the retyped word in and the bar shows it first. Swipe left to forget one.";
