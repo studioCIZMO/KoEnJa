@@ -116,8 +116,11 @@ public final class AzooKeyConverter: JapaneseConverter {
         return reordered + candidates.filter { $0.kanaCount != kanaCount }
     }
 
+    /// Off in a password field: a conversion picked there isn't remembered.
+    public var learning = true
+
     public func learn(_ candidate: ConversionCandidate, for kana: String) {
-        guard let original = lastCandidates[Self.key(candidate.text, candidate.kanaCount)] else { return }
+        guard learning, let original = lastCandidates[Self.key(candidate.text, candidate.kanaCount)] else { return }
         converter.updateLearningData(original)
         lastCommitted = original
     }

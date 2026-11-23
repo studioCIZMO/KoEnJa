@@ -132,6 +132,8 @@ class DictionaryEngine(
     private val store = read(storeFile, today())
     /** The entries by keys, so each key typed looks its keys (and the fronts a particle may follow) up. */
     private var byKeys: Map<String, UserDictionary.Entry> = store.entries.associateBy { it.keys }
+    /** Off in a password field (or one that asks for no learning): corrections there teach nothing. */
+    @Volatile var learning = true
 
     /** Language entries that win: keys → language. */
     val learned: Map<String, Language> @Synchronized get() = store.entries.filter { it.wins }.associate { it.keys to it.language }
@@ -211,6 +213,7 @@ class DictionaryEngine(
      *  Pass [engineChoice] when the caller already knows what was shown (the input method
      *  always does: a fresh decision might not match). */
     fun learn(keys: String, language: Language, engineChoice: Language? = null) {
+        if (!learning) return
         val shown = engineChoice ?: decide(keys, DecisionContext()).language
         val own = ownDecision(keys, DecisionContext()).language
         val day = today()

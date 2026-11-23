@@ -179,7 +179,13 @@ class SettingsActivity : Activity() {
                 val phrase = newPhrase.text.toString().trim()
                 // letters only (a-z): what reaches the word being typed; digits go to the app as typed
                 if (keys.isEmpty() || phrase.isEmpty() || keys.any { it !in 'a'..'z' } || keys.length > 32 || phrase.length > 500) return@setOnClickListener
-                Prefs.setShortcuts(prefs, Prefs.shortcuts(prefs).filter { it.first != keys } + (keys to phrase))
+                val all = Prefs.shortcuts(prefs).filter { it.first != keys } + (keys to phrase)
+                // what a settings file can hold back (SettingsBackup.restore)
+                if (all.sumOf { it.first.length + it.second.length + 2 } > SettingsBackup.MAX_SHORTCUT_CHARS) {
+                    android.widget.Toast.makeText(context, tr("단축어가 너무 많습니다.", "ショートカットが多すぎます。", "Too many shortcuts."), android.widget.Toast.LENGTH_SHORT).show()
+                    return@setOnClickListener
+                }
+                Prefs.setShortcuts(prefs, all)
                 newKeys.text.clear(); newPhrase.text.clear(); showShortcuts()
             }
         })
@@ -205,6 +211,17 @@ class SettingsActivity : Activity() {
 
         header(tr("키 피드백", "キーのフィードバック", "Key feedback"))
         toggles(Prefs.feedback)
+
+        header(tr("개인정보", "プライバシー", "Privacy"))
+        note(tr("입력한 내용은 기기 밖으로 보내지 않습니다. 학습한 단어·한자 선택·터치 기록은 이 기기에만 저장되고, 비밀번호 칸에서는 학습하지 않습니다.",
+            "入力した内容は端末の外に送りません。学習した単語・漢字の選択・タッチの記録はこの端末にだけ保存され、パスワード欄では学習しません。",
+            "Nothing you type leaves the phone. Learned words, kanji picks and touch learning stay on this device, and password fields teach nothing."))
+        list.addView(Button(this).apply {
+            text = tr("개인정보 처리방침 보기", "プライバシーポリシーを見る", "View the privacy policy")
+            setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(tr("https://cizmo.net/rea/privacy.ko", "https://cizmo.net/rea/privacy.ja", "https://cizmo.net/rea/privacy.en"))))
+            }
+        })
 
         header(tr("오픈소스 라이선스", "オープンソースライセンス", "Open-source licenses"))
         note(tr("KoEnJa의 언어 엔진은 Araso(MIT 라이선스, github.com/nyttastudio/araso)를 바탕으로 합니다.", "KoEnJa の言語エンジンは Araso（MIT ライセンス、github.com/nyttastudio/araso）をもとにしています。", "The KoEnJa language engine is based on Araso (MIT License, github.com/nyttastudio/araso)."))

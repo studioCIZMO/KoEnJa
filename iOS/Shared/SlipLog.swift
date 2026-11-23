@@ -27,11 +27,21 @@ enum SlipLog {
             if end + UInt64(data.count) > cap, let all = try? Data(contentsOf: url) {
                 var tail = all.suffix(all.count / 2)
                 if let newline = tail.firstIndex(of: UInt8(ascii: "\n")) { tail = tail.suffix(from: newline + 1) }
-                try Data(tail).write(to: url, options: .atomic)
+                try Data(tail).write(to: url, options: .atomic) // a new file: excluded again below
+                excludeFromBackup(url)
             }
         } catch {
             try? data.write(to: url) // no file yet (or unwritable: then nothing is logged)
+            excludeFromBackup(url)
         }
+    }
+
+    /// On this device only, as the app says: not in iCloud or computer backups.
+    private static func excludeFromBackup(_ url: URL) {
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        var file = url
+        try? file.setResourceValues(values)
     }
 
     static func read() -> String { url.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "" }

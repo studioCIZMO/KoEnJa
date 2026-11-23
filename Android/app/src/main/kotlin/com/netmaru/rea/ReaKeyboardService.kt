@@ -21,8 +21,10 @@ class ReaKeyboardService : InputMethodService() {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         // The app restarted the field (its text may be new) without onFinishInputView: the word stays as typed.
         if (restarting) typist.finish()
+        val sensitive = info != null && isSensitive(info)
+        typist.sensitive = sensitive
         typist.start(Prefs.of(this))
-        keyboard?.start(Prefs.of(this), sensitive = info != null && isSensitive(info))
+        keyboard?.start(Prefs.of(this), sensitive = sensitive)
     }
 
     override fun onUpdateSelection(oldSelStart: Int, oldSelEnd: Int, newSelStart: Int, newSelEnd: Int, candidatesStart: Int, candidatesEnd: Int) {

@@ -9,10 +9,11 @@ import Testing
     let field = FakeTextField()
     let converter = FakeConverter()
     let session: InputSession
+    let engine: DictionaryEngine
 
     init() {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("araso-conversion-switch-\(UUID().uuidString).json")
-        let engine = DictionaryEngine(base: SplittingEngine(base: trilingual, english: trilingual.english, japanese: trilingual.segmenter), storeURL: url)
+        engine = DictionaryEngine(base: SplittingEngine(base: trilingual, english: trilingual.english, japanese: trilingual.segmenter), storeURL: url)
         session = InputSession(engine: engine, converter: converter, japaneseEnabled: true)
         session.activate(app: "com.apple.TextEdit")
     }
@@ -42,5 +43,17 @@ import Testing
         #expect(field.text == "そめ")
         #expect(dictionary.languageEntry(for: "some") == nil)
         #expect(dictionary.languageEntry(for: "so")?.language == .japanese)
+    }
+
+    /// Learning off (a password field): a correction teaches nothing; on again, it does.
+    @Test func learningOffTeachesNothing() {
+        engine.learning = false
+        engine.learn("dkssud", as: .english, engineChoice: .korean)
+        engine.learn("dkssud", as: .english, engineChoice: .korean)
+        #expect(engine.learned["dkssud"] == nil)
+        engine.learning = true
+        engine.learn("dkssud", as: .english, engineChoice: .korean)
+        engine.learn("dkssud", as: .english, engineChoice: .korean)
+        #expect(engine.learned["dkssud"] == .english)
     }
 }

@@ -52,4 +52,19 @@ class UserDictionaryTest {
         type("a rjtm ")
         assertTrue(field.text.endsWith(" $own "), field.text)
     }
+
+    /** Learning off (a password field): a correction teaches nothing; on again, it does. */
+    @Test
+    fun learningOffTeachesNothing() {
+        val trilingual = HeuristicEngine(korean = KoreanModel(), japanese = JapaneseModel.shared)
+        val engine = DictionaryEngine(SplittingEngine(trilingual, trilingual.english, japanese = trilingual.segmenter))
+        engine.learning = false
+        engine.learn("dkssud", Language.ENGLISH, Language.KOREAN)
+        engine.learn("dkssud", Language.ENGLISH, Language.KOREAN)
+        assertNull(engine.learned["dkssud"])
+        engine.learning = true
+        engine.learn("dkssud", Language.ENGLISH, Language.KOREAN)
+        engine.learn("dkssud", Language.ENGLISH, Language.KOREAN)
+        assertEquals(Language.ENGLISH, engine.learned["dkssud"])
+    }
 }

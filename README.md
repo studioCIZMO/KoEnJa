@@ -123,7 +123,7 @@ Araso와 함께 설치해도 설정과 학습한 단어는 따로 둡니다(`~/L
 
 ### Android
 
-[Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja)에서 받을 수 있습니다(Android 8.0 이상, 무료). [릴리스](https://github.com/studioCIZMO/KoEnJa/releases/latest)의 `KoEnJa-Android-0.2.4.apk`로 설치할 수도 있습니다.
+[Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja)에서 받을 수 있습니다(Android 8.0 이상, 무료). [릴리스](https://github.com/studioCIZMO/KoEnJa/releases/latest)의 `KoEnJa-Android-0.2.7.apk`로 설치할 수도 있습니다.
 설치한 뒤 앱에서 「키보드 설정 열기」로 한영일을 켜고, 「입력 방법 고르기」로 고르세요.
 Play 버전은 Google이 서명하므로, APK판에서 Play 버전으로 옮기려면 APK판을 지우고 Play에서 설치해 주세요. 소스는 `Android/`에 있습니다.
 

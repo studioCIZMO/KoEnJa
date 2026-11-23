@@ -23,6 +23,8 @@ public:
     virtual std::vector<ConversionCandidate> candidates(const std::u16string& kana) = 0;
     /** The user committed [candidate]: rank it higher next time. */
     virtual void learn(const ConversionCandidate& candidate, const std::u16string& kana) = 0;
+    /** Off in a password field: implementations skip learn() while false. */
+    bool learning = true;
     /** Persist anything learned. */
     virtual void save() = 0;
     /** Candidates for all of [kana] that `candidates` leaves out, in the engine's order: the

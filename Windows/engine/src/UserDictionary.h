@@ -106,6 +106,9 @@ public:
                      std::shared_ptr<KoreanModel> korean = std::make_shared<KoreanModel>(), bool japaneseParticles = false,
                      std::optional<std::filesystem::path> storeFile = std::nullopt);
 
+    /** Off in a password field (or one that asks for no learning): corrections there teach nothing. */
+    bool learning = true;
+
     /** Language entries that win: keys → language. */
     std::unordered_map<std::u16string, Language> learned() const;
     /** The entry for keys, weak ones too (tests: Swift's `UserDictionary.languageEntry(for:)`). */

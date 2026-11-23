@@ -357,6 +357,7 @@ std::vector<ConversionCandidate> MozcConverter::candidates(const std::u16string&
 }
 
 void MozcConverter::learn(const ConversionCandidate& candidate, const std::u16string& kana) {
+    if (!learning) return; // a password field
     if (kana != lastKana) candidates(kana);
     auto path = lastPaths.find(candidate.text);
     if (path == lastPaths.end()) return;

@@ -14,12 +14,15 @@ object SettingsBackup {
         }
     }.toString(2)
 
-    /** The largest file restored, in bytes. */
-    const val MAX_BYTES = 64 * 1024
+    /** The largest file restored, in bytes: the shortcuts at their limit are under 60 KB as JSON
+     *  (CJK is 3 bytes a character), the rest a few KB. */
+    const val MAX_BYTES = 256 * 1024
+    /** The shortcuts together (keys, phrase and a separator each), what the app lets you add and what restores. */
+    const val MAX_SHORTCUT_CHARS = 20_000
 
     private val booleans = (Prefs.options + Prefs.feedback).map { it.first }.toSet() +
         setOf("nearbyKeys", "adaptToTouch", "swipeSymbols")
-    private val strings = mapOf("languages" to 64, "shortcuts" to 20_000, TouchCalibration.KEY to 4_000)
+    private val strings = mapOf("languages" to 64, "shortcuts" to MAX_SHORTCUT_CHARS, TouchCalibration.KEY to 4_000)
 
     /** Replaces the settings with the file's. Every key must be one the app writes, with its type
      *  and in its range, or nothing changes (throws). */

@@ -90,6 +90,9 @@ class Typist(private val service: InputMethodService) {
      *  password fields and fields that ask for no learning). */
     var nearbyKeys = true
     var learning = true
+    /** A password field, or one that asks for no learning: the engine and the kanji converter learn
+     *  nothing from it, and no word suggestions or autocorrection either (set before [start]). */
+    var sensitive = false
     /** Text shortcuts from the settings: typed keys → the phrase offered for them. */
     private var shortcuts = emptyMap<String, String>()
 
@@ -111,6 +114,8 @@ class Typist(private val service: InputMethodService) {
             thread { KoreanModel.warmUp() }
         }
         forgetTouches()
+        session.engine.learning = !sensitive
+        mozc?.learning = !sensitive
         session.activate()
         refresh()
     }
@@ -223,7 +228,7 @@ class Typist(private val service: InputMethodService) {
         val marked = client.marked
         val leftover = session.lastTrace?.decision?.language == Language.JAPANESE && marked.any { it.code < 128 }
         val attached = client.before()?.dropLast(marked.length)?.lastOrNull()?.let { !it.isLetterOrDigit() && !it.isWhitespace() } ?: false
-        if (attached) return
+        if (attached || sensitive) return
         val fix = suggestions.autocorrect ?: if (leftover) Suggestions.english(session.keys, splitter.english).autocorrect else null
         fix?.let(::replaceWord)
     }
@@ -272,7 +277,7 @@ class Typist(private val service: InputMethodService) {
             }
             val word = client.marked
             val trace = session.lastTrace
-            if (kanji.isEmpty() && word.isNotEmpty() && trace != null && trace.keys == session.keys) {
+            if (kanji.isEmpty() && word.isNotEmpty() && trace != null && trace.keys == session.keys && !sensitive) {
                 var typed = word
                 when (trace.decision.language) {
                     // the word in the language decided (the preview may still show another: てh for teh)

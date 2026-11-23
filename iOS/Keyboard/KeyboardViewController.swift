@@ -177,6 +177,7 @@ final class KeyboardViewController: UIInputViewController {
             if current.japanese, Self.converter == nil { Self.converter = AzooKeyConverter() }
             Self.heuristic = Self.makeHeuristic(preferences: current)
             Self.session = Self.makeSession(converter: converter, preferences: current, heuristic: heuristic)
+            applySensitive()
             DispatchQueue.global(qos: .userInitiated).async { KoreanModel.warmUp() }
         }
         if keyStack == nil {
@@ -223,11 +224,20 @@ final class KeyboardViewController: UIInputViewController {
     private func checkSensitive() {
         let type = textDocumentProxy.textContentType ?? nil
         let now = [.password, .newPassword, .oneTimeCode, .creditCardNumber].contains(type)
-        guard now != sensitive else { return }
+        let changed = now != sensitive
         sensitive = now
-        keyStack?.sensitive = now
+        applySensitive() // every time: the session and converter are shared by every keyboard instance
+        guard changed else { return }
         forgetTouches()
         updateOffsets()
+    }
+
+    /// The engine and the kanji converter learn nothing from a sensitive field (also after the
+    /// session is rebuilt), and KeyStack keeps its touches out of the slip log.
+    private func applySensitive() {
+        keyStack?.sensitive = sensitive
+        session.engine.learning = !sensitive
+        (Self.converter as? AzooKeyConverter)?.learning = !sensitive
     }
 
     override func textDidChange(_ textInput: UITextInput?) {
@@ -681,15 +691,15 @@ final class KeyboardViewController: UIInputViewController {
     private func autocorrect() {
         flushCandidates()
         let word = client.marked
-        guard !word.isEmpty else { return }
+        guard !word.isEmpty, !sensitive else { return } // a password is what it is
         // A word straight after . / @ : (README.md, a URL, an address) isn't one to correct.
         let attached = textDocumentProxy.documentContextBeforeInput?.dropLast(word.count).last
             .map { $0.isPunctuation || $0.isSymbol } ?? false
         guard !attached else { return }
         // Taken back and retyped with a key or two different: this person's correction, remembered.
-        if personalFixable, PersonalFixes.isCorrection(longest: longestKeys, final: session.keys) {
-            let n = PersonalFixes.record(wrong: longestKeys, right: session.keys)
-            SlipLog.write("RETYPE \(longestKeys) → \(session.keys) ×\(n)")
+        if personalFixable, PersonalFixes.isCorrection(longest: retypedFrom, final: session.keys) {
+            let n = PersonalFixes.record(wrong: retypedFrom, right: session.keys)
+            SlipLog.write("RETYPE \(retypedFrom) → \(session.keys) ×\(n)")
         }
         let entry = Self.lexicon?.first { $0.userInput.caseInsensitiveCompare(word) == .orderedSame }
         if let entry, entry.documentText != entry.userInput {
@@ -770,29 +780,28 @@ final class KeyboardViewController: UIInputViewController {
         let withKey = typed.map { before + String($0) } ?? before
         if after.isEmpty {
             touches = []
-            longestKeys = ""
+            retypedFrom = ""
         } else if typed != nil, after == withKey {
             touches.append(touch)
-            if after.count > longestKeys.count { longestKeys = after }
         } else if typed != nil, withKey.hasSuffix(after) {
             touches = Array((touches + [touch]).suffix(after.count))
-            longestKeys = after // a prefix committed (Japanese): a new word from here
+            retypedFrom = "" // a prefix committed (Japanese): a new word from here
         } else {
             let same = before.commonPrefix(with: after).count
             touches = Array(touches.prefix(same)) + Array(repeating: nil, count: max(after.count - same, 0))
-            // ⌫ keeps the word's longest form (for PersonalFixes); anything else (the engine
-            // replaced or committed the word) starts over from what is there
-            if !before.hasPrefix(after) { longestKeys = after }
+            // the first ⌫ in a word keeps what it was (for PersonalFixes); the engine replacing or
+            // committing the word starts over
+            if before.hasPrefix(after), typed == nil { if retypedFrom.isEmpty { retypedFrom = before } } else { retypedFrom = "" }
         }
         touchKeys = after
     }
 
     /// The word ended (committed, replaced, the cursor moved): its touches go with it.
-    private func forgetTouches() { touches = []; touchKeys = ""; lastLetter = nil; deletedLetter = nil; longestKeys = "" }
+    private func forgetTouches() { touches = []; touchKeys = ""; lastLetter = nil; deletedLetter = nil; retypedFrom = "" }
 
-    /// The longest the word being typed has been (its keys; `follow` keeps it through ⌫), to see
-    /// on commit whether it was taken back and retyped differently (PersonalFixes).
-    private var longestKeys = ""
+    /// The word's keys just before the first ⌫ in it (`follow`), to see on commit whether it was
+    /// taken back and retyped differently (PersonalFixes); empty while nothing was taken back.
+    private var retypedFrom = ""
 
     /// Korean and English words only: Japanese is kana and kanji from the converter, not keys.
     private var personalFixable: Bool {
@@ -969,7 +978,7 @@ final class KeyboardViewController: UIInputViewController {
     /// still show another: てh for teh), with the word as typed in that language.
     private func wordSuggestions() -> (typed: String, suggestions: Suggestions)? {
         let word = client.marked
-        guard !word.isEmpty, let trace = session.lastTrace, trace.keys == session.keys else { return nil }
+        guard !word.isEmpty, !sensitive, let trace = session.lastTrace, trace.keys == session.keys else { return nil }
         switch trace.decision.language {
         case .korean:
             let typed = HangulComposer.compose(keys: session.keys)?.text ?? word

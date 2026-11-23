@@ -252,6 +252,7 @@ std::optional<std::u16string> DictionaryEngine::japaneseParticle(const std::u16s
 }
 
 void DictionaryEngine::learn(const std::u16string& keys, Language language, std::optional<Language> engineChoice) {
+    if (!learning) return;
     Language shown = engineChoice ? *engineChoice : decide(keys, DecisionContext{}).language;
     // Araso's own reading: the engine under the dictionary, without a nudge.
     Language own = base->decide(keys, DecisionContext{}).language;

@@ -76,7 +76,11 @@ class MozcConverter(
         return out
     }
 
+    /** Off in a password field: a conversion picked there isn't remembered. */
+    @Volatile var learning = true
+
     override fun learn(candidate: ConversionCandidate, kana: String) {
+        if (!learning) return
         if (kana != lastKana) candidates(kana)
         for (node in lastPaths[candidate.text] ?: return) {
             if (node.lid == 0 || dict.functional[node.lid]) continue // passed-through character, particle

@@ -125,7 +125,7 @@ and use haptics ([Privacy](#privacy)).
 
 ### Android
 
-Get it on [Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja) (Android 8.0 or later, free). You can also install `KoEnJa-Android-0.2.4.apk` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest).
+Get it on [Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja) (Android 8.0 or later, free). You can also install `KoEnJa-Android-0.2.7.apk` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest).
 After installing, turn on 한영일 with 키보드 설정 열기 (open keyboard settings) in the app and pick it with 입력 방법 고르기 (choose input method); the app's screens are in Korean only for now.
 The Play version is signed by Google, so to move to it from the APK, uninstall the APK first. The source is in `Android/`.
 

@@ -271,6 +271,8 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     private let splitter: ParticleSplitter
     private let lock = NSLock()
     private var store: UserDictionary { didSet { byKeys = Self.index(store, shared) } }
+    /// Off in a password field (or one that asks for no learning): corrections there teach nothing.
+    public var learning = true
     /// REA: MyTypeless's terms (`myTypelessURL`), read only and never written to dictionary.json:
     /// they win as added words do, under the user's own entries for the same keys.
     private var shared: [UserDictionary.Entry] = []
@@ -603,6 +605,7 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     /// nothing (back to the engine's choice with nothing learned, a word added by hand, keys too long).
     @discardableResult
     public func learn(_ keys: String, as language: Language, engineChoice: Language? = nil) -> Learning? {
+        guard learning else { return nil }
         let shown = engineChoice ?? decide(keys, context: DecisionContext()).language
         let own = ownDecision(keys, context: DecisionContext()).language
         let day = today()

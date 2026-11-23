@@ -285,6 +285,18 @@ int main(int argc, char** argv) {
         engine.learn(u"dkssud", Language::JAPANESE, Language::ENGLISH);
         CHECK(engine.learned()[u"dkssud"] == Language::JAPANESE);
     }
+    { // learning off (a password field): a correction teaches nothing
+        Test t(false);
+        auto& engine = *t.session->engine;
+        engine.learning = false;
+        engine.learn(u"dkssud", Language::ENGLISH, Language::KOREAN);
+        engine.learn(u"dkssud", Language::ENGLISH, Language::KOREAN);
+        CHECK(!engine.learned().count(u"dkssud"));
+        engine.learning = true;
+        engine.learn(u"dkssud", Language::ENGLISH, Language::KOREAN);
+        engine.learn(u"dkssud", Language::ENGLISH, Language::KOREAN);
+        CHECK(engine.learned()[u"dkssud"] == Language::ENGLISH);
+    }
     { // rememberedWordMovesOnTheSecondSwitch (UserDictionaryTest.kt)
         UserDictionary dictionary;
         auto day = UserDictionary::today();
