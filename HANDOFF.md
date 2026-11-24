@@ -7,7 +7,7 @@
 
 | 플랫폼 | 공개 버전 | 이 커밋의 버전 | 상태 |
 |---|---|---|---|
-| Mac 입력기 | **0.3.14 (GitHub v0.3.14, Latest, 11/24)** | 0.3.14 (17) | 공개됨(zip ×2). **KoEnJa.pkg는 미서명이라 릴리스에 안 올림**(.build/mac0314/release에 있음): Developer ID Installer 인증서 + notarytool 프로필이 생기면 `KOENJA_PKG_SIGN`/`KOENJA_NOTARY_PROFILE`로 release.sh 다시 돌려 v0.3.14에 `gh release upload`. 그때까지 README·LP의 pkg 안내는 선행 서술 |
+| Mac 입력기 | **0.3.14 (GitHub v0.3.14, Latest, 11/24)** | 0.3.14 (17) | 공개됨(zip ×2 + **KoEnJa.pkg / KoEnJa-0.3.14.pkg**, Developer ID Installer 서명·공증·스테이플, 11/24 저녁 추가). 0.3.13 → 0.3.14 앱 안 업데이트(/Library, 암호 없이)는 사용자 Mac에서 아직 미확인 |
 | iOS 키보드 | 1.0.5 (App Store), 1.0.6 (16) 심사 중, 1.0.7 (17) TestFlight | **1.0.8 (18)** | 11/23 ASC 업로드(비밀번호 칸 학습 차단, 개인 교정 원문 보존, 오타 기록 백업 제외). 1.0.7: 키 라벨, 여백 귀속, ⌫ 교정 터치 학습, 개인 교정, 오타 기록 |
 | Android 키보드 | **0.2.7 (9) Play 공개(11/23)**, APK **0.2.8 (GitHub v0.3.14, 11/24)** | 0.2.8 (10) (.build/KoEnJa-Android-0.2.8.aab, Play 미제출) | 0.2.8: 비밀번호 칸 학습·추천·자동 고침 차단(Codex P1), 개인정보 안내+처리방침 링크(Play 정책, P1), 단축어 총량 한도 = 복원 한도. Play 업로드는 사용자 확인 후 |
 | Windows 입력기 | **0.3.4 (GitHub v0.3.14, 11/24)** | 0.3.4 | 이슈 #1(LINE에서 한글 뒤 Space/Enter 사라짐) 수정: 커밋 뒤 통과 키를 SendInput으로 재전송(Tip.cpp replay). 11/24 이슈에 0.3.4 확인 요청 댓글 달았음(답 기다림) |
@@ -66,7 +66,7 @@ sh Mac/lsclean.sh
 # zip ×2 + KoEnJa{,-<ver>}.pkg (Mac/release.sh; Mac/pkg/postinstall, Mac/Distribution.xml). 서명·공증은 환경 변수가 있을 때만:
 KOENJA_PKG_SIGN="Developer ID Installer: CIZMO, K.K. (N723QM4R64)" KOENJA_NOTARY_PROFILE=koenja zsh Mac/release.sh $M/notarized/KoEnJa.app $M/release
 ```
-**pkg 서명 준비(1회, 사용자)**: Xcode → Settings → Accounts → CIZMO, K.K. → Manage Certificates → + → **Developer ID Installer**(Account Holder만 만들 수 있음) → `security find-identity -v -p basic`에 "Developer ID Installer: CIZMO, K.K." 확인. 공증 자격: ASC → Users and Access → Integrations → App Store Connect API → Team Keys → 생성(Developer) → .p8 내려받아 `xcrun notarytool store-credentials koenja --key <p8> --key-id <ID> --issuer <ISSUER>`(또는 Apple ID + 앱 암호). 둘이 없으면 pkg는 미서명(Gatekeeper가 거절) → 릴리스에 올리지 말 것. zip은 Xcode 경로로 이미 공증됨.
+**pkg 서명 자격(이 Mac에 있음, 11/24)**: login 키체인에 "Developer ID Installer: CIZMO, K.K. (N723QM4R64)"(만료 2027-12-24; `security find-identity -v -p basic`로 확인)와 notarytool 프로필 `koenja`(Apple ID + 앱 암호). 재발급이 필요하면: Developer ID 인증서는 **Account Holder만** 만들 수 있어 Xcode Manage Certificates에서는 "Communication with Apple failed / only … Account Holder"로 막힘 → 이 Mac의 키체인 접근 → 인증서 지원 → 인증 기관에서 인증서 요청(디스크에 저장)으로 CSR을 만들고, Account Holder가 developer.apple.com → Certificates → + → Developer ID Installer에 CSR을 올려 받은 `.cer`를 `security import <cer> -k ~/Library/Keychains/login.keychain-db`. 프로필: `xcrun notarytool store-credentials koenja --apple-id <Apple ID> --team-id N723QM4R64`(앱 암호는 account.apple.com → 로그인 및 보안 → 앱 암호; 계정 비밀번호는 401). 둘 중 하나라도 없으면 release.sh는 미서명 pkg를 만들고 경고함 → 릴리스에 올리지 말 것. zip은 Xcode 경로로 공증됨.
 **설치 모델**: pkg도 get.sh도 `/Library/Input Methods/KoEnJa.app`을 **사용자 소유**로 둠(postinstall이 chown) → 앱 안의 Updater가 암호 없이 zip으로 교체. 교체가 안 되는 복사본(루트 소유, App Management 거부 = get.sh "can't be changed from here")은 Updater가 `KoEnJa.pkg`를 ~/Downloads에 받아 `pkgutil --check-signature`(Developer ID Installer + 공증, 팀 N723QM4R64) 확인 뒤 Installer로 연다(Araso 방식). 제거: 영수증(`com.cizmo.inputmethod.KoEnJa.pkg`)이 있으면 Uninstaller가 관리자 경로로 지우며 `pkgutil --forget`.
 **규칙**: Mac 업데이터는 "최신 릴리스 태그"를 자기 버전과 비교함 → **Mac 빌드 없는 새 태그 금지**. 다른 플랫폼만 바뀌면 현재 릴리스에 에셋 추가.
 
