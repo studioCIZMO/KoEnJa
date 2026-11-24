@@ -7,8 +7,8 @@
 
 | 플랫폼 | 공개 버전 | 이 커밋의 버전 | 상태 |
 |---|---|---|---|
-| Mac 입력기 | **0.3.14 (GitHub v0.3.14, Latest, 11/24)** | 0.3.14 (17) | 공개됨(zip ×2 + **KoEnJa.pkg / KoEnJa-0.3.14.pkg**, Developer ID Installer 서명·공증·스테이플, 11/24 저녁 추가). 0.3.13 → 0.3.14 앱 안 업데이트(/Library, 암호 없이)는 사용자 Mac에서 아직 미확인 |
-| iOS 키보드 | 1.0.5 (App Store), 1.0.6 (16) 심사 중, 1.0.7 (17) TestFlight | **1.0.8 (18)** | 11/23 ASC 업로드(비밀번호 칸 학습 차단, 개인 교정 원문 보존, 오타 기록 백업 제외). 1.0.7: 키 라벨, 여백 귀속, ⌫ 교정 터치 학습, 개인 교정, 오타 기록 |
+| Mac 입력기 | **0.3.14 (GitHub v0.3.14, Latest, 11/24)** | 0.3.15 (18) | v0.3.14 공개됨(zip ×2 + **KoEnJa.pkg / KoEnJa-0.3.14.pkg**, Developer ID Installer 서명·공증). 0.3.13 → 0.3.14 자동 업데이트는 사용자 Mac에서 11/24 20:04 암호 없이 성공 확인. **0.3.15 (18)**: 메뉴 막대 아이콘을 KoEnJa 레터링 타일(컬러, `Mac/icon/menu.jpeg` → `scripts/make-menu-icon.swift`)로 바꾼 빌드. 공증·에셋(`.build/mac0315/release/`: zip ×2, 서명 pkg ×2) 완료, 사용자 Mac에 get.sh로 설치됨, **GitHub 공개는 사용자 확인 대기**(v0.3.15 태그 + 에셋 4개 + Windows 0.3.4 exe·APK 0.2.8 재첨부, `docs/release/0.3.15-notes.md`) |
+| iOS 키보드 | 1.0.5 (App Store), 1.0.6 (16) 심사 중, 1.0.7 (17) TestFlight | **1.0.8 (19)** | 11/24 20:35 ASC 업로드(TestFlight). **(18)은 키보드가 뜨자마자 크래시** → 시스템 키보드로 되돌아감: `applySensitive()`가 `textDidChange`/`selectionDidChange`에서 세션이 만들어지기 전(`viewWillAppear` 이전)에 `Self.session!`을 풀었음. (19)에서 `Self.session != nil` 가드(`documentChanged()`와 같은 이유). 시뮬레이터 `REAUITests/TypingTests/testKoreanEnglishJapanese` 통과. (18)의 내용: 비밀번호 칸 학습 차단, 개인 교정 원문 보존, 오타 기록 백업 제외. 1.0.7: 키 라벨, 여백 귀속, ⌫ 교정 터치 학습, 개인 교정, 오타 기록 |
 | Android 키보드 | **0.2.7 (9) Play 공개(11/23)**, APK **0.2.8 (GitHub v0.3.14, 11/24)** | 0.2.8 (10) (.build/KoEnJa-Android-0.2.8.aab, Play 미제출) | 0.2.8: 비밀번호 칸 학습·추천·자동 고침 차단(Codex P1), 개인정보 안내+처리방침 링크(Play 정책, P1), 단축어 총량 한도 = 복원 한도. Play 업로드는 사용자 확인 후 |
 | Windows 입력기 | **0.3.4 (GitHub v0.3.14, 11/24)** | 0.3.4 | 이슈 #1(LINE에서 한글 뒤 Space/Enter 사라짐) 수정: 커밋 뒤 통과 키를 SendInput으로 재전송(Tip.cpp replay). 11/24 이슈에 0.3.4 확인 요청 댓글 달았음(답 기다림) |
 
@@ -57,7 +57,7 @@ clang++ -std=c++20 -O2 -Wall -ffp-contract=off Windows/engine/src/*.cpp Windows/
 
 ### Mac 릴리스 (0.3.14)
 ```sh
-cd Mac && xcodegen && M=$PWD/../.build/mac0314 && mkdir -p $M
+cd Mac && xcodegen && M=$PWD/../.build/mac0315 && mkdir -p $M
 xcodebuild archive -project KoEnJaMac.xcodeproj -scheme KoEnJa -configuration Release -archivePath $M/KoEnJa.xcarchive -allowProvisioningUpdates
 xcodebuild -exportArchive -archivePath $M/KoEnJa.xcarchive -exportOptionsPlist export.plist -exportPath $M/export   # 공증 업로드
 while ! xcodebuild -exportNotarizedApp -archivePath $M/KoEnJa.xcarchive -exportPath $M/notarized 2>/dev/null; do sleep 30; done

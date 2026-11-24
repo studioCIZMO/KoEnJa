@@ -236,6 +236,9 @@ final class KeyboardViewController: UIInputViewController {
     /// session is rebuilt), and KeyStack keeps its touches out of the slip log.
     private func applySensitive() {
         keyStack?.sensitive = sensitive
+        // textDidChange and selectionDidChange can come before viewWillAppear has built the session
+        // (1.0.8 crashed here on every launch); viewWillAppear applies this once it has.
+        guard Self.session != nil else { return }
         session.engine.learning = !sensitive
         (Self.converter as? AzooKeyConverter)?.learning = !sensitive
     }
