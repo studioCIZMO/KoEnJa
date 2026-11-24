@@ -105,8 +105,10 @@ final class Updater: ObservableObject {
     /// unless it installed (get.sh then restarts KoEnJa).
     func updateFromMenu() {
         fromMenu = true
+        // Always a fresh check first: a stored result may predate the release's installer package (or come
+        // from a version that didn't store it), which would leave only the release page to open.
         // A check or download already running finishes the same way (finishCheck, finishInstall).
-        if available != nil { install() } else { check() }
+        check()
     }
 
     private func menuDone() {
