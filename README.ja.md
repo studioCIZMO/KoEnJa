@@ -83,22 +83,45 @@ Windows でも同じように使えるようにした別製品です。すべて
 
 ### Mac
 
-macOS 13 以降（Apple シリコン、Intel）。ターミナルで実行してください。
+macOS 13 以降（Apple シリコン、Intel）。[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)から `KoEnJa.pkg` を入手して開き、案内に従ってインストールします（0.3.14 から）。またはターミナルで：
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh | sh
 ```
 
-`/Library/Input Methods` にインストールし、そのフォルダを作る一度だけ管理者パスワードを求めます（0.3.13 から。以前の `~/Library` のコピーは移動します）。または[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)から `KoEnJa-Mac.zip` を入手して展開し、`KoEnJa.app` を
-`/Library/Input Methods` に移します。続いてシステム設定 → キーボード → 入力ソース → 編集… → ＋ → 韓国語 → **KoEnJa** を
-追加します（一覧にない場合は一度ログアウトして再ログイン）。アプリは CIZMO の Developer ID で署名し、Apple の公証を受けています。
+どちらも `/Library/Input Methods` にインストールします（パッケージはインストール時に、get.sh はそのフォルダを作る一度だけ管理者パスワードを求めます。以前の `~/Library` のコピーは移動します）。`KoEnJa-Mac.zip` を展開して `KoEnJa.app` を `/Library/Input Methods` に直接移しても構いません。続いてシステム設定 → キーボード → 入力ソース → 編集… → ＋ → 韓国語 → **KoEnJa** を
+追加します（一覧にない場合は一度ログアウトして再ログイン）。アプリとパッケージは CIZMO の Developer ID で署名し、Apple の公証を受けています。
 Araso と一緒にインストールしても、設定と学習した単語は別に保存します（`~/Library/Application Support/KoEnJa`）。
-削除は設定ウインドウの情報タブか `… | sh -s -- --uninstall` で行います。韓国語の単語を1文字打ち間違えたときは、切り替えキーを長押しすると直した候補が出ます（設定 → Fix typos、初期設定はオフ）。ソースは `Mac/` にあります。
+アップデートは入力メニューの「KoEnJa x.y.z にアップデート…」か設定 → 情報から行います。韓国語の単語を1文字打ち間違えたときは、切り替えキーを長押しすると直した候補が出ます（設定 → Fix typos、初期設定はオフ）。ソースは `Mac/` にあります。
+
+<details>
+<summary>完全に削除する</summary>
+
+設定ウインドウの情報タブ → **アンインストール…** が最も簡単です（「設定と学習した単語も削除」をオンにするとすべて消えます）。ターミナルでは：
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh | sh -s -- --uninstall --delete-data
+```
+
+`--delete-data` を外すと設定と学習した単語（`~/Library/Application Support/KoEnJa`）は残ります。どちらも `/Library/Input Methods/KoEnJa.app`（と古い `~/Library/Input Methods/KoEnJa.app`）、パッケージのレシートを消し、入力ソースからも外します。管理者パスワードが必要なら macOS が求めます。
+手で消す場合（設定ウインドウを開けないとき）：
+
+```sh
+killall KoEnJa 2>/dev/null
+sudo rm -rf "/Library/Input Methods/KoEnJa.app" "$HOME/Library/Input Methods/KoEnJa.app"
+sudo pkgutil --forget com.cizmo.inputmethod.KoEnJa.pkg
+rm -rf "$HOME/Library/Application Support/KoEnJa"      # 設定と学習した単語
+defaults delete com.cizmo.inputmethod.KoEnJa 2>/dev/null  # アップデート確認の記録
+killall TextInputMenuAgent 2>/dev/null
+```
+
+その後、システム設定 → キーボード → 入力ソースから KoEnJa を外してください（一覧に残る場合は一度ログアウトして再ログイン）。
+</details>
 
 ### Windows
 
-1. [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) から `KoEnJa-Setup-0.3.3.exe` をダウンロードして実行します。
-2. 0.3.3 はまだコード署名がないため、SmartScreen の「**Windows によって PC が保護されました**」が表示されます。
+1. [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) から `KoEnJa-Setup-0.3.4.exe` をダウンロードして実行します。
+2. 0.3.4 はまだコード署名がないため、SmartScreen の「**Windows によって PC が保護されました**」が表示されます。
    「**詳細情報**」→「**実行**」を押し、続く管理者の確認で「**はい**」を押してください。
 3. 最後の画面で「**KoEnJa の設定を開く**」にチェックしたまま完了すると、キーボードの種類、使う言語、切り替えキーを
    選べます。あとからはスタートメニューの「**KoEnJa 설정**」で変更できます。
@@ -125,7 +148,7 @@ Araso と一緒にインストールしても、設定と学習した単語は�
 
 ### Android
 
-[Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja) で入手できます（Android 8.0 以上、無料）。[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)の `KoEnJa-Android-0.2.7.apk` からもインストールできます。
+[Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja) で入手できます（Android 8.0 以上、無料）。[リリース](https://github.com/studioCIZMO/KoEnJa/releases/latest)の `KoEnJa-Android-0.2.8.apk` からもインストールできます。
 インストール後、アプリの「키보드 설정 열기」で 한영일 をオンにし、「입력 방법 고르기」で選んでください（アプリの画面はまだ韓国語のみ）。
 Play 版は Google が署名するため、APK 版から Play 版に移るときは APK 版を削除してから Play でインストールしてください。ソースは `Android/` にあります。
 
@@ -230,7 +253,7 @@ MSVC のゴールデンテストは `main` への push のたびに [CI](.github
 
 ## 既知の制限
 
-- Windows 0.3.3 はコード署名がありません（[コード署名ポリシー](#コード署名ポリシー)）。x64 専用で、ARM64 版 Windows には対応していません。
+- Windows 0.3.4 はコード署名がありません（[コード署名ポリシー](#コード署名ポリシー)）。x64 専用で、ARM64 版 Windows には対応していません。
 - 2 つの言語のどちらでも意味が通るキー（`go`/해、`so`/내）は間違えることがあります。切り替えキーで直してください。
 - 英単語に日本語の助詞をつけると、日本語として読まれることがあります（`sitede` → `してで`、`tokenwo` → `とけんを`）。
 - 漢字変換の第 1 候補が原文と一致するのは、フレーズで 5 件に 4 件、文で 3 件に 2 件ほどです（iOS の経路）。残りは候補一覧から選んでください。
@@ -301,7 +324,7 @@ Araso は macOS の入力メソッドだけです。Mac は同じ土台から何
 ## コード署名ポリシー
 
 無償のコード署名は [SignPath.io](https://about.signpath.io) が、証明書は [SignPath Foundation](https://signpath.org) が
-提供しています。（0.3.3 は未署名です。SignPath Foundation にプロジェクトが承認され次第、署名を始めます。）
+提供しています。（0.3.4 は未署名です。SignPath Foundation にプロジェクトが承認され次第、署名を始めます。）
 
 > Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
 

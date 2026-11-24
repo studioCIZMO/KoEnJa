@@ -598,6 +598,11 @@ public:
     CandidateWindow indicator{INDICATOR_CLASS, false};
     /** A switch key whose key-down was eaten: its key-up goes too (a lone Alt up opens the app's menu). */
     WPARAM eatenSwitch = 0;
+    /** A key the word's commit let through, sent again (replay): let through when it comes back. */
+    struct { WPARAM vk = 0; DWORD at = 0; bool chord = false; } replayed;
+    /** SendInput's dwExtraInfo on a replayed key: GetMessageExtraInfo() gives it back while the app
+     *  handles that key's message, on this thread. */
+    static constexpr ULONG_PTR REPLAY_TOKEN = 0x4B6F456E; // 'KoEn'
     /** Re-read on activation and focus, so a change in KoEnJaSettings needs no restart. */
     Switch switchKey = Switch::RightAlt;
     Keyboard keyboard = Keyboard::Korean;
@@ -718,6 +723,8 @@ public:
         return S_OK;
     }
     STDMETHODIMP OnTestKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override {
+        if (isReplayed(vk)) { *eaten = FALSE; log("TestDown replayed", vk, lParam, *eaten); return S_OK; }
+        replayed = {}; // another key: the replayed one is done with (or never came)
         trackTap(vk, lParam);
         *eaten = actionFor(context, physicalKey(keyboard, vk, lParam), lParam).has_value();
         log("TestDown", vk, lParam, *eaten);
@@ -1134,8 +1141,41 @@ private:
         return action;
     }
 
-    bool perform(ITfContext* context, const Action& action);
+    bool perform(ITfContext* context, const Action& action, bool* edited = nullptr);
     void finish();
+
+    /** A key the word's commit let through (Space or Return after a Korean word, Tab, a shortcut):
+     *  OnTestKeyDown said eaten (the word had to go in first), so saying not eaten in OnKeyDown
+     *  loses it in apps that reach TSF through IMM32 (CUAS hands them VK_PROCESSKEY; LINE, issue #1).
+     *  As Araso's TIP: eaten, and sent again with SendInput once the word is in, with its scan code
+     *  (WPF hands keys without one: the layout's) and a token in its extra info; it comes back and
+     *  goes to the app (isReplayed). Only while this app is in front: elsewhere the key would land in
+     *  another app (tip_test has no window, and keeps the not-eaten way). False: not sent. */
+    bool replay(WPARAM vk, LPARAM lParam) {
+        DWORD owner = 0;
+        GetWindowThreadProcessId(GetForegroundWindow(), &owner);
+        if (owner != GetCurrentProcessId()) return false;
+        INPUT input{};
+        input.type = INPUT_KEYBOARD;
+        input.ki.wVk = WORD(vk);
+        input.ki.wScan = WORD((lParam >> 16) & 0xFF);
+        if (!input.ki.wScan) input.ki.wScan = WORD(MapVirtualKeyW(UINT(vk), MAPVK_VK_TO_VSC) & 0xFF);
+        input.ki.dwFlags = (lParam >> 24) & 1 ? KEYEVENTF_EXTENDEDKEY : 0;
+        input.ki.dwExtraInfo = REPLAY_TOKEN;
+        replayed = {vk, GetTickCount(), chordHeld()};
+        if (SendInput(1, &input, sizeof input) == 1) return true;
+        replayed = {};
+        return false;
+    }
+    static bool chordHeld() { return GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_MENU) < 0; }
+    /** The replayed key coming back: the same key within a second, carrying the token, or (an app
+     *  whose message isn't the thread's last) with nothing being typed and Ctrl/Alt as they were (a
+     *  word typed since, or a plain A after a replayed Ctrl+A, takes the key as usual). The app may
+     *  test it more than once before its key-down, so only OnKeyDown, or another key, forgets it. */
+    bool isReplayed(WPARAM vk) const {
+        if (!replayed.vk || replayed.vk != vk || GetTickCount() - replayed.at >= 1000) return false;
+        return GetMessageExtraInfo() == LPARAM(REPLAY_TOKEN) || (!typing() && chordHeld() == replayed.chord);
+    }
 
     /** Forgets the word being typed, its text left as shown. */
     void drop() {
@@ -1244,13 +1284,15 @@ struct Client : rea::TextClient {
     }
 };
 
-/** Runs [action] in an edit session, then lists the candidates; whether the key was consumed. */
-bool Tip::perform(ITfContext* context, const Action& action) {
+/** Runs [action] in an edit session, then lists the candidates; whether the key was consumed.
+ *  [edited]: whether the edit session ran (false: the key is the app's as it was, nothing committed). */
+bool Tip::perform(ITfContext* context, const Action& action, bool* edited) {
+    if (edited) *edited = false;
     if (action.what == Action::Toggle) { setOpen(!isOpen()); return true; }
     if (action.what == Action::Priority) { prioritize(context); return true; }
     if (action.what == Action::Nothing) return true;
     bool handled = false;
-    edit(context, client, TF_ES_SYNC, [&](TfEditCookie ec) {
+    HRESULT hr = edit(context, client, TF_ES_SYNC, [&](TfEditCookie ec) {
         Client field(*this, ec, context);
         if (action.what == Action::Pick) {
             if (session->conversion) session->choose(action.index, field);
@@ -1293,15 +1335,26 @@ bool Tip::perform(ITfContext* context, const Action& action) {
         }
         listCandidates(ec, context);
     });
+    if (edited) *edited = SUCCEEDED(hr);
     return handled;
 }
 
 STDMETHODIMP Tip::OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) {
+    if (isReplayed(vk)) {
+        replayed = {};
+        *eaten = FALSE;
+        log("Down replayed", vk, lParam, *eaten);
+        return S_OK;
+    }
     trackTap(vk, lParam);
     WPARAM key = physicalKey(keyboard, vk, lParam);
     auto action = actionFor(context, key, lParam);
-    // Not consumed (Space after a word, Tab, a shortcut…): the app gets the key after the commit.
-    *eaten = action && perform(context, *action);
+    // Not consumed (Space after a word, Tab, a shortcut…): the app gets the key after the commit,
+    // sent again (replay); where it can't be sent, the key goes on as not eaten. Not after an edit
+    // session that didn't run (the word is still there: a replay would come back to the same).
+    bool edited = false;
+    *eaten = action && perform(context, *action, &edited);
+    if (action && !*eaten && edited && action->what == Action::Type) *eaten = replay(vk, lParam);
     if (*eaten && isSwitchDown(key)) eatenSwitch = key;
     log("Down", vk, lParam, *eaten);
     return S_OK;

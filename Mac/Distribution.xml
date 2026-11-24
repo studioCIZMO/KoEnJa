@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- KoEnJa.pkg's product definition (from Araso's scripts/Distribution.xml, MIT); release.sh fills in @VERSION@. -->
+<installer-gui-script minSpecVersion="2">
+    <title>KoEnJa</title>
+    <options customize="never" require-scripts="false" hostArchitectures="x86_64,arm64"/>
+    <domains enable_localSystem="true"/>
+    <!-- Info.plist's LSMinimumSystemVersion: on an older macOS it would install and never start. -->
+    <allowed-os-versions><os-version min="13.0"/></allowed-os-versions>
+    <choices-outline>
+        <line choice="koenja"/>
+    </choices-outline>
+    <choice id="koenja" title="KoEnJa" enabled="false" selected="true"
+            description="Installs KoEnJa (한영일) into /Library/Input Methods, replacing any earlier copy (also one in ~/Library/Input Methods). Settings and learned words stay. 설정과 학습한 단어는 그대로 남습니다.">
+        <pkg-ref id="com.cizmo.inputmethod.KoEnJa.pkg"/>
+    </choice>
+    <pkg-ref id="com.cizmo.inputmethod.KoEnJa.pkg" version="@VERSION@" onConclusion="none">KoEnJa-component.pkg</pkg-ref>
+</installer-gui-script>

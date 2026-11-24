@@ -83,22 +83,45 @@ types with the same engine, there is also a Mac version, built from Araso's macO
 
 ### Mac
 
-macOS 13 or later (Apple silicon, Intel). In Terminal:
+macOS 13 or later (Apple silicon, Intel). Download `KoEnJa.pkg` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest), open it and follow the installer (since 0.3.14). Or, in Terminal:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh | sh
 ```
 
-It installs into `/Library/Input Methods`, asking for your administrator password once, to make that folder (since 0.3.13; an earlier copy in `~/Library` is moved). Or download `KoEnJa-Mac.zip` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest), unzip it and move
-`KoEnJa.app` to `/Library/Input Methods`. Then add it in System Settings → Keyboard → Input Sources → Edit… → + → Korean →
-**KoEnJa** (log out and back in once if it isn't listed). The app is signed with CIZMO's Developer ID and notarized by Apple.
+Both install into `/Library/Input Methods` (the package asks for your administrator password as it installs, get.sh once, to make that folder; an earlier copy in `~/Library` is moved). You can also unzip `KoEnJa-Mac.zip` and move `KoEnJa.app` to `/Library/Input Methods` yourself. Then add it in System Settings → Keyboard → Input Sources → Edit… → + → Korean →
+**KoEnJa** (log out and back in once if it isn't listed). The app and the package are signed with CIZMO's Developer ID and notarized by Apple.
 Installed beside Araso, it keeps its settings and learned words apart (`~/Library/Application Support/KoEnJa`).
-Uninstall from the settings window's About tab or with `… | sh -s -- --uninstall`. If you mistype one letter of a Korean word, hold the switch key to see corrected guesses (Settings → Fix typos, off by default). The source is in `Mac/`.
+Updates come through the input menu's "Update to KoEnJa x.y.z…" or Settings → About. If you mistype one letter of a Korean word, hold the switch key to see corrected guesses (Settings → Fix typos, off by default). The source is in `Mac/`.
+
+<details>
+<summary>Uninstall completely</summary>
+
+The settings window's About tab → **Uninstall…** is the easy way (turn on "Also delete settings and learned words" to remove everything). In Terminal:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh | sh -s -- --uninstall --delete-data
+```
+
+Without `--delete-data` the settings and learned words (`~/Library/Application Support/KoEnJa`) stay. Both remove `/Library/Input Methods/KoEnJa.app` (and an old `~/Library/Input Methods/KoEnJa.app`) and the package receipt, and take KoEnJa out of your input sources; macOS asks for the administrator password when it needs it.
+By hand (when the settings window won't open):
+
+```sh
+killall KoEnJa 2>/dev/null
+sudo rm -rf "/Library/Input Methods/KoEnJa.app" "$HOME/Library/Input Methods/KoEnJa.app"
+sudo pkgutil --forget com.cizmo.inputmethod.KoEnJa.pkg
+rm -rf "$HOME/Library/Application Support/KoEnJa"      # settings and learned words
+defaults delete com.cizmo.inputmethod.KoEnJa 2>/dev/null  # the update check's record
+killall TextInputMenuAgent 2>/dev/null
+```
+
+Then remove KoEnJa in System Settings → Keyboard → Input Sources (log out and back in once if it is still listed).
+</details>
 
 ### Windows
 
-1. Download `KoEnJa-Setup-0.3.3.exe` from [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) and run it.
-2. 0.3.3 isn't code-signed yet, so SmartScreen shows **Windows protected your PC**. Click **More info** →
+1. Download `KoEnJa-Setup-0.3.4.exe` from [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) and run it.
+2. 0.3.4 isn't code-signed yet, so SmartScreen shows **Windows protected your PC**. Click **More info** →
    **Run anyway**, then **Yes** at the administrator prompt.
 3. Leave **Open KoEnJa settings** checked on the last page and finish: pick your keyboard, your languages and the
    switch key. You can change them later in **KoEnJa 설정** in the Start menu.
@@ -125,7 +148,7 @@ and use haptics ([Privacy](#privacy)).
 
 ### Android
 
-Get it on [Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja) (Android 8.0 or later, free). You can also install `KoEnJa-Android-0.2.7.apk` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest).
+Get it on [Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja) (Android 8.0 or later, free). You can also install `KoEnJa-Android-0.2.8.apk` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest).
 After installing, turn on 한영일 with 키보드 설정 열기 (open keyboard settings) in the app and pick it with 입력 방법 고르기 (choose input method); the app's screens are in Korean only for now.
 The Play version is signed by Google, so to move to it from the APK, uninstall the APK first. The source is in `Android/`.
 
@@ -237,7 +260,7 @@ The MSVC golden test runs in [CI](.github/workflows/windows.yml) on every push t
 
 ## Known limitations
 
-- Windows 0.3.3 is not code-signed ([Code signing policy](#code-signing-policy)). It's x64 only; ARM64 Windows isn't supported.
+- Windows 0.3.4 is not code-signed ([Code signing policy](#code-signing-policy)). It's x64 only; ARM64 Windows isn't supported.
 - Keys that are words in two languages (`go`/해, `so`/내) can come out wrong; fix them with the switch key.
 - An English word with a Japanese particle can be read as Japanese (`sitede` → `してで`, `tokenwo` → `とけんを`).
 - The top kanji candidate matches the original in about 4 of 5 phrases and 2 of 3 sentences (the iOS path); pick the others from the list.
@@ -301,7 +324,7 @@ We are grateful to Araso's author for publishing the engine under the MIT Licens
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.3.3 is unsigned; signing starts once SignPath Foundation accepts the project.)
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.3.4 is unsigned; signing starts once SignPath Foundation accepts the project.)
 
 - Committers and reviewers: [studioCIZMO](https://github.com/studioCIZMO)
 - Approvers: [studioCIZMO](https://github.com/studioCIZMO)

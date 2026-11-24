@@ -1215,7 +1215,7 @@ private struct AboutPane: View {
                               isOn: Binding(get: { model.settings.checkForUpdates }, set: { model.set(\.checkForUpdates, $0) }))
                 SeamToggleRow(title: L("Install updates automatically"),
                               detail: Updater.replaceable ? L("An update the daily check finds installs without asking, once it is checked as CIZMO's and notarized. KoEnJa restarts on the next key.")
-                                  : L("Only for a copy get.sh installed in /Library/Input Methods; run the install command once to move it there."),
+                                  : L("Only for a copy you own in /Library/Input Methods (the installer package or get.sh puts it there); install once from either to make it so."),
                               isOn: Binding(get: { model.settings.autoInstallUpdates }, set: { model.set(\.autoInstallUpdates, $0) }))
                     .disabled(!model.settings.checkForUpdates || !Updater.replaceable)
             }
@@ -1261,7 +1261,10 @@ private struct AboutPane: View {
         case .downloading: return L("Downloading and installing… KoEnJa restarts on the next key.")
         case .failed(let message): return message
         default:
-            return updater.available == nil ? nil : (Updater.replaceable ? L("Downloads and installs it here; no password. Settings and learned words stay.") : L("Opens the release page."))
+            if updater.available == nil { return nil }
+            if Updater.replaceable { return L("Downloads and installs it here; no password. Settings and learned words stay.") }
+            return updater.installer == nil ? L("Opens the release page.")
+                : L("Downloads the installer and opens it; macOS asks for your password. Settings and learned words stay.")
         }
     }
 }

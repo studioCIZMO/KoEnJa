@@ -140,6 +140,8 @@
 "Downloading and installing… KoEnJa restarts on the next key." = "내려받아 설치하는 중… 다음 키부터 새 버전이 동작합니다.";
 "Downloads and installs it here; no password. Settings and learned words stay." = "여기서 내려받아 바로 설치합니다(암호 필요 없음). 설정과 학습한 단어는 그대로 남습니다.";
 "Opens the release page." = "릴리스 페이지를 엽니다.";
+"Downloads the installer and opens it; macOS asks for your password. Settings and learned words stay." = "설치 패키지를 내려받아 엽니다. macOS가 암호를 묻습니다. 설정과 학습한 단어는 그대로 남습니다.";
+"The downloaded installer isn't signed by CIZMO and notarized, so it was deleted." = "내려받은 설치 패키지가 CIZMO 서명·Apple 공증을 받은 것이 아니어서 삭제했습니다.";
 "Couldn't install the update." = "업데이트를 설치하지 못했습니다.";
 "The download isn't KoEnJa signed by CIZMO and notarized, so nothing was installed." = "내려받은 파일이 CIZMO 서명·Apple 공증을 받은 한영일이 아니어서 설치하지 않았습니다.";
 "Couldn't reach GitHub. Try again later." = "GitHub에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요.";
@@ -309,4 +311,4 @@
 "%@ first" = "%@ 우선";
 "Install updates automatically" = "업데이트 자동 설치";
 "An update the daily check finds installs without asking, once it is checked as CIZMO's and notarized. KoEnJa restarts on the next key." = "하루 한 번 확인에서 찾은 업데이트를 묻지 않고 설치합니다. CIZMO 서명과 Apple 공증을 확인한 뒤 설치하며, 다음 키부터 새 버전이 동작합니다.";
-"Only for a copy get.sh installed in /Library/Input Methods; run the install command once to move it there." = "get.sh로 /Library/Input Methods에 설치한 경우에만 쓸 수 있습니다. 설치 명령을 한 번 실행하면 그곳으로 옮겨집니다.";
+"Only for a copy you own in /Library/Input Methods (the installer package or get.sh puts it there); install once from either to make it so." = "/Library/Input Methods의 내 소유 복사본에서만 쓸 수 있습니다(설치 패키지나 get.sh가 그렇게 설치합니다). 둘 중 하나로 한 번 설치하면 됩니다.";

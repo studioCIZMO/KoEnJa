@@ -1,0 +1,84 @@
+#!/bin/sh
+# KoEnJa.pkg's postinstall (from Araso's scripts/pkg/postinstall, MIT). The payload lands in a
+# staging folder, not in /Library/Input Methods, and is synced into the existing KoEnJa.app here,
+# each file written aside and renamed over the old one (the folder stays, and a running KoEnJa
+# keeps its old files until it is stopped). A first install just moves it into place.
+#
+# KoEnJa: the bundle is then handed to the logged-in user, as Mac/get.sh does, so the input
+# method's own updater (and get.sh) can replace its Contents later without a password. The old
+# KoEnJa keeps running while that happens (no preinstall stops it: macOS would only start the
+# old code again). Stop it after, register the new copy for the logged-in user (the installer
+# runs this as root) and refresh the input menu. Adding it in System Settings → Keyboard →
+# Input Sources may still be needed; only a copy that couldn't be put in place fails the install.
+staged="/Library/Application Support/KoEnJa/Install/KoEnJa.app"
+app="/Library/Input Methods/KoEnJa.app"
+if [ -d "$staged" ]; then
+  if [ -d "$app" ]; then
+    # get.sh (and the updater running it) holds $app/.install while it swaps Contents: take the same
+    # lock, waiting up to a minute for it; without it nothing is touched. Its staging (.new.*) and
+    # the lock aren't payload. The bundle folder itself stays (the lock lives in it, and get.sh's
+    # ownership of it): the fallback swaps Contents, as get.sh does.
+    i=0; until mkdir "$app/.install" 2>/dev/null; do
+      [ $i -lt 600 ] || { echo "KoEnJa: another KoEnJa install is running; the new copy is left at $staged" >&2; exit 1; }
+      sleep 0.1; i=$((i+1))
+    done
+    trap 'rmdir "$app/.install" 2>/dev/null' EXIT
+    # --checksum: a file of the same size and time must still be compared.
+    if ! rsync -a --delete --checksum --exclude='/.install' --exclude='/.new.*' "$staged/" "$app/"; then
+      # Part synced is a mix of old and new files under a broken seal, and the staged copy is the
+      # only good one: its Contents whole in place of the old.
+      echo "KoEnJa: syncing into $app failed; replacing its Contents" >&2
+      if ! { rm -rf "$app/Contents" && mv "$staged/Contents" "$app/Contents"; }; then
+        echo "KoEnJa: couldn't put KoEnJa.app into /Library/Input Methods; the new copy is left at $staged" >&2
+        exit 1
+      fi
+    fi
+  else
+    if ! { mkdir -p "/Library/Input Methods" && mv "$staged" "$app"; }; then
+      echo "KoEnJa: couldn't put KoEnJa.app into /Library/Input Methods; the new copy is left at $staged" >&2
+      exit 1
+    fi
+  fi
+  rmdir "$app/.install" 2>/dev/null; trap - EXIT # registering below takes a while: the updater needn't wait
+  rm -rf "/Library/Application Support/KoEnJa/Install"
+  rmdir "/Library/Application Support/KoEnJa" 2>/dev/null || true
+fi
+# SIGTERM, then SIGKILL whatever is left, and wait until it is gone: a KoEnJa still running would
+# keep the old code, and registering may start one.
+pkill -x KoEnJa 2>/dev/null || true
+i=0; while pgrep -x KoEnJa >/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+pkill -9 -x KoEnJa 2>/dev/null || true
+i=0; while pgrep -x KoEnJa >/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+user=$(stat -f %Su /dev/console)
+if [ -n "$user" ] && [ "$user" != root ]; then
+  uid=$(id -u "$user")
+  as_user() { launchctl asuser "$uid" sudo -u "$user" "$@"; }
+  # The user's bundle (get.sh's model): the updater replaces its Contents without a password.
+  chown -R "$user" "$app" 2>/dev/null || true
+  lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+  # Let LaunchServices take in the changed bundle first: left to --register, the update ran
+  # asynchronously beside its TISRegisterInputSource, failed, and the source was gone after.
+  as_user "$lsregister" -f "$app" 2>/dev/null || true
+  # Then register until a fresh process sees the source (its list is cached per process);
+  # that can take 10–30 s.
+  i=0
+  while [ $i -lt 30 ]; do
+    as_user "$app/Contents/MacOS/KoEnJa" --register || true
+    as_user "$app/Contents/MacOS/KoEnJa" --registered && break
+    sleep 1; i=$((i+1))
+  done
+  # A copy earlier versions put in ~/Library/Input Methods is the same input method twice, and
+  # macOS may launch that one: the package's copy replaces it (settings live elsewhere and stay).
+  # Only after registering this copy: removed first, it takes the input source (and the user's
+  # choice to use it) with it, and KoEnJa is gone from the input menu until it is added again.
+  # dscacheutil, not dscl | awk: dscl puts a home with a space on a line of its own.
+  home=$(dscacheutil -q user -a name "$user" | sed -n 's/^dir: //p' | head -1)
+  if [ -n "$home" ] && [ -d "$home/Library/Input Methods/KoEnJa.app" ]; then
+    as_user "$lsregister" -u "$home/Library/Input Methods/KoEnJa.app" 2>/dev/null || true
+    rm -rf "$home/Library/Input Methods/KoEnJa.app"
+  fi
+  as_user killall TextInputMenuAgent 2>/dev/null || true
+  # The switch indicator by the caret keeps the icon it read first (they ignore SIGTERM).
+  as_user killall -KILL CursorUIViewService TextInputSwitcher 2>/dev/null || true
+fi
+exit 0

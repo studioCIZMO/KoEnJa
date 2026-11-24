@@ -74,7 +74,11 @@ enum Uninstaller {
         let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
         // The one behind the password prompt first, and each copy unregistered only once it is
         // gone: Cancel there then leaves both copies installed and registered, as they were.
-        let writable = { (copy: URL) in FileManager.default.isWritableFile(atPath: copy.deletingLastPathComponent().path) }
+        // The installer package's copy is the user's too (postinstall hands it over, as get.sh
+        // does), but its receipt is root's: it goes behind the password prompt, with the receipt.
+        let writable = { (copy: URL) in
+            FileManager.default.isWritableFile(atPath: copy.deletingLastPathComponent().path) && !hasReceipt(copy)
+        }
         for copy in installedCopies.sorted(by: { !writable($0) && writable($1) }) {
             if writable(copy) {
                 try FileManager.default.removeItem(at: copy)
@@ -103,6 +107,19 @@ enum Uninstaller {
         // (the indicator ignores SIGTERM), as scripts/pkg/postinstall does after installing.
         launch("/usr/bin/killall", ["TextInputMenuAgent"])
         launch("/usr/bin/killall", ["-KILL", "CursorUIViewService", "TextInputSwitcher"])
+    }
+
+    /// Whether the package that put `copy` there left its receipt (`pkgutil --pkg-info`).
+    private static func hasReceipt(_ copy: URL) -> Bool {
+        let receipt = Predecessor.all.first { $0.appName == copy.lastPathComponent }?.packageID ?? packageID
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/pkgutil")
+        process.arguments = ["--pkg-info", receipt]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 
     /// /Library needs an administrator: macOS's own password prompt, through AppleScript.

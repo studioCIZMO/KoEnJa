@@ -6,6 +6,10 @@ import SeamtypeCore
 /// the input menu and in About, with what changed in it (the release notes' first section), whose Install button
 /// downloads `KoEnJa-Mac.zip` and replaces this copy with it (`install()`). Nothing installs on its own unless
 /// "Install updates automatically" is on: then the input method installs what its daily check finds.
+/// A copy this process can't replace (root's, from the installer package run by another account,
+/// or one macOS's App Management keeps it from) gets `KoEnJa.pkg` instead, as Araso does: downloaded,
+/// checked for CIZMO's Developer ID Installer signature and notarization, and opened in Installer,
+/// where macOS asks for the password.
 ///
 /// The input method and the settings window are separate processes; what the last check found is
 /// shared through the bundle's user defaults.
@@ -20,6 +24,8 @@ final class Updater: ObservableObject {
     @Published private(set) var state = State.idle
     /// A release newer than this copy, from the last check by either process.
     @Published private(set) var available: Release?
+    /// The same release's installer package (`KoEnJa.pkg`), for a copy get.sh can't replace.
+    @Published private(set) var installer: URL?
 
     private static let gitHub = URL(string: "https://api.github.com/repos/studioCIZMO/KoEnJa/releases/latest")!
     /// GitHub's latest release, or, for trying an update before it is published (drafts aren't
@@ -29,11 +35,13 @@ final class Updater: ObservableObject {
     private static var latest: URL {
         UserDefaults.standard.string(forKey: "updateFeed").flatMap(URL.init(string:)) ?? gitHub
     }
-    /// KoEnJa: the release's Mac download; a release without one (Windows, Android only) is no update.
-    private static let asset = "KoEnJa-Mac.zip"
+    /// KoEnJa: the release's Mac downloads; a release with neither (Windows, Android only) is no update.
+    private static let zip = "KoEnJa-Mac.zip", pkg = "KoEnJa.pkg"
+    nonisolated private static let teamID = "N723QM4R64"
     private static let interval: TimeInterval = 24 * 60 * 60
     private enum Key {
         static let checked = "updateLastCheck", version = "updateVersion", package = "updatePackage", page = "updatePage", notes = "updateNotes"
+        static let installer = "updateInstaller"
     }
 
     static var currentVersion: String {
@@ -48,21 +56,22 @@ final class Updater: ObservableObject {
     /// is nothing to install or it failed (the input method has no window of its own).
     private var fromMenu = false
 
-    private init() { available = Self.stored() }
+    private init() { (available, installer) = Self.stored() }
 
     /// What the last check found, if it is still newer than this copy.
-    private static func stored() -> Release? {
+    private static func stored() -> (Release?, URL?) {
         let defaults = UserDefaults.standard
         guard let version = defaults.string(forKey: Key.version),
               let package = defaults.string(forKey: Key.package).flatMap(URL.init(string:)),
-              Release.isNewer(version, than: currentVersion) else { return nil }
-        return Release(version: version, package: package,
-                       page: defaults.string(forKey: Key.page).flatMap(URL.init(string:)),
-                       notes: defaults.stringArray(forKey: Key.notes) ?? [])
+              Release.isNewer(version, than: currentVersion) else { return (nil, nil) }
+        return (Release(version: version, package: package,
+                        page: defaults.string(forKey: Key.page).flatMap(URL.init(string:)),
+                        notes: defaults.stringArray(forKey: Key.notes) ?? []),
+                defaults.string(forKey: Key.installer).flatMap(URL.init(string:)))
     }
 
     /// Reads again what the last check found, which the other process may have written.
-    func refresh() { available = Self.stored() }
+    func refresh() { (available, installer) = Self.stored() }
 
     /// The input method: a check a minute after it starts, then wake-ups every 10 minutes that check only
     /// once a day has passed, while the setting is on.
@@ -116,24 +125,27 @@ final class Updater: ObservableObject {
         URLSession.shared.dataTask(with: request) { data, response, error in
             // A file (the updateFeed override) has no HTTP status.
             let status = (response as? HTTPURLResponse)?.statusCode ?? 200
-            let release = data.flatMap { Release(gitHubJSON: $0, asset: Self.asset) }
-            let noMac = data.map { Release.lacks(Self.asset, gitHubJSON: $0) } ?? false
+            // The zip is what get.sh installs; a release with only the package is still an update.
+            let installer = data.flatMap { Release(gitHubJSON: $0, asset: Self.pkg) }
+            let release = data.flatMap { Release(gitHubJSON: $0, asset: Self.zip) } ?? installer
+            let noMac = data.map { Release.lacks(Self.zip, gitHubJSON: $0) && Release.lacks(Self.pkg, gitHubJSON: $0) } ?? false
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    Updater.shared.finishCheck(release, failed: error != nil || status != 200, noMac: noMac)
+                    Updater.shared.finishCheck(release, installer: installer?.package, failed: error != nil || status != 200, noMac: noMac)
                 }
             }
         }.resume()
     }
 
-    private func finishCheck(_ release: Release?, failed: Bool, noMac: Bool) {
+    private func finishCheck(_ release: Release?, installer: URL?, failed: Bool, noMac: Bool) {
         guard state == .checking else { return } // an install started meanwhile owns the state
         let defaults = UserDefaults.standard
         if !failed, release == nil, noMac {
             // The check counts, so it isn't made again every hour; nothing kept from an earlier one.
             defaults.set(Date(), forKey: Key.checked)
-            for key in [Key.version, Key.package, Key.page, Key.notes] { defaults.removeObject(forKey: key) }
+            for key in [Key.version, Key.package, Key.page, Key.notes, Key.installer] { defaults.removeObject(forKey: key) }
             available = nil
+            self.installer = nil
             state = .upToDate
             menuDone()
             return
@@ -148,7 +160,9 @@ final class Updater: ObservableObject {
         defaults.set(release.package.absoluteString, forKey: Key.package)
         defaults.set(release.page?.absoluteString, forKey: Key.page)
         defaults.set(release.notes, forKey: Key.notes)
+        defaults.set(installer?.absoluteString, forKey: Key.installer)
         available = Release.isNewer(release.version, than: Self.currentVersion) ? release : nil
+        self.installer = available == nil ? nil : installer
         state = available == nil ? .upToDate : .idle
         if fromMenu, available != nil {
             install()
@@ -170,12 +184,16 @@ final class Updater: ObservableObject {
     /// KoEnJa: downloads `KoEnJa-Mac.zip` and installs it with the bundled get.sh, which checks
     /// that the app is CIZMO's and notarized before it replaces this copy's Contents, then stops the
     /// old one (macOS starts the new one on the next key) and registers the new one. No password:
-    /// the user owns the bundle. A copy that isn't theirs gets the release page instead.
+    /// the user owns the bundle. A copy that isn't theirs gets the installer package
+    /// (`installPackage`), or the release page when the release has none.
     func install() {
         guard let release = available, state != .downloading, state != .checking else { return }
-        guard Self.replaceable, let script = Bundle.main.url(forResource: "get", withExtension: "sh") else {
-            NSWorkspace.shared.open(release.page ?? release.package)
-            fromMenu = false // the release page is the outcome
+        guard Self.replaceable, release.package.lastPathComponent == Self.zip,
+              let script = Bundle.main.url(forResource: "get", withExtension: "sh") else {
+            if let installer { installPackage(installer, version: release.version) } else {
+                NSWorkspace.shared.open(release.page ?? release.package)
+                fromMenu = false // the release page is the outcome
+            }
             return
         }
         state = .downloading
@@ -189,7 +207,7 @@ final class Updater: ObservableObject {
         }.resume()
     }
 
-    enum InstallFailure { case download, unsigned, other }
+    enum InstallFailure { case download, unsigned, locked, other }
 
     /// Runs get.sh on the downloaded zip; nil when it installed. Its output goes to a file, not a
     /// pipe: get.sh stops this process, and a pipe with no reader would stop get.sh with it. A
@@ -215,7 +233,9 @@ final class Updater: ObservableObject {
         guard (try? process.run()) != nil else { return .other }
         process.waitUntilExit()
         let said = (try? String(contentsOf: log, encoding: .utf8)) ?? ""
-        return process.terminationStatus == 0 ? nil : said.contains("isn't signed") ? .unsigned : .other
+        if process.terminationStatus == 0 { return nil }
+        if said.contains("isn't signed") { return .unsigned }
+        return said.contains("can't be changed from here") ? .locked : .other
     }
 
     private func finishInstall(_ failure: InstallFailure?) {
@@ -223,8 +243,71 @@ final class Updater: ObservableObject {
         case nil: state = .idle
         case .download: state = .failed(L("Couldn't download the update. Try again later."))
         case .unsigned: state = .failed(L("The download isn't KoEnJa signed by CIZMO and notarized, so nothing was installed."))
+        case .locked:
+            // macOS's App Management kept get.sh from the bundle: the installer package, with
+            // the password prompt, is the way in.
+            if let installer, let release = available {
+                state = .idle
+                installPackage(installer, version: release.version)
+                return
+            }
+            state = .failed(L("Couldn't install the update."))
         case .other: state = .failed(L("Couldn't install the update."))
         }
         menuDone() // a successful install stops this process first
+    }
+
+    /// Araso's way: downloads the installer package into ~/Downloads, checks that it is signed
+    /// with CIZMO's Developer ID Installer certificate and notarized, and opens it in Installer.
+    private func installPackage(_ package: URL, version: String) {
+        state = .downloading
+        URLSession.shared.downloadTask(with: package) { file, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? 200
+            var saved: URL?
+            if let file, error == nil, status == 200 {
+                let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                    ?? FileManager.default.temporaryDirectory
+                let target = downloads.appendingPathComponent("KoEnJa-\(version).pkg")
+                try? FileManager.default.removeItem(at: target)
+                if (try? FileManager.default.moveItem(at: file, to: target)) != nil { saved = target }
+            }
+            // Checked here, off the main thread: pkgutil may ask Apple about notarization.
+            let signed = saved.map(Self.isSignedByCIZMO) ?? false
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { Updater.shared.finishPackage(saved, signed: signed) }
+            }
+        }.resume()
+    }
+
+    private func finishPackage(_ package: URL?, signed: Bool) {
+        guard let package else {
+            state = .failed(L("Couldn't download the update. Try again later."))
+            menuDone()
+            return
+        }
+        guard signed else {
+            try? FileManager.default.removeItem(at: package)
+            state = .failed(L("The downloaded installer isn't signed by CIZMO and notarized, so it was deleted."))
+            menuDone()
+            return
+        }
+        state = .idle
+        fromMenu = false // Installer is the outcome
+        NSWorkspace.shared.open(package)
+    }
+
+    /// `pkgutil --check-signature`: a Developer ID Installer certificate with CIZMO's team,
+    /// notarized by Apple.
+    nonisolated private static func isSignedByCIZMO(_ package: URL) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/pkgutil")
+        process.arguments = ["--check-signature", package.path]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        process.waitUntilExit()
+        return process.terminationStatus == 0 && Release.isSigned(pkgutilOutput: output, team: teamID)
     }
 }

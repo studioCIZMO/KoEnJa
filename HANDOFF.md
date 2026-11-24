@@ -7,10 +7,10 @@
 
 | 플랫폼 | 공개 버전 | 이 커밋의 버전 | 상태 |
 |---|---|---|---|
-| Mac 입력기 | 0.3.13 (GitHub v0.3.13, Latest, 11/18) | 0.3.13 (16) | 공개됨; 이 Mac에는 /Library/Input Methods에 설치 |
+| Mac 입력기 | 0.3.13 (GitHub v0.3.13, Latest, 11/18) | **0.3.14 (17)** | 공증 빌드 .build/mac0314(notarized, release/: zip ×2 + **KoEnJa.pkg**(미서명: Developer ID Installer 인증서·notarytool 자격 증명이 이 Mac에 없음)). v0.3.14 공개는 사용자 확인 후 |
 | iOS 키보드 | 1.0.5 (App Store), 1.0.6 (16) 심사 중, 1.0.7 (17) TestFlight | **1.0.8 (18)** | 11/23 ASC 업로드(비밀번호 칸 학습 차단, 개인 교정 원문 보존, 오타 기록 백업 제외). 1.0.7: 키 라벨, 여백 귀속, ⌫ 교정 터치 학습, 개인 교정, 오타 기록 |
 | Android 키보드 | **0.2.7 (9) Play 공개(11/23)**, APK 0.2.7 (GitHub v0.3.13) | **0.2.8 (10)** 빌드 완료(.build/KoEnJa-Android-0.2.8.aab/.apk) | 0.2.8: 비밀번호 칸 학습·추천·자동 고침 차단(Codex P1), 개인정보 안내+처리방침 링크(Play 정책, P1), 단축어 총량 한도 = 복원 한도. Play 업로드는 사용자 확인 후 |
-| Windows 입력기 | 0.3.3 (GitHub v0.3.13, 11/18; 0.3.2 에셋은 내림) | 0.3.3 | 공개됨 |
+| Windows 입력기 | 0.3.3 (GitHub v0.3.13, 11/18; 0.3.2 에셋은 내림) | **0.3.4** | 이슈 #1(LINE에서 한글 뒤 Space/Enter 사라짐) 수정: 커밋 뒤 통과 키를 SendInput으로 재전송(Tip.cpp replay). CI가 KoEnJa-Setup-0.3.4.exe 생성 |
 
 엔진·Mac 기준 = **Araso 0.6.2 = 97e0075** (11/24 확인: b19e054 뒤 커밋은 0.6.2 버전 올림(Info.plist)만이라 코드 변경 없음, UPSTREAM 표식만 갱신). b19e054 동기화 내용(0.6.1 → main 3커밋, 2026-11-14):
 - 엔진(Swift): 전환 키로 고른 읽기를 그 글자들만 즉시 학습(`switchedKeys`/`switchLearned`/`learnSwitchBeforeMore`), ↑/↓는 커서가 단어 끝일 때만(`listApplies`), 전각 스페이스 뒤 `noteRun`, `rememberedLanguage(keys, app:)`, `vimSignal`.
@@ -29,6 +29,7 @@
 - Apple: 팀 **CIZMO, K.K. (N723QM4R64)**. ASC 앱 KoEnJa id 6824875642(com.cizmo.koenja / .keyboard, group.com.cizmo.koenja). Mac 번들 com.cizmo.inputmethod.KoEnJa. Xcode는 **릴리스판만**(beta SDK 업로드는 ASC가 거절). TestFlight 내부 그룹 "CIZMO"(cizmode@gmail.com, netmaru@gmail.com). iPad는 팀에 기기 등록 불가 → TestFlight로 테스트.
 - Google Play: CIZMO 개발자 계정, 앱 id 4972872594954085273, 패키지 com.cizmo.koenja(Kotlin 패키지는 com.netmaru.rea). 관리형 게시. **업로드 키 `~/.koenja/upload.jks` + `upload.properties`는 이 Mac에만 있음 → 새 PC로 안전하게 옮길 것(커밋·출력 금지).** AAB 업로드는 사용자가 Play Console에 직접 드래그(10MB 넘어 브라우저 도구 불가).
 - Windows 서명: 미서명(SmartScreen 경고). SignPath Foundation 신청 계획, LP에 Code signing policy 섹션 있음.
+- Windows 테스트 PC로 소스 보내기: `COPYFILE_DISABLE=1 tar czf … --exclude='._*'`(AppleDouble `._*.cpp`가 섞이면 MSVC가 C2018로 실패) → scp → `tar -xzf` → `Windows\tip\build.cmd`.
 - 클라우드 루틴(claude.ai/code/routines): `trig_017ohTsEDwDRCaas6G3ycafQ` 월·목 10:00 JST Araso 새 커밋 검토 → `araso-sync/<sha>` 브랜치에 DRAFT PR; `trig_01EHTadrwBwMTnnDPEkrMrKb` 월 09:00 JST 이슈·다운로드 집계 보고(읽기 전용).
 
 ## 3. 개발 환경
@@ -54,15 +55,19 @@ clang++ -std=c++20 -O2 -Wall -ffp-contract=off Windows/engine/src/*.cpp Windows/
 ### Codex 리뷰(모든 변경에 1회)
 `codex exec --sandbox read-only -C <repo> --skip-git-repo-check -o out.md "<프롬프트>"`. codex는 nvm 아래(`~/.nvm/versions/node/*/bin/codex`) — 에이전트 셸에 PATH가 없으면 직접 경로로.
 
-### Mac 릴리스 (0.3.13)
+### Mac 릴리스 (0.3.14)
 ```sh
-cd Mac && xcodegen && M=$PWD/../.build/mac0313 && mkdir -p $M
+cd Mac && xcodegen && M=$PWD/../.build/mac0314 && mkdir -p $M
 xcodebuild archive -project KoEnJaMac.xcodeproj -scheme KoEnJa -configuration Release -archivePath $M/KoEnJa.xcarchive -allowProvisioningUpdates
 xcodebuild -exportArchive -archivePath $M/KoEnJa.xcarchive -exportOptionsPlist export.plist -exportPath $M/export   # 공증 업로드
 while ! xcodebuild -exportNotarizedApp -archivePath $M/KoEnJa.xcarchive -exportPath $M/notarized 2>/dev/null; do sleep 30; done
 xcrun stapler validate $M/notarized/KoEnJa.app && spctl -a -vv $M/notarized/KoEnJa.app
-(cd $M/notarized && ditto -c -k --keepParent KoEnJa.app ../KoEnJa-Mac-0.3.13.zip && cp ../KoEnJa-Mac-0.3.13.zip ../KoEnJa-Mac.zip)
+sh Mac/lsclean.sh
+# zip ×2 + KoEnJa{,-<ver>}.pkg (Mac/release.sh; Mac/pkg/postinstall, Mac/Distribution.xml). 서명·공증은 환경 변수가 있을 때만:
+KOENJA_PKG_SIGN="Developer ID Installer: CIZMO, K.K. (N723QM4R64)" KOENJA_NOTARY_PROFILE=koenja zsh Mac/release.sh $M/notarized/KoEnJa.app $M/release
 ```
+**pkg 서명 준비(1회, 사용자)**: Xcode → Settings → Accounts → CIZMO, K.K. → Manage Certificates → + → **Developer ID Installer**(Account Holder만 만들 수 있음) → `security find-identity -v -p basic`에 "Developer ID Installer: CIZMO, K.K." 확인. 공증 자격: ASC → Users and Access → Integrations → App Store Connect API → Team Keys → 생성(Developer) → .p8 내려받아 `xcrun notarytool store-credentials koenja --key <p8> --key-id <ID> --issuer <ISSUER>`(또는 Apple ID + 앱 암호). 둘이 없으면 pkg는 미서명(Gatekeeper가 거절) → 릴리스에 올리지 말 것. zip은 Xcode 경로로 이미 공증됨.
+**설치 모델**: pkg도 get.sh도 `/Library/Input Methods/KoEnJa.app`을 **사용자 소유**로 둠(postinstall이 chown) → 앱 안의 Updater가 암호 없이 zip으로 교체. 교체가 안 되는 복사본(루트 소유, App Management 거부 = get.sh "can't be changed from here")은 Updater가 `KoEnJa.pkg`를 ~/Downloads에 받아 `pkgutil --check-signature`(Developer ID Installer + 공증, 팀 N723QM4R64) 확인 뒤 Installer로 연다(Araso 방식). 제거: 영수증(`com.cizmo.inputmethod.KoEnJa.pkg`)이 있으면 Uninstaller가 관리자 경로로 지우며 `pkgutil --forget`.
 **규칙**: Mac 업데이터는 "최신 릴리스 태그"를 자기 버전과 비교함 → **Mac 빌드 없는 새 태그 금지**. 다른 플랫폼만 바뀌면 현재 릴리스에 에셋 추가.
 
 ### Windows
@@ -106,7 +111,7 @@ gh release create v0.3.13 -R studioCIZMO/KoEnJa --target main --title "KoEnJa 0.
 6. **오타 고치기(SlipGuesser) 모바일 이식 — 사용자 승인(11/18)**: 역할 분담은 "스페이스 자동 교정은 기존 `Suggestions`, 전환 키 길게 누름 후보는 SeamtypeCore `SlipGuesser`". iOS 먼저: 한あA 길게 누름(0.5 s) → `Key.guess`, `session.guesses`를 후보 바에 표시(바뀐 글자 강조)·탭으로 `pickGuess`, `fixSlips` 설정 토글(기본 꺼짐) + ko/ja/en 문구, `InputSession` 생성 시 `fixSlips` 전달. 그다음 Android: `SlipGuesser` Kotlin 이식(약 400줄 + `KoreanModel.vocabularyCount`/`knowsSyllableIncludingRare`, SlipTests 이식), Windows C++도 동일, 골든에 오타 케이스 추가, 앱의 길게 누름·후보 바·설정.
 7. **학습 스위치(11/23, Codex 최종 리뷰 P1)**: `DictionaryEngine.learning`(Swift/Kotlin/C++)과 변환기 `learning`(AzooKeyConverter/MozcConverter, C++는 베이스 플래그만)을 비밀번호·OTP 칸에서 false로. iOS `applySensitive()`(세션 재생성 뒤에도), Android `Typist.sensitive`(서비스가 start 전에 설정) + 추천·자동 고침 생략. 골든 영향 없음(테스트: ConversionAfterSwitchTests / UserDictionaryTest / session_test). 남은 리뷰 지적: Windows TIP은 아직 비밀번호 필드(GUID_PROP_… / IS_PASSWORD)를 엔진에 전달하지 않음 → 다음 Windows 릴리스에서 `engine->learning` 연결.
 8. **iOS 터치 오타(ㅜㅡㅏㅣ 쪽) 조정 — 11/23**: 사용자 아이폰은 스토어 빌드라 trace.log(DEBUG 전용)도 App Group 학습 데이터도 꺼낼 수 없음(devicectl은 개발자 서명 앱 컨테이너만). 대신 1.0.7에 ⌫ 교정 학습(`learnFromBackspace`: 글자 → ⌫ → 이웃 키, 첫 터치가 그 키 쪽으로 1/4 이상 치우친 경우만 `TouchCalibration` 샘플; `neighborReach` 60 pt×scale)을 넣음. 8샘플부터 키 영역이 이동(최대 30%). 수치 조정이 더 필요하면 Debug 빌드를 실기기에 깔아 `TOUCH`/`NEAR`/`LEARN-BS` 트레이스를 모아 `touchShift`·`correctionShift`를 맞출 것. 키 라벨은 영문·한글 17 pt semibold 둘 다(42 pt 키에 두 줄 한계). **오타 기록(SlipLog)**: 릴리스 빌드에서도 App Group `slips.log`에 SLIP(⌫ 재입력: 잘못 누른 키→맞는 키, 잘못 누른 키 중심 기준 dx dy, toward, learned 여부)·NEAR(틈 터치 재배정)·EDGE(가장자리 보정 적용)·PICK/FIX(후보·자동 고침)·LEARN을 기록(비밀 입력란 제외, 256 KB 넘으면 앞 절반 삭제). 앱 오타 도움 → 오타 기록에서 키 쌍 집계·공유(ShareLink)·비우기. **가장자리(11/23)**: 시스템 키보드 측정(UITests/HitAreas `testSystemKeyboardEdges`, TEST_RUNNER_HIT_AREAS=1): a·l·p는 화면 끝(x=2, 400)까지 자기 키, 틈 한가운데는 무입력. 우리 것도 `KeyStack.ownsMargin`으로 줄 끝 키가 옆 여백을 가짐(단위 테스트 `testMarginsBelongToEndKeys`). **개인 교정(PersonalFixes, 11/23)**: 단어의 최장 키열(`longestKeys`, `follow`가 ⌫ 동안 유지)과 Space 시점 키열이 편집거리 ≤2·서로 접두어 아님이면 기록, 3회부터 `personalFix()`가 Space 교정·후보 첫째(한국어는 compose, 일본어·연락처 이름 제외). App Group `personalFixes`, 앱 오타 기록 → 내가 고친 단어에서 삭제. 다음 단계 후보: 적용된 교정을 바로 ⌫하면 거부(veto) 학습, 교정 적용 횟수 기록. 사용자가 TestFlight로 쓰다 공유해 주면 SLIP 줄의 dx/dy 분포로 ㅏㅣㅜㅡ(k l n m) 쪽 `touchShift`·`correctionShift`·키별 기본 오프셋을 정할 것.
-9. 보류: GitHub 릴리스에 남아 있는 옛 APK(0.2.4) 교체 여부; Threads 홍보 글은 사용자가 올림; Mac 입력기 회색 현상 재발 추적.
+9. **GitHub 이슈 #1(11/18, Windows 0.3.2, LINE)**: 한국어 단어 뒤 Space/Enter가 앱에 안 들어가고 확정 상태로 남음. 원인: OnTestKeyDown이 eaten=TRUE(단어를 먼저 넣어야 하므로), OnKeyDown이 eaten=FALSE로 통과시키는데, IMM32로 TSF를 쓰는 앱(CUAS; LINE은 Qt)은 그 키를 VK_PROCESSKEY로 받아 잃음(Chromium/WinUI 앱은 괜찮음). 수정(0.3.4): Araso TIP처럼 통과 키를 eaten=TRUE로 먹고 커밋 뒤 SendInput으로 재전송(`Tip::replay`; 포그라운드 창이 이 프로세스일 때만 — tip_test 하네스는 창이 없어 예전 경로 유지), 되돌아온 키는 1초 안·입력 중 아님이면 통과(`isReplayed`, OnKeyDown에서 잊음). 실제 LINE에서는 미확인 → 릴리스 뒤 이슈에 0.3.4로 확인 요청 댓글(사용자 확인 후 게시). 보류: GitHub 릴리스에 남아 있는 옛 APK(0.2.4) 교체 여부; Threads 홍보 글은 사용자가 올림; Mac 입력기 회색 현상 재발 추적.
 10. 열린 품질 이슈: iOS 시뮬레이터 UI TypingTests 불안정(실기기/TestFlight로 판단), Mozc 변환 순위(kinou→機能 등), 포트에 없는 기능(fixing, readings 화살표, 앱별 기억). 경쟁앱 Kej 분석에서 가져올 것: 키보드 높이·위치, 키 간격, 근접키 보정, Space 스와이프 후보 선택, 설정 백업.
 
 ## 6. Codex 리뷰 프롬프트 요지 (이 커밋용)
