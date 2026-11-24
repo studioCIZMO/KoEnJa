@@ -12,7 +12,7 @@
 | Android 키보드 | **0.2.7 (9) Play 공개(11/23)**, APK 0.2.7 (GitHub v0.3.13) | **0.2.8 (10)** 빌드 완료(.build/KoEnJa-Android-0.2.8.aab/.apk) | 0.2.8: 비밀번호 칸 학습·추천·자동 고침 차단(Codex P1), 개인정보 안내+처리방침 링크(Play 정책, P1), 단축어 총량 한도 = 복원 한도. Play 업로드는 사용자 확인 후 |
 | Windows 입력기 | 0.3.3 (GitHub v0.3.13, 11/18; 0.3.2 에셋은 내림) | 0.3.3 | 공개됨 |
 
-이 커밋 = **Araso main b19e054 동기화** (0.6.1 → main 3커밋, 2026-11-14):
+엔진·Mac 기준 = **Araso 0.6.2 = 97e0075** (11/24 확인: b19e054 뒤 커밋은 0.6.2 버전 올림(Info.plist)만이라 코드 변경 없음, UPSTREAM 표식만 갱신). b19e054 동기화 내용(0.6.1 → main 3커밋, 2026-11-14):
 - 엔진(Swift): 전환 키로 고른 읽기를 그 글자들만 즉시 학습(`switchedKeys`/`switchLearned`/`learnSwitchBeforeMore`), ↑/↓는 커서가 단어 끝일 때만(`listApplies`), 전각 스페이스 뒤 `noteRun`, `rememberedLanguage(keys, app:)`, `vimSignal`.
 - Mac 앱: InputController(vimSignal 재전송, learned 변경 시 syncStrip), Updater(Mac 빌드 없는 릴리스 = 최신 처리, 저장 키 삭제), Uninstaller(rm && pkgutil --forget).
 - Kotlin/C++ 포트: 위 학습 변경만 손으로 포팅. 포트는 의도적으로 fixing, readings arrows, per-app rememberedLanguage, vimSignal 없음.
