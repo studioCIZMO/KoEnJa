@@ -15,10 +15,10 @@ let vimNotification = Notification.Name("com.cizmo.inputmethod.KoEnJa.vimMode")
 // a second IMKServer: it can't get the connection name but keeps running, and apps launched after
 // it quits never reach the input method until Araso restarts (#23). Only `--` flags: macOS may
 // pass its own (`-psn_…`, `-AppleLanguages`).
-let knownFlags: Set = ["--vim", "--app", "--settings", "--register", "--registered", "--uninstall",
-                       "--delete-data", "--selftest"]
+let knownFlags: Set = ["--vim", "--app", "--settings", "--register", "--registered", "--reselect",
+                       "--uninstall", "--delete-data", "--selftest"]
 if CommandLine.arguments.dropFirst().contains(where: { $0.hasPrefix("--") && !knownFlags.contains($0) }) {
-    print("usage: KoEnJa [--vim insert|normal|off [--app <bundle id>] | --settings [tab] | --register | --registered | --uninstall [--delete-data] | --selftest]")
+    print("usage: KoEnJa [--vim insert|normal|off [--app <bundle id>] | --settings [tab] | --register | --registered | --reselect | --uninstall [--delete-data] | --selftest]")
     exit(2)
 }
 
@@ -56,6 +56,32 @@ if CommandLine.arguments.contains("--register") {
 // `Araso --registered`: exit 0 if macOS lists the input source (for the pkg's postinstall).
 if CommandLine.arguments.contains("--registered") {
     exit(MainActor.assumeIsolated { Registration.isListed() } ? 0 : 1)
+}
+
+// `Araso --reselect`: after an update stopped the old process, apps that were typing through it
+// keep a session with a process that is gone: their keys go nowhere and the input menu shows no
+// items while they are in front (Slack, LINE), until the input source changes. Switching to
+// another source and back tells every app, and each one opens a session with the new process.
+// Run by get.sh and the pkg's postinstall once the new copy is registered; nothing is done
+// when KoEnJa isn't the source in use.
+if CommandLine.arguments.contains("--reselect") {
+    MainActor.assumeIsolated {
+        guard ArasoSource.isCurrent, let other = Uninstaller.fallbackSource() else { exit(0) }
+        guard TISSelectInputSource(other) == noErr, !ArasoSource.isCurrent else {
+            print("could not switch away from KoEnJa")
+            exit(1)
+        }
+        // Two switches in one instant can reach an app as none: the first is let land.
+        Thread.sleep(forTimeInterval: 0.5)
+        // Back only if nothing else chose a source meanwhile (a document with its own, the user).
+        let otherID = TISGetInputSourceProperty(other, kTISPropertyInputSourceID)
+            .map { Unmanaged<CFString>.fromOpaque($0).takeUnretainedValue() as String }
+        guard ArasoSource.currentID == otherID else { exit(0) }
+        ArasoSource.select()
+        Thread.sleep(forTimeInterval: 0.5)
+        print(ArasoSource.isCurrent ? "reselected KoEnJa" : "could not reselect KoEnJa")
+        exit(ArasoSource.isCurrent ? 0 : 1)
+    }
 }
 
 // `Araso --uninstall [--delete-data]`: what About's Uninstall… does, for the install scripts.
