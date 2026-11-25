@@ -244,6 +244,28 @@ final class KeyboardTests: XCTestCase {
         print("REA memory: kanji converter ≈ \(footprintMB() - start) MB (process total \(footprintMB()) MB)")
     }
 
+    /// The app's strings are written in Korean; en.lproj and ja.lproj translate them. A Korean phone
+    /// still needs a ko.lproj table, or the bundle falls back to the development language (English),
+    /// so ko.lproj/Localizable.strings maps every key to itself and must list every key en.lproj has.
+    func testKoreanStringsMirrorEnglishKeys() throws {
+        let app = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("App")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: app.path), "the sources are on the build machine only")
+        func keys(_ lproj: String) throws -> [String: String] {
+            let text = try String(contentsOf: app.appendingPathComponent("\(lproj).lproj/Localizable.strings"), encoding: .utf8)
+            let pattern = try NSRegularExpression(pattern: #"^"((?:[^"\\]|\\.)*)"\s*=\s*"((?:[^"\\]|\\.)*)"\s*;"#, options: .anchorsMatchLines)
+            var found: [String: String] = [:]
+            for m in pattern.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                found[String(text[Range(m.range(at: 1), in: text)!])] = String(text[Range(m.range(at: 2), in: text)!])
+            }
+            return found
+        }
+        let en = try keys("en"), ko = try keys("ko"), ja = try keys("ja")
+        XCTAssertFalse(en.isEmpty)
+        for key in en.keys { XCTAssertEqual(ko[key], key, "ko.lproj lacks or changes \(key)") }
+        XCTAssertEqual(Set(ko.keys), Set(en.keys), "ko.lproj has keys en.lproj doesn't")
+        XCTAssertEqual(Set(ja.keys), Set(en.keys), "ja.lproj and en.lproj differ")
+    }
+
     /// Renders the keyboard at iPhone 17 Pro width; REA_SNAPSHOT=<path> saves it as PNG.
     func testLayoutKeysLineUp() throws {
         let keyboard = KeyboardViewController()
