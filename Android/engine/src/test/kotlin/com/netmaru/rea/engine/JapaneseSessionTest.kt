@@ -31,6 +31,8 @@ class JapaneseSessionTest {
             "3じ" -> listOf(ConversionCandidate("三時", 2), ConversionCandidate("３時", 2), ConversionCandidate("3時", 2),
                             ConversionCandidate("3", 1))
             "やま" -> listOf(ConversionCandidate("山😀", 2), ConversionCandidate(kana, 2))
+            "かわ" -> listOf(ConversionCandidate("ｶﾞ", 2), ConversionCandidate(kana, 2))
+            "そら" -> listOf(ConversionCandidate("ｶﾞﾅ", 2), ConversionCandidate(kana, 2))
             "かず" -> (1..12).map { ConversionCandidate("数$it", 2) }
             else -> listOf(ConversionCandidate(kana, kana.length))
         }
@@ -98,6 +100,61 @@ class JapaneseSessionTest {
         assertEquals("山", field.text) // not 山 and half of 😀
     }
 
+    /** The last character as Swift's dropLast() takes it: an extended grapheme cluster. */
+    @Test
+    fun dropLastCharacterTakesAGraphemeCluster() {
+        val drop = InputSession::dropLastCharacter
+        assertEquals("山", drop("山葛\uDB40\uDD00"))                 // an ideographic variation selector (U+E0100)
+        assertEquals("山", drop("山👩🏽"))                             // a skin tone
+        assertEquals("山", drop("山👨\u200D👩\u200D👧"))             // a ZWJ family
+        assertEquals("", drop("ｶﾞ"))
+        assertEquals("ｶﾞ", drop("ｶﾞﾅ"))
+        assertEquals("山", drop("山か\u3099"))                       // か + combining dakuten (NFD が)
+        assertEquals("A\n", drop("A\n\u0301"))                      // a mark after a newline is a character of its own
+        assertEquals("山🇯🇵", drop("山🇯🇵🇰🇷"))                         // flags: regional indicators in pairs
+        assertEquals("a", drop("a\r\n"))
+        assertEquals("한", drop("한\u1100\u1161\u11A8"))
+        assertEquals("", drop(""))
+        assertEquals("A\u21A0\u200D", drop("A\u21A0\u200D\u21A0"))  // ↠ isn't pictographic
+        assertEquals("A\u200B", drop("A\u200B\u0301"))              // ZWSP is a control
+        assertEquals("A", drop("Aका"))                               // a spacing mark joins
+    }
+
+    /** Unicode's GraphemeBreakTest.txt: each line less its last cluster. */
+    @Test
+    fun graphemeBreakTest() {
+        var lines = 0
+        for (raw in javaClass.getResource("/GraphemeBreakTest.txt")!!.readText().lines()) {
+            val line = raw.substringBefore('#')
+            if (line.isBlank()) continue
+            // ÷ before each cluster and at the end: the text less its last cluster ends at the one before last.
+            val text = StringBuilder()
+            val boundaries = ArrayList<String>()
+            for (field in line.trim().split(Regex("\\s+"))) {
+                when (field) {
+                    "÷" -> boundaries += text.toString()
+                    "×" -> {}
+                    else -> text.appendCodePoint(field.toInt(16))
+                }
+            }
+            assertEquals(boundaries.getOrElse(boundaries.size - 2) { "" }, InputSession.dropLastCharacter(text.toString()), raw)
+            lines++
+        }
+        assertEquals(1093, lines)
+    }
+
+    @Test
+    fun deleteInConversionDropsTheMarksWithTheCharacter() {
+        type("kawa ")
+        assertEquals("ｶﾞ", field.text)
+        session.handle(InputSession.Key.Delete, field)
+        assertEquals("", field.text) // ｶﾞ is one character, as in Swift
+        type("sora ")
+        assertEquals("ｶﾞﾅ", field.text)
+        session.handle(InputSession.Key.Delete, field)
+        assertEquals("ｶﾞ", field.text)
+    }
+
     @Test
     fun aDigitPicksFromThePageOnShow() {
         type("kazu ")
@@ -117,6 +174,24 @@ class JapaneseSessionTest {
         session.handle(InputSession.Key.Delete, field)
         assertEquals("変換3", field.text)
         assertNull(session.conversion)
+    }
+
+    /** Through its katakana form the number is part of the form's kana; Esc puts the kana in (the
+     *  keys no longer spell it) and the next Return is the app's, as in Swift. */
+    @Test
+    fun escapeOnTheFormOfANumberedPhrase() {
+        type("henkan ")
+        session.handle(InputSession.Key.Enter, field)
+        type("3ji ")
+        assertTrue(session.handle(InputSession.Key.Katakana, field))
+        assertEquals("変換3ジ", field.text)
+        assertEquals("3じ", session.conversion?.kana)
+        assertEquals("ji", session.conversion?.keys)
+        session.handle(InputSession.Key.Escape, field)
+        assertEquals("変換3じ", field.text)
+        assertNull(session.conversion)
+        assertEquals(TextRange.NOT_FOUND, field.marked.location)
+        assertFalse(session.handle(InputSession.Key.Enter, field))
     }
 
     @Test

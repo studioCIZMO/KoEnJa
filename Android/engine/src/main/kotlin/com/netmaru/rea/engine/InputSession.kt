@@ -24,6 +24,23 @@ interface TextClient {
     fun text(range: TextRange): String?
 }
 
+/** The field as a word typed with Caps Lock on sees it (Swift's CapsLockClient): ASCII letters go
+ *  in as capitals and read back in lower case, so a word just committed still matches what the
+ *  session inserted; Hangul, kana and everything else as they are. */
+class CapsLockClient(val base: TextClient) : TextClient {
+    override fun setMarkedText(text: String) = base.setMarkedText(capitals(text))
+    override fun setMarkedText(text: String, replacing: TextRange) = base.setMarkedText(capitals(text), replacing)
+    override fun insertText(text: String, replacing: TextRange?) = base.insertText(capitals(text), replacing)
+    override fun selectedRange() = base.selectedRange()
+    override fun markedRange() = base.markedRange()
+    override fun text(range: TextRange) = base.text(range)?.let(::lowercase)
+
+    companion object {
+        fun capitals(text: String) = String(CharArray(text.length) { text[it].let { c -> if (c in 'a'..'z') c - 32 else c } })
+        fun lowercase(text: String) = String(CharArray(text.length) { text[it].let { c -> if (c in 'A'..'Z') c + 32 else c } })
+    }
+}
+
 /**
  * Per-client typing state: the word being composed, the language of the previous
  * word, the last committed word (so the switch key right after a commit can change it), and
@@ -222,6 +239,27 @@ class InputSession(
         passedRun = null
         resetRun()
     }
+
+    /** Caps Lock was on when the word being typed (or the one just committed) started (Swift's capsWord). */
+    var capsWord = false
+        private set
+
+    /** [handle] for a key typed with Caps Lock on or off (Swift's handle(_:client:capsLock:)). The
+     *  letter comes in the case Shift alone gives it, so a word reads the same either way (GKAUS is
+     *  하면); what the word puts in the field goes through [cased]. Caps Lock changing inside a word
+     *  commits what came before, and a new word starts. (No 3-set here: only letters start a word.) */
+    fun handle(key: Key, client: TextClient, capsLock: Boolean): Boolean {
+        if (capsLock != capsWord && key is Key.Letter) {
+            // What came before goes in as it was shown, a candidate being chosen too, under the old
+            // state; then the new word takes the new one.
+            if (keys.isNotEmpty() || conversion != null) commit(cased(client))
+            if (keys.isEmpty() && conversion == null) capsWord = capsLock
+        }
+        return handle(key, cased(client))
+    }
+
+    /** The field as the word being typed sees it: through [CapsLockClient] when [capsWord]. */
+    fun cased(client: TextClient): TextClient = if (capsWord && client !is CapsLockClient) CapsLockClient(client) else client
 
     /** Returns true when the key was consumed. */
     fun handle(key: Key, client: TextClient): Boolean {
@@ -979,9 +1017,8 @@ class InputSession(
                 // Delete with live conversion off: the conversion on screen goes in less its last
                 // character (変換 → 変), as in macOS's Japanese input.
                 if (key == Key.Delete && !liveConversion) {
-                    val shown = conversion.display
-                    // The last character, both halves of a surrogate pair (山😀 → 山).
-                    val text = shown.dropLast(if (shown.length >= 2 && shown.last().isLowSurrogate()) 2 else 1)
+                    // The last character as Swift's dropLast() takes it (山😀 → 山, ｶﾞ → nothing).
+                    val text = dropLastCharacter(conversion.display)
                     client.insertText(text, null)
                     noteRun(text)
                     noteBrackets(text)
@@ -1128,6 +1165,18 @@ class InputSession(
         if (partial && d.language == Language.KOREAN && d.confidence < policy.conversionThreshold) {
             val now = engine.decide(keys, DecisionContext(previousLanguage, partial = false))
             if (now.language == Language.KOREAN && now.confidence >= policy.conversionThreshold) d = now
+        }
+        // Typed with Caps Lock, keys that are loose jamo throughout, two or more, are an acronym
+        // (RST, RD, DDR): the capitals that made them English without Caps Lock are gone, and as
+        // lowercase they read as chat jamo (ㄱㄴㅅ). A word with a syllable in it (안녕ㄱ) and one jamo
+        // alone read as without Caps Lock; English the engine chose by a hair over Korean gets the same
+        // certainty; a word the dictionary remembers keeps its language. (Swift's decide.)
+        if (capsWord && (d.language == Language.KOREAN || d.language == Language.ENGLISH && d.runnerUp == Language.KOREAN) &&
+            engine.entry(keys)?.wins != true) {
+            val composed = HangulComposer.compose(keys)
+            if (composed != null && composed.units.size >= 2 && composed.syllables.isEmpty()) {
+                d = Decision(Language.ENGLISH, 1.0, keys, "Caps Lock: loose jamo")
+            }
         }
         val kept = d.language != Language.ENGLISH && d.confidence < policy.conversionThreshold
         keptEnglishByStrict = kept && policy.conversionThreshold >= AppPolicy.STRICT_THRESHOLD && keys.length <= 3
@@ -1476,6 +1525,80 @@ class InputSession(
         private val pairs = mapOf('）' to '（', '」' to '「', '｝' to '｛', '』' to '『', '】' to '【')
 
         private val koreanModel by lazy { KoreanModel() }
+
+        /** Grapheme_Cluster_Break classes as GraphemeTables numbers them, Extended_Pictographic last. */
+        private enum class GB { OTHER, CR, LF, CONTROL, EXTEND, ZWJ, RI, PREPEND, SPACING_MARK, L, V, T, LV, LVT, PICT }
+
+        /** Indic_Conjunct_Break values. */
+        private const val INCB_CONSONANT = 1
+        private const val INCB_EXTEND = 2
+        private const val INCB_LINKER = 3
+
+        /** A [GraphemeTables] string as starts, ends and values. */
+        private class Ranges(table: String) {
+            private val runs = table.split(' ')
+            val starts = IntArray(runs.size) { runs[it].substringBefore('-').toInt(16) }
+            val ends = IntArray(runs.size) { runs[it].substringAfter('-').substringBefore(':').toInt(16) }
+            val values = IntArray(runs.size) { runs[it].substringAfter(':').toInt() }
+
+            operator fun get(c: Int): Int {
+                val i = starts.binarySearch(c).let { if (it >= 0) it else -it - 2 }
+                return if (i >= 0 && c <= ends[i]) values[i] else 0
+            }
+        }
+
+        private val breaks by lazy { Ranges(GraphemeTables.BREAKS) }
+        private val conjunctBreaks by lazy { Ranges(GraphemeTables.INDIC_CONJUNCT_BREAKS) }
+
+        private fun graphemeBreak(c: Int): GB =
+            if (c in 0xAC00..0xD7A3) (if ((c - 0xAC00) % 28 == 0) GB.LV else GB.LVT) else GB.entries[breaks[c]]
+
+        /** [text] less its last character as Swift's String.dropLast() takes it: an extended grapheme
+         *  cluster (UAX #29) — with the marks after it (ｶﾞ, か + ゙, 葛 + an ideographic variation
+         *  selector), a whole emoji sequence (👩🏽, 👨‍👩‍👧, a flag), CR LF, a jamo syllable. Every rule
+         *  on the tables in [GraphemeTables], as the C++ port (not BreakIterator, whose JDK 17 rules
+         *  miss ﾞ, skin tones and ZWJ sequences); Unicode's GraphemeBreakTest passes. */
+        internal fun dropLastCharacter(text: String): String {
+            var start = 0
+            var i = 0
+            var previous = GB.OTHER
+            var regional = 0       // regional indicators in a row before this one
+            var pictured = false   // Extended_Pictographic Extend* just before
+            var joined = false     // ... and then a ZWJ
+            var conjunct = 0       // GB9c: 1 after an InCB consonant [Extend Linker]*, 2 once a linker is among them
+            while (i < text.length) {
+                val at = i
+                val c = text.codePointAt(i)
+                i += Character.charCount(c)
+                val g = graphemeBreak(c)
+                val incb = conjunctBreaks[c]
+                val joins = when {
+                    at == 0 -> false                                                                                // GB1
+                    previous == GB.CR && g == GB.LF -> true                                                         // GB3
+                    previous == GB.CR || previous == GB.LF || previous == GB.CONTROL -> false                       // GB4
+                    g == GB.CR || g == GB.LF || g == GB.CONTROL -> false                                            // GB5
+                    previous == GB.L && (g == GB.L || g == GB.V || g == GB.LV || g == GB.LVT) -> true               // GB6
+                    (previous == GB.LV || previous == GB.V) && (g == GB.V || g == GB.T) -> true                     // GB7
+                    (previous == GB.LVT || previous == GB.T) && g == GB.T -> true                                   // GB8
+                    g == GB.EXTEND || g == GB.ZWJ || g == GB.SPACING_MARK -> true                                   // GB9, GB9a
+                    previous == GB.PREPEND -> true                                                                  // GB9b
+                    incb == INCB_CONSONANT && conjunct == 2 -> true                                                 // GB9c
+                    else -> (joined && g == GB.PICT) || (previous == GB.RI && g == GB.RI && regional % 2 == 1)      // GB11-13
+                }
+                if (!joins) start = at
+                regional = if (g == GB.RI) regional + 1 else 0
+                joined = g == GB.ZWJ && pictured
+                pictured = g == GB.PICT || (pictured && g == GB.EXTEND)
+                conjunct = when {
+                    incb == INCB_CONSONANT -> 1
+                    incb == INCB_LINKER && conjunct != 0 -> 2
+                    incb == INCB_EXTEND -> conjunct
+                    else -> 0
+                }
+                previous = g
+            }
+            return text.substring(0, start)
+        }
 
         /** The clauses before the last of [text], a conversion of [reading], and how much of the
          *  reading they cover. The last clause is the last run of kanji (or katakana, or anything not

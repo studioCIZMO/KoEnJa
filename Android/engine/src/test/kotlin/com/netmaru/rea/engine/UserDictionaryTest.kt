@@ -67,4 +67,23 @@ class UserDictionaryTest {
         engine.learn("dkssud", Language.ENGLISH, Language.KOREAN)
         assertEquals(Language.ENGLISH, engine.learned["dkssud"])
     }
+
+    /** Learning off (a password field): a word typed again changes nothing, in memory or on disk. */
+    @Test
+    fun learningOffKeepsUsageDates() {
+        val trilingual = HeuristicEngine(korean = KoreanModel(), japanese = JapaneseModel.shared)
+        val base = SplittingEngine(trilingual, trilingual.english, japanese = trilingual.segmenter)
+        val file = kotlin.io.path.createTempDirectory("koenja-dict").resolve("dictionary.tsv").toFile()
+        DictionaryEngine(base, storeFile = file, today = { day }).learn("so", Language.KOREAN, Language.ENGLISH)
+        val saved = file.readText()
+        val engine = DictionaryEngine(base, storeFile = file, today = { day.plusDays(1) })
+        val before = engine.entry("so")
+        engine.learning = false
+        engine.used("so", Language.KOREAN)
+        assertEquals(saved, file.readText())
+        assertEquals(before, engine.entry("so"))
+        engine.learning = true
+        engine.used("so", Language.KOREAN)
+        assertTrue(file.readText() != saved)
+    }
 }

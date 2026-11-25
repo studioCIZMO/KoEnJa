@@ -287,6 +287,19 @@ import Testing
         #expect(field.text == "変換3" && session.conversion == nil)
     }
 
+    /// Through its katakana form the number is part of the form's kana; Esc puts the kana in (the
+    /// keys no longer spell it) and the next Return is the app's. The C++ and Kotlin ports match.
+    @Test func escapeOnTheFormOfANumberedPhrase() {
+        type("henkan ")
+        session.handle(.enter, client: field)
+        type("3ji ")
+        #expect(session.handle(.katakana, client: field))
+        #expect(field.text == "変換3ジ" && session.conversion?.kana == "3じ" && session.conversion?.keys == "ji")
+        session.handle(.escape, client: field)
+        #expect(field.text == "変換3じ" && session.conversion == nil && field.markedRange().location == NSNotFound)
+        #expect(!session.handle(.enter, client: field))
+    }
+
     /// With live conversion, Delete on a conversion goes back to typing the phrase, as macOS's
     /// does: its last clause as kana less the last one, the clauses before it as they were shown.
     @Test func deleteInLiveConversionKeepsTheClausesBefore() {

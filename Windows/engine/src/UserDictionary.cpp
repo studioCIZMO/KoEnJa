@@ -1,5 +1,7 @@
 #include "UserDictionary.h"
 
+#include "FileLock.h"
+
 #include <algorithm>
 #include <ctime>
 #include <fstream>
@@ -160,6 +162,7 @@ DictionaryEngine::DictionaryEngine(std::shared_ptr<DecisionEngine> base, const E
     if (!lines) return;
     store = UserDictionary::decode(*lines, UserDictionary::today());
     bool expired = store.dropExpired(UserDictionary::today());
+    if (expired) pending.push_back({Change::Kind::Expire, u"", Language::ENGLISH, Language::ENGLISH, UserDictionary::today()});
     for (auto& e : store.entries) byKeys.emplace(e.keys, e);
     if (expired) persist();
 }
@@ -261,28 +264,57 @@ void DictionaryEngine::learn(const std::u16string& keys, Language language, std:
     // Switched away from the reading the dictionary gave, back to Araso's own: forgotten in one go.
     bool forgot = language == own && learned != store.entries.end() && learned->language == shown && store.forgetLearned(keys);
     if (!forgot) store.learn(keys, language, shown, UserDictionary::today());
-    if (store.entries != before) persist();
+    if (store.entries == before) return;
+    pending.push_back({forgot ? Change::Kind::Forget : Change::Kind::Learn, keys, language, shown, UserDictionary::today()});
+    persist();
 }
 
 void DictionaryEngine::used(const std::u16string& keys, Language language) {
-    if (store.used(keys, language, UserDictionary::today())) persist();
+    if (!learning) return;
+    if (!store.used(keys, language, UserDictionary::today())) return;
+    pending.push_back({Change::Kind::Used, keys, language, Language::ENGLISH, UserDictionary::today()});
+    persist();
 }
 
 void DictionaryEngine::persist() {
+    if (storeFile && !pending.empty()) {
+        std::error_code error;
+        if (storeFile->has_parent_path()) std::filesystem::create_directories(storeFile->parent_path(), error);
+        // Every app the TIP is in has its own engine on the one file: under the lock, what this one did
+        // (pending) is done again on what is there now. A correction counts on the entry there (weak
+        // from another app's, then sure), a removal removes, and a word typed again only touches an
+        // entry still there (never undoing another app's promotion or removal).
+        FileLock lock(*storeFile);
+        if (lock.locked()) { // unlocked it could drop another app's: [pending] waits for the next save
+            UserDictionary merged;
+            if (auto lines = Resources::fileLines(*storeFile)) merged = UserDictionary::decode(*lines, UserDictionary::today());
+            for (auto& c : pending) {
+                switch (c.kind) {
+                    case Change::Kind::Learn: merged.learn(c.keys, c.language, c.shown, c.day); break;
+                    case Change::Kind::Forget: merged.forgetLearned(c.keys); break;
+                    case Change::Kind::Used: merged.used(c.keys, c.language, c.day); break;
+                    case Change::Kind::Expire: merged.dropExpired(c.day); break;
+                }
+            }
+            auto temp = FileLock::temp(*storeFile);
+            bool written = false;
+            {
+                std::ofstream out(temp, std::ios::binary);
+                out << utf8(merged.encoded());
+                written = bool(out);
+            }
+            if (written) std::filesystem::rename(temp, *storeFile, error);
+            if (!written || error) {
+                std::filesystem::remove(temp, error);
+            } else {
+                store = std::move(merged);
+                pending.clear();
+            }
+        }
+    }
+    if (!storeFile) pending.clear(); // memory only: nothing to merge with
     byKeys.clear();
     for (auto& e : store.entries) byKeys.emplace(e.keys, e);
-    if (!storeFile) return;
-    std::error_code error;
-    if (storeFile->has_parent_path()) std::filesystem::create_directories(storeFile->parent_path(), error);
-    auto temp = *storeFile;
-    temp += ".tmp";
-    {
-        std::ofstream out(temp, std::ios::binary);
-        if (!out) return;
-        out << utf8(store.encoded());
-        if (!out) return;
-    }
-    std::filesystem::rename(temp, *storeFile, error);
 }
 
 } // namespace rea

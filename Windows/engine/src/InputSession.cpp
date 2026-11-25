@@ -5,6 +5,7 @@
 #include <unordered_set>
 
 #include "EnglishModel.h"
+#include "GraphemeTables.h"
 #include "JapaneseModel.h"
 #include "JapaneseSegmenter.h"
 #include "Jamo.h"
@@ -16,6 +17,61 @@
 namespace rea {
 
 using Kind = InputSession::Key::Kind;
+
+namespace {
+/** Grapheme_Cluster_Break classes as GraphemeTables.h numbers them, Extended_Pictographic last. */
+enum class GB { Other, CR, LF, Control, Extend, ZWJ, RI, Prepend, SpacingMark, L, V, T, LV, LVT, Pict };
+/** Indic_Conjunct_Break values. */
+enum class InCB { None, Consonant, Extend, Linker };
+
+template <size_t N> unsigned char lookUp(const GraphemeRange (&table)[N], char32_t c) {
+    auto it = std::upper_bound(std::begin(table), std::end(table), c, [](char32_t c, const GraphemeRange& r) { return c < r.start; });
+    return it != std::begin(table) && c <= (it - 1)->end ? (it - 1)->value : 0;
+}
+
+GB graphemeBreak(char32_t c) {
+    if (c >= 0xAC00 && c <= 0xD7A3) return (c - 0xAC00) % 28 == 0 ? GB::LV : GB::LVT;
+    return GB(lookUp(graphemeBreaks, c));
+}
+} // namespace
+
+std::u16string InputSession::dropLastCharacter(const std::u16string& text) {
+    size_t start = 0, i = 0;
+    GB previous = GB::Other;
+    int regional = 0;      // regional indicators in a row before this one
+    bool pictured = false; // Extended_Pictographic Extend* just before
+    bool joined = false;   // ... and then a ZWJ
+    int conjunct = 0;      // GB9c: 1 after an InCB consonant [Extend Linker]*, 2 once a linker is among them
+    while (i < text.size()) {
+        size_t at = i;
+        char32_t c = text[i++];
+        if (c >= 0xD800 && c < 0xDC00 && i < text.size() && text[i] >= 0xDC00 && text[i] < 0xE000)
+            c = 0x10000 + ((c - 0xD800) << 10) + (text[i++] - 0xDC00);
+        GB g = graphemeBreak(c);
+        auto incb = InCB(lookUp(indicConjunctBreaks, c));
+        bool joins;
+        if (at == 0) joins = false;                                                                            // GB1
+        else if (previous == GB::CR && g == GB::LF) joins = true;                                              // GB3
+        else if (previous == GB::CR || previous == GB::LF || previous == GB::Control) joins = false;           // GB4
+        else if (g == GB::CR || g == GB::LF || g == GB::Control) joins = false;                                // GB5
+        else if (previous == GB::L && (g == GB::L || g == GB::V || g == GB::LV || g == GB::LVT)) joins = true; // GB6
+        else if ((previous == GB::LV || previous == GB::V) && (g == GB::V || g == GB::T)) joins = true;        // GB7
+        else if ((previous == GB::LVT || previous == GB::T) && g == GB::T) joins = true;                       // GB8
+        else if (g == GB::Extend || g == GB::ZWJ || g == GB::SpacingMark) joins = true;                        // GB9, GB9a
+        else if (previous == GB::Prepend) joins = true;                                                        // GB9b
+        else if (incb == InCB::Consonant && conjunct == 2) joins = true;                                       // GB9c
+        else joins = (joined && g == GB::Pict) || (previous == GB::RI && g == GB::RI && regional % 2 == 1);    // GB11-13
+        if (!joins) start = at;
+        regional = g == GB::RI ? regional + 1 : 0;
+        joined = g == GB::ZWJ && pictured;
+        pictured = g == GB::Pict || (pictured && g == GB::Extend);
+        conjunct = incb == InCB::Consonant ? 1
+                 : incb == InCB::Linker && conjunct ? 2
+                 : incb == InCB::Extend ? conjunct : 0;
+        previous = g;
+    }
+    return text.substr(0, start);
+}
 
 static bool isHangul(char16_t c) { return (c >= u'가' && c <= u'힣') || (c >= u'ㄱ' && c <= u'ㅣ'); }
 
@@ -52,6 +108,41 @@ void InputSession::activate() {
     resetRun();
 }
 
+bool InputSession::handle(Key key, TextClient& client, bool capsLock) {
+    if (capsLock != caps && (key.kind == Kind::Letter || (key.kind == Kind::Printable && printableContinuesWord(key.ch, client)))) {
+        // What came before goes in as it was shown, a candidate being chosen too, under the old
+        // state; then the new word takes the new one.
+        if (!keys.empty() || conversion) {
+            commit(&cased(client));
+            client.keyTextBegins();
+        }
+        if (keys.empty() && !conversion) caps = capsLock;
+    }
+    return handle(key, cased(client));
+}
+
+TextClient& InputSession::cased(TextClient& client) {
+    if (!caps || &client == &capsClient) return client;
+    capsClient.base = &client;
+    return capsClient;
+}
+
+std::u16string CapsLockClient::capitals(std::u16string text) {
+    for (auto& c : text) if (c >= u'a' && c <= u'z') c = char16_t(c - u'a' + u'A');
+    return text;
+}
+
+std::u16string CapsLockClient::lowercase(std::u16string text) {
+    for (auto& c : text) if (c >= u'A' && c <= u'Z') c = char16_t(c - u'A' + u'a');
+    return text;
+}
+
+bool InputSession::printableContinuesWord(char16_t ch, TextClient& client) {
+    return (keys.empty() || !inURLRun) &&
+           Sebeolsik::continuesWord(keys, ch, afterDigit, [](char16_t s) { return koreanModel().knowsSyllableIncludingRare(s); }) &&
+           !hasURLMarker(run(client));
+}
+
 bool InputSession::handle(Key key, TextClient& client) {
     bool inKoreanSymbols = afterKoreanSymbol;
     afterKoreanSymbol = false;
@@ -70,11 +161,7 @@ bool InputSession::handle(Key key, TextClient& client) {
     // On 3-set a digit or symbol key with a jamo goes on with the word where the jamo fits
     // (갔 is kf2, 밥 starts on ;); elsewhere it is the symbol. Not in a URL or path, though the
     // word itself doesn't make one: 밝 is ;f@, not an address.
-    if (key.kind == Kind::Printable && (keys.empty() || !inURLRun) &&
-        Sebeolsik::continuesWord(keys, key.ch, afterDigit, [](char16_t s) { return koreanModel().knowsSyllableIncludingRare(s); }) &&
-        !hasURLMarker(run(client))) {
-        return handle(Key::letter(key.ch), client);
-    }
+    if (key.kind == Kind::Printable && printableContinuesWord(key.ch, client)) return handle(Key::letter(key.ch), client);
     // On 3-set a key with a digit or symbol there (⇧B ?, ⇧/ !, ⇧L 3, [ () types it right after
     // a Korean word and after the symbols that follow one; anywhere else it is QWERTY's (Bob),
     // also after Hangul with stray jamo (kgb, 그ㅜ), which isn't a word.
@@ -120,6 +207,7 @@ bool InputSession::handle(Key key, TextClient& client) {
             if (!keys.empty() && all(keys, [](char16_t c) { return RomajiComposer::symbols().count(c) > 0; }) &&
                 !(isSebeolsik() && all(keys, [](char16_t c) { return Sebeolsik::jamo(c).has_value(); }))) {
                 commit(&client); // (3-set's ; is ㅂ, a word on its way)
+                client.keyTextBegins();
             }
             if (keys.empty()) { // a new word
                 lastRecorded.reset();
@@ -251,6 +339,7 @@ bool InputSession::handle(Key key, TextClient& client) {
             }
             if (!endsInURL && closesFullWidth(ch)) { // 日本語（English）
                 commit(&client);
+                client.keyTextBegins();
                 startSymbol(std::u16string(1, ch), client);
                 return true;
             }
@@ -893,6 +982,7 @@ bool InputSession::handleConverting(Key key, TextClient& client) {
             return true;
         }
         commit(&client);
+        client.keyTextBegins();
         return handle(key, client);
     }
     if (key.kind == Kind::Enter) {
@@ -911,8 +1001,8 @@ bool InputSession::handleConverting(Key key, TextClient& client) {
         // character (変換 → 変), as in macOS's Japanese input.
         if (deletes && !liveConversion) {
             auto text = current.display();
-            // The last character, both halves of a surrogate pair (山😀 → 山).
-            text = dropLast(text, text.size() >= 2 && text.back() >= 0xDC00 && text.back() < 0xE000 ? 2 : 1);
+            // The last character as Swift's dropLast() takes it (山😀 → 山, ｶﾞ → nothing).
+            text = dropLastCharacter(text);
             client.insertText(text, std::nullopt);
             noteRun(text);
             noteBrackets(text);
@@ -958,6 +1048,7 @@ bool InputSession::handleConverting(Key key, TextClient& client) {
     }
     if (key.kind == Kind::Letter || key.kind == Kind::Printable) {
         commit(&client);
+        client.keyTextBegins();
         return handle(key, client);
     }
     // Other
@@ -1068,6 +1159,18 @@ Decision InputSession::decide(bool partial) {
     if (partial && d.language == Language::KOREAN && d.confidence < policy.conversionThreshold) {
         auto now = engine->decide(keys, DecisionContext{previousLanguage, false});
         if (now.language == Language::KOREAN && now.confidence >= policy.conversionThreshold) d = now;
+    }
+    // Typed with Caps Lock, keys that are loose jamo throughout, two or more, are an acronym
+    // (RST, RD, DDR): the capitals that made them English without Caps Lock are gone, and as
+    // lowercase they read as chat jamo (ㄱㄴㅅ). A word with a syllable in it (안녕ㄱ) and one jamo
+    // alone read as without Caps Lock; English the engine chose by a hair over Korean gets the same
+    // certainty; a word the dictionary remembers keeps its language. (Swift's decide.)
+    if (caps && (d.language == Language::KOREAN || (d.language == Language::ENGLISH && d.runnerUp == Language::KOREAN))) {
+        auto entry = engine->entry(keys);
+        auto composed = HangulComposer::compose(keys);
+        if (!(entry && entry->wins()) && composed && composed->units.size() >= 2 && composed->syllables().empty()) {
+            d = Decision{Language::ENGLISH, 1, keys, u"Caps Lock: loose jamo"};
+        }
     }
     bool kept = d.language != Language::ENGLISH && d.confidence < policy.conversionThreshold;
     keptEnglishByStrict = kept && policy.conversionThreshold >= AppPolicy::STRICT_THRESHOLD && keys.size() <= 3;
@@ -1188,6 +1291,7 @@ void InputSession::splitOffKoreanBeforeOther(TextClient& client) {
         client.insertText(korean->text(), std::nullopt);
         noteRun(korean->text());
         keys = back;
+        client.keyTextBegins(); // the suffix shown next carries this key
         syllableStart.reset();
         setPreviousLanguage(Language::KOREAN);
         previewLanguage.reset();
@@ -1244,6 +1348,7 @@ void InputSession::splitOffJapaneseBeforeKorean(TextClient& client) {
         client.insertText(japanese, std::nullopt);
         noteRun(japanese);
         keys = back;
+        client.keyTextBegins(); // the suffix shown next carries this key
         syllableStart.reset();
         setPreviousLanguage(Language::JAPANESE);
         forced = Language::KOREAN;

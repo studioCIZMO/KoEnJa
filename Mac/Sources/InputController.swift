@@ -134,6 +134,7 @@ final class InputController: IMKInputController {
             log.debug("flagsChanged key=\(event.keyCode) flags=\(event.modifierFlags.intersection(.deviceIndependentFlagsMask).rawValue, format: .hex) client=\(sender is IMKTextInput)")
         }
         guard let event, let input = sender as? IMKTextInput else { return false }
+        MainActor.assumeIsolated { noteSensitive() }
         if event.type == .flagsChanged {
             MainActor.assumeIsolated {
                 // ⌘ going down: the word being typed goes in before the shortcut, since an app may
@@ -228,6 +229,23 @@ final class InputController: IMKInputController {
             StripHUD.hide(force: true)
         }
         return true
+    }
+
+    /// While Secure Event Input is on (a password field, Terminal's Secure Keyboard Entry), what is
+    /// typed teaches nothing: the engine's and the kanji converter's learning are off, as in iOS's
+    /// sensitive fields. It is the only sign of one macOS gives an input method: the client is a
+    /// proxy without the field's content type (`NSTextContentType` .password, .oneTimeCode), so a
+    /// one-time code field that doesn't turn it on is an ordinary field. Asked at every key and
+    /// modifier, before anything is committed (and learned) by it.
+    @MainActor private func noteSensitive() {
+        let learning = !IsSecureEventInputEnabled()
+        if Runtime.shared.engine.learning != learning {
+            log.info("secure input \(learning ? "off" : "on", privacy: .public): learning \(learning ? "on" : "off", privacy: .public)")
+        }
+        // Every time: a converter remade since (settings changed) starts with learning on.
+        Runtime.shared.engine.learning = learning
+        (Runtime.shared.converter as? AzooKeyConverter)?.learning = learning
+        (Runtime.shared.converter as? AppleJapaneseConverter)?.learning = learning
     }
 
     /// A masked password field has the focus (`MaskedField`). The system is asked only while

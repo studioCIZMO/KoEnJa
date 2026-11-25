@@ -170,6 +170,24 @@ import Testing
         #expect(UserDictionary.decode(try Data(contentsOf: url))?.entries.count == 1)
     }
 
+    /// Learning off (a password field): a word typed again changes nothing, in memory or on disk.
+    @Test func learningOffKeepsUsageDates() throws {
+        let url = dir.appendingPathComponent("dictionary.json")
+        DictionaryEngine(base: sharedEngine, storeURL: url, today: { [day] in day }).learn("so", as: .korean, engineChoice: .english)
+        let saved = try Data(contentsOf: url)
+        let engine = DictionaryEngine(base: sharedEngine, storeURL: url, today: { [day] in day.addingTimeInterval(86_400) })
+        let before = engine.dictionary.languageEntry(for: "so")
+        engine.learning = false
+        engine.used("so", as: .korean)
+        engine.noteApplied(keys: "so", text: "so", language: .korean)
+        #expect(try Data(contentsOf: url) == saved)
+        #expect(engine.dictionary.languageEntry(for: "so") == before)
+        #expect(engine.recentlyApplied.isEmpty)
+        engine.learning = true
+        engine.used("so", as: .korean)
+        #expect(try Data(contentsOf: url) != saved)
+    }
+
     @Test func lexiconMovesIn() throws {
         let legacy = dir.appendingPathComponent("lexicon.json")
         let url = dir.appendingPathComponent("dictionary.json")

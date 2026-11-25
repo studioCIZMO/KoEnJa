@@ -93,7 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh 
 Both install into `/Library/Input Methods` (the package asks for your administrator password as it installs, get.sh once, to make that folder; an earlier copy in `~/Library` is moved). You can also unzip `KoEnJa-Mac.zip` and move `KoEnJa.app` to `/Library/Input Methods` yourself. Then add it in System Settings → Keyboard → Input Sources → Edit… → + → Korean →
 **KoEnJa** (log out and back in once if it isn't listed). The app and the package are signed with CIZMO's Developer ID and notarized by Apple.
 Installed beside Araso, it keeps its settings and learned words apart (`~/Library/Application Support/KoEnJa`).
-Updates come through the input menu's "Update to KoEnJa x.y.z…" or Settings → About. If you mistype one letter of a Korean word, hold right ⌥ to see corrected guesses (Settings → Fix typos, off by default). The source is in `Mac/`.
+Updates come through the input menu's "Update to KoEnJa x.y.z…" or Settings → About. If you mistype one letter of a Korean word, hold right ⌥ to see corrected guesses. To have a clear typo fixed as the word ends, turn on Settings → Fix typos (off by default). The source is in `Mac/`.
 
 <details>
 <summary>Uninstall completely</summary>
@@ -606,9 +606,9 @@ they likely come from Tatoeba data downloaded on the day and from engine changes
 | Engine | Result |
 | --- | --- |
 | Swift (iOS) | `golden.tsv` regenerated: all 1,950 lines identical |
-| Kotlin (Android) | 1932/1932 |
-| C++, clang (macOS) | 1932/1932, 8.3 µs per key (Apple M4) |
-| C++, MSVC (CI, GitHub windows-2022) | 1932/1932, 25.7–26.1 µs per key (last three runs) |
+| Kotlin (Android) | 1950/1950 |
+| C++, clang (macOS) | 1950/1950, 8.3 µs per key (Apple M4, measured at 1,932 lines) |
+| C++, MSVC (CI, GitHub windows-2022) | 1950/1950, 25.7–26.1 µs per key (three runs at 1,932 lines) |
 
 The MSVC golden test runs in [CI](.github/workflows/windows.yml) on every push to `main`.
 

@@ -23,6 +23,7 @@ enum SlipLog {
             defer { try? handle.close() }
             let end = try handle.seekToEnd()
             try handle.write(contentsOf: data)
+            if !excluded { excludeFromBackup(url) } // a log left by 1.0.7 never had the attribute
             // ponytail: trim by rewrite; the app clearing in the same millisecond could bring the tail back
             if end + UInt64(data.count) > cap, let all = try? Data(contentsOf: url) {
                 var tail = all.suffix(all.count / 2)
@@ -36,12 +37,15 @@ enum SlipLog {
         }
     }
 
+    /// Set once this process has excluded the file; a failure is retried on the next write.
+    private static var excluded = false
+
     /// On this device only, as the app says: not in iCloud or computer backups.
     private static func excludeFromBackup(_ url: URL) {
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
         var file = url
-        try? file.setResourceValues(values)
+        excluded = (try? file.setResourceValues(values)) != nil
     }
 
     static func read() -> String { url.flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? "" }

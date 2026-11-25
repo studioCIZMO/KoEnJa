@@ -49,6 +49,9 @@ private:
     std::optional<std::filesystem::path> learningFile;
     /** Learned "reading\tsurface" → times committed. */
     std::unordered_map<std::u16string, int> learned;
+    /** "reading\tsurface" → times committed since the last save: save() adds them to what the file
+     *  has now (another app may have learned the same word meanwhile). */
+    std::unordered_map<std::u16string, int> added;
     std::u16string lastKana;
     std::unordered_map<std::u16string, std::vector<Word>> lastPaths;
 };

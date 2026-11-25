@@ -5,6 +5,7 @@
 // with `schtasks /create ... /it` (the logged-on user's session). Exits non-zero on a mismatch.
 
 #include <windows.h>
+#include <InputScope.h>
 #include <msctf.h>
 #include <textstor.h>
 #include <wrl/client.h>
@@ -13,16 +14,58 @@
 #include <cstdio>
 #include <cwchar>
 #include <string>
+#include <vector>
 
 using Microsoft::WRL::ComPtr;
 
 static const CLSID CLSID_KoEnJa = {0x113c852d, 0xc4e7, 0x4c6e, {0xb7, 0x13, 0x3f, 0x79, 0x87, 0x4d, 0xe8, 0x67}};
+/** GUID_PROP_INPUTSCOPE, which msctf.h declares (DEFINE_GUID) but no library defines. */
+static const GUID INPUTSCOPE_PROPERTY = {0x1713dd5a, 0x68e7, 0x4a5b, {0x9a, 0xf6, 0x59, 0x2a, 0x59, 0x5c, 0x77, 0x8d}};
 static const GUID GUID_LBI_INPUTMODE = {0x2c77a81e, 0x41cc, 0x4178, {0xa3, 0xa7, 0x5f, 0x8a, 0x98, 0x75, 0x68, 0xe6}};
+
+/** The field's input scopes, as an app hands them to TSF (SetInputScope's object). */
+struct Scopes : ITfInputScope {
+    ULONG refs = 1;
+    std::vector<InputScope> scopes;
+    explicit Scopes(std::vector<InputScope> scopes) : scopes(std::move(scopes)) {}
+    STDMETHODIMP QueryInterface(REFIID iid, void** out) override {
+        if (iid != IID_IUnknown && iid != IID_ITfInputScope) { *out = nullptr; return E_NOINTERFACE; }
+        *out = this;
+        AddRef();
+        return S_OK;
+    }
+    STDMETHODIMP_(ULONG) AddRef() override { return ++refs; }
+    STDMETHODIMP_(ULONG) Release() override {
+        ULONG n = --refs;
+        if (!n) delete this;
+        return n;
+    }
+    STDMETHODIMP GetInputScopes(InputScope** out, UINT* count) override {
+        *count = UINT(scopes.size());
+        *out = static_cast<InputScope*>(CoTaskMemAlloc(sizeof(InputScope) * (scopes.size() + 1)));
+        if (!*out) return E_OUTOFMEMORY;
+        std::copy(scopes.begin(), scopes.end(), *out);
+        return S_OK;
+    }
+    STDMETHODIMP GetPhrase(BSTR**, UINT*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetRegularExpression(BSTR*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetSRGS(BSTR*) override { return E_NOTIMPL; }
+    STDMETHODIMP GetXML(BSTR*) override { return E_NOTIMPL; }
+};
 
 /** A plain-text field: the text, one selection, and locks granted on the spot. */
 struct Store : ITextStoreACP {
     ULONG refs = 1;
     std::wstring text;
+    /** The field's input scopes (a password field's IS_PASSWORD); none: not said. */
+    std::vector<InputScope> scopes;
+    bool scopeAsked = false;
+    /** The text service's edits fail, as in a field that takes none (the app's own typing still goes in);
+     *  [allow] >= 0: after that many more of them (a field that fills up). */
+    bool refuse = false;
+    int allow = -1;
+    /** The input scope can't be read (the attribute request fails). */
+    bool failScope = false;
     LONG selStart = 0, selEnd = 0;
     ComPtr<ITextStoreACPSink> sink;
     DWORD lock = 0, pending = 0;
@@ -100,6 +143,8 @@ struct Store : ITextStoreACP {
         return S_OK;
     }
     STDMETHODIMP SetText(DWORD, LONG start, LONG end, const WCHAR* chars, ULONG count, TS_TEXTCHANGE* change) override {
+        if (lock && (refuse || allow == 0)) return E_FAIL;
+        if (lock && allow > 0) allow--;
         if (start < 0 || start > end || end > LONG(text.size())) return TS_E_INVALIDPOS;
         text.replace(start, end - start, chars, count);
         auto moved = [&](LONG& at) {
@@ -127,8 +172,12 @@ struct Store : ITextStoreACP {
         return S_OK;
     }
     STDMETHODIMP InsertEmbeddedAtSelection(DWORD, IDataObject*, LONG*, LONG*, TS_TEXTCHANGE*) override { return E_NOTIMPL; }
-    STDMETHODIMP RequestSupportedAttrs(DWORD, ULONG, const TS_ATTRID*) override { return S_OK; }
-    STDMETHODIMP RequestAttrsAtPosition(LONG, ULONG, const TS_ATTRID*, DWORD) override { return S_OK; }
+    /** Only the input scope is ever given here. */
+    void asksScope(ULONG count, const TS_ATTRID* ids) {
+        scopeAsked = std::any_of(ids, ids + count, [](const TS_ATTRID& id) { return id == INPUTSCOPE_PROPERTY; });
+    }
+    STDMETHODIMP RequestSupportedAttrs(DWORD, ULONG count, const TS_ATTRID* ids) override { asksScope(count, ids); return S_OK; }
+    STDMETHODIMP RequestAttrsAtPosition(LONG, ULONG count, const TS_ATTRID* ids, DWORD) override { asksScope(count, ids); return S_OK; }
     STDMETHODIMP RequestAttrsTransitioningAtPosition(LONG, ULONG, const TS_ATTRID*, DWORD) override { return S_OK; }
     STDMETHODIMP FindNextAttrTransition(LONG, LONG halt, ULONG, const TS_ATTRID*, DWORD, LONG* next, BOOL* found, LONG* offset) override {
         *next = halt;
@@ -136,7 +185,20 @@ struct Store : ITextStoreACP {
         *offset = 0;
         return S_OK;
     }
-    STDMETHODIMP RetrieveRequestedAttrs(ULONG, TS_ATTRVAL*, ULONG* fetched) override { *fetched = 0; return S_OK; }
+    STDMETHODIMP RetrieveRequestedAttrs(ULONG count, TS_ATTRVAL* values, ULONG* fetched) override {
+        *fetched = 0;
+        if (failScope) return E_FAIL;
+        if (scopeAsked && count && !scopes.empty()) {
+            values[0].idAttr = INPUTSCOPE_PROPERTY;
+            values[0].dwOverlapId = 0;
+            VariantInit(&values[0].varValue);
+            values[0].varValue.vt = VT_UNKNOWN;
+            values[0].varValue.punkVal = new Scopes(scopes);
+            *fetched = 1;
+        }
+        scopeAsked = false;
+        return S_OK;
+    }
     STDMETHODIMP GetEndACP(LONG* end) override { *end = LONG(text.size()); return S_OK; }
     STDMETHODIMP GetActiveView(TsViewCookie* view) override { *view = 1; return S_OK; }
     STDMETHODIMP GetACPFromPoint(TsViewCookie, const POINT*, DWORD, LONG*) override { return E_NOTIMPL; }
@@ -321,6 +383,8 @@ int main() {
     std::wstring logFile = local + L"\\KoEnJa\\keys.log";
     DeleteFileW(logFile.c_str());
     DeleteFileW((local + L"\\KoEnJa\\japanese.txt").c_str());
+    std::wstring learningFile = local + L"\\KoEnJa\\learning.txt";
+    DeleteFileW(learningFile.c_str());
     SetEnvironmentVariableW(L"LOCALAPPDATA", local.c_str());
     // The user's settings (the same HKCU the TIP reads) are put back when the test ends.
     Saved saved;
@@ -440,6 +504,13 @@ int main() {
                     continue;
                 }
                 if (c == '\r') { store.clear(); continue; }
+                if (c == '\x03') { // Caps Lock toggled (its key is the app's: no key event needed)
+                    BYTE state[256];
+                    GetKeyboardState(state);
+                    state[VK_CAPITAL] ^= 1;
+                    SetKeyboardState(state);
+                    continue;
+                }
                 Key key = keyFor(c);
                 // The key state as a keyboard leaves it: held modifiers, Shift for capitals.
                 BYTE state[256];
@@ -477,7 +548,7 @@ int main() {
             std::wstring keys = step.option ? L"[" + std::wstring(step.option) + L"] " : L"";
             for (const char* k = step.keys; *k; k++) {
                 Key key = keyFor(*k);
-                keys += *k == '\f' ? L"↹" : *k == '\r' ? L"∅" : key.name ? key.name : std::wstring(1, wchar_t(*k));
+                keys += *k == '\f' ? L"↹" : *k == '\r' ? L"∅" : *k == '\x03' ? L"⇪" : key.name ? key.name : std::wstring(1, wchar_t(*k));
             }
             printf("%s %-12s -> \"%s\"%s ups %d%s%s\n", ok ? "ok  " : "FAIL", utf8(keys).c_str(), utf8(store.text).c_str(),
                    composing() ? " (composing)" : "", ups, shown.empty() ? "" : "\n       list: ", utf8(shown).c_str());
@@ -575,6 +646,10 @@ int main() {
         {"\r" "watashi\x18", L"ワタシ", true},
         {"\x18", L"わたし", true},
         {"\n", L"わたし", false},
+        // A number before the phrase stays through F9/F10: on 2-set the app typed it (the phrase is
+        // ji); the engine's own 3じ (numberPrefix) keeps it too (session_test).
+        {"3ji \x1a\n", L"わたし3ji", false},
+        {"\r" "watashi\n" "3ji \x1c\n", L"わたし3ｊｉ", false},
     };
     run(japanese);
     setText(L"LanguageOrder", L"ko,en");
@@ -727,6 +802,71 @@ int main() {
     expect(savedOrder() == L"ko,en" && shownMode().empty(), L"ko,en: on/off, order kept");
     setText(L"LanguageOrder", nullptr);
 
+    // Caps Lock: the word reads as without it (rjatk is 검사), English goes in in capitals, and loose
+    // jamo are an abbreviation (CapsLockTests: rst rd ddr stay English).
+    const Step caps[] = {{"\f\r\x03" "rjatk ", L"검사 ", false},
+                         {"hello ", L"검사 HELLO ", false},
+                         {"rst rd ddr zz ", L"검사 HELLO RST RD DDR ZZ ", false},
+                         {"\x03" "dkssud ", L"검사 HELLO RST RD DDR ZZ 안녕 ", false}};
+    run(caps);
+
+    // A field that takes no edit from the TIP: each key is the app's, nothing left composing.
+    store.refuse = true;
+    const Step refused[] = {{"\f\r" "dkssud", L"dkssud", false}};
+    run(refused);
+    store.refuse = false;
+    // Only the word before goes in (Caps Lock changed: hello committed, X refused): the key is the app's.
+    const Step filling[] = {{"\f\r" "hello", L"hello", true}};
+    run(filling);
+    store.allow = 1;
+    const Step filled[] = {{"\x03" "x", L"hellox", false}};
+    run(filled);
+    store.allow = -1;
+    const Step capsOff[] = {{"\x03\r", L"", false}};
+    run(capsOff);
+    // The focus leaves and the word's commit is refused: its composition ends all the same.
+    const Step typed[] = {{"\r" "dkssud", L"안녕", true}};
+    run(typed);
+    store.refuse = true;
+    const Step left[] = {{"\f", L"안녕", false}};
+    run(left);
+    store.refuse = false;
+
+    // Input scopes, changed in place (no focus change), read on each key. KeyLog on throughout.
+    auto fileSize = [](const std::wstring& path) {
+        WIN32_FILE_ATTRIBUTE_DATA data;
+        return GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data) ? LONGLONG(data.nFileSizeLow) : -1LL;
+    };
+    setSetting(L"KeyLog", REG_DWORD, &one, sizeof one);
+    const Step plain[] = {{"\f\r" "dkssud", L"안녕", true}, {"\n", L"안녕", false}};
+    run(plain);
+    // A password field: KoEnJa stays out, and keys.log gets none of its keys.
+    store.scopes = {IS_PASSWORD};
+    auto logBefore = fileSize(logFile);
+    const Step password[] = {{"\r" "dkssud", L"dkssud", false}};
+    run(password);
+    expect(logBefore > 0 && fileSize(logFile) == logBefore, L"password field: no keys.log lines");
+    // Its scope unreadable for a while: still a password field (the last read stands).
+    store.failScope = true;
+    run(password);
+    store.failScope = false;
+    expect(fileSize(logFile) == logBefore, L"password field, scope unreadable: no keys.log lines");
+    // A private field (InPrivate): typing as usual; a word switched with the switch key isn't learned,
+    // and no key goes to keys.log.
+    store.scopes = {IS_PRIVATE};
+    DeleteFileW(learningFile.c_str());
+    const Step inPrivate[] = {{"\r" "qkdrk\x04\x05 ", L"qkdrk ", false, L"", nullptr, 1}};
+    run(inPrivate);
+    expect(fileSize(learningFile) <= 0 && fileSize(logFile) == logBefore, L"private field: nothing learned, no keys.log lines");
+    // The plain field again, in place (an app sets IS_DEFAULT back; no scope at all reads as unknown,
+    // as a failed read does): composing, learning and logging as before.
+    store.scopes = {IS_DEFAULT};
+    run(inPrivate);
+    store.scopes = {};
+    expect(fileSize(learningFile) > 0 && fileSize(logFile) > logBefore, L"plain field again: learned (learning.txt), logged");
+    setSetting(L"KeyLog", REG_DWORD, &zero, sizeof zero);
+    DeleteFileW(learningFile.c_str());
+
     // Mozc's dictionary (data\mozc.dic), as the user has it.
     tip->Deactivate();
     SetEnvironmentVariableW(L"KOENJA_TEST_CONVERTER", nullptr);
@@ -749,6 +889,14 @@ int main() {
         {"\n", L"アナタハイツモ", false},
     };
     run(mozc);
+    // Return on a shortened first segment: the segment goes in, the rest is refused. The key did its part
+    // (no Return for the app: no new line, no form sent).
+    const Step segmented[] = {{"\r" "anatahaitsumo \x0e\x13\x13\x13\x0f", L"貴方はいつも", true}};
+    run(segmented);
+    store.allow = 1;
+    const Step segmentIn[] = {{"\n", L"貴方は", false}};
+    run(segmentIn);
+    store.allow = -1;
 
     tip->Deactivate();
     host.real->Deactivate();

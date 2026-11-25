@@ -5,6 +5,7 @@
 
 #include <windows.h>
 #include <dwmapi.h>
+#include <InputScope.h>
 #include <msctf.h>
 #include <olectl.h>
 #include <shellscalingapi.h>
@@ -37,6 +38,8 @@ static const GUID ATTRIBUTE_INPUT = {0x984a32fd, 0x0b9d, 0x4ea6, {0xa0, 0xa8, 0x
 static const GUID ATTRIBUTE_TARGET = {0x6e3c1f0a, 0x5b7d, 0x4c2e, {0x9a, 0x41, 0x2d, 0x8f, 0x0b, 0x6c, 0x7e, 0x53}};
 // {D89F1C7F-0686-4898-B222-C523F8060883}: the candidate list, as a UI element.
 static const GUID CANDIDATE_UI = {0xd89f1c7f, 0x0686, 0x4898, {0xb2, 0x22, 0xc5, 0x23, 0xf8, 0x06, 0x08, 0x83}};
+/** GUID_PROP_INPUTSCOPE, which msctf.h declares (DEFINE_GUID) but no library defines. */
+static const GUID INPUTSCOPE_PROPERTY = {0x1713dd5a, 0x68e7, 0x4a5b, {0x9a, 0xf6, 0x59, 0x2a, 0x59, 0x5c, 0x77, 0x8d}};
 /** The input indicator's mode button (the SDK documents it but doesn't declare it). */
 static const GUID GUID_LBI_INPUTMODE = {0x2c77a81e, 0x41cc, 0x4178, {0xa3, 0xa7, 0x5f, 0x8a, 0x98, 0x75, 0x68, 0xe6}};
 /** ko-KR and ja-JP: Win+Space lists it under whichever the user has. */
@@ -168,30 +171,34 @@ struct TestConverter : rea::JapaneseConverter {
     void save() override {}
 };
 
+/** [name] in %LOCALAPPDATA%\KoEnJa, where what KoEnJa learns is kept (none: memory only). */
+static std::optional<std::filesystem::path> userFile(const wchar_t* name) {
+    wchar_t local[MAX_PATH];
+    if (!GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH)) return std::nullopt;
+    std::error_code error;
+    auto folder = std::filesystem::path(local) / L"KoEnJa";
+    std::filesystem::create_directories(folder, error);
+    if (error) return std::nullopt;
+    return folder / name;
+}
+
 /**
  * Kana → kanji over Mozc's dictionary (Windows/japanese), mapped read-only from the data folder so
- * every app shares its pages. Learned words go to %LOCALAPPDATA%\KoEnJa (each app saves its own
- * copy over the file; ponytail: last writer wins, a merge on save if two apps' learning matters).
+ * every app shares its pages. Learned words go to %LOCALAPPDATA%\KoEnJa\japanese.txt, saved when
+ * the focus leaves (MozcConverter::save merges what other apps saved meanwhile).
  * tip_test sets KOENJA_TEST_CONVERTER for a fixed candidate list.
  */
 static std::shared_ptr<rea::JapaneseConverter> makeConverter() {
     if (GetEnvironmentVariableW(L"KOENJA_TEST_CONVERTER", nullptr, 0)) return std::make_shared<TestConverter>();
-    std::optional<std::filesystem::path> learning;
-    wchar_t local[MAX_PATH];
-    if (GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH)) {
-        std::error_code error;
-        auto folder = std::filesystem::path(local) / L"KoEnJa";
-        std::filesystem::create_directories(folder, error);
-        if (!error) learning = folder / L"japanese.txt";
-    }
     try {
-        return std::make_shared<rea::MozcConverter>(rea::Resources::directory / L"mozc.dic", learning);
+        return std::make_shared<rea::MozcConverter>(rea::Resources::directory / L"mozc.dic", userFile(L"japanese.txt"));
     } catch (...) {
         return nullptr; // Japanese then goes in as kana
     }
 }
 
-/** The engine over [order], the user's languages most used first. */
+/** The engine over [order], the user's languages most used first; the words corrected with the
+ *  switch key kept in learning.txt (Android's name). */
 static std::unique_ptr<InputSession> makeSession(const std::vector<rea::Language>& order) {
     static const bool located = [] {
         wchar_t path[MAX_PATH];
@@ -200,7 +207,7 @@ static std::unique_ptr<InputSession> makeSession(const std::vector<rea::Language
         return true;
     }();
     (void)located;
-    return rea::Engines::makeSession(order, makeConverter());
+    return rea::Engines::makeSession(order, makeConverter(), false, true, false, false, userFile(L"learning.txt"));
 }
 
 static const wchar_t SETTINGS_KEY[] = L"Software\\KoEnJa";
@@ -599,7 +606,7 @@ public:
     /** A switch key whose key-down was eaten: its key-up goes too (a lone Alt up opens the app's menu). */
     WPARAM eatenSwitch = 0;
     /** A key the word's commit let through, sent again (replay): let through when it comes back. */
-    struct { WPARAM vk = 0; DWORD at = 0; bool chord = false; } replayed;
+    struct { WPARAM vk = 0; DWORD at = 0; bool chord = false; bool seen = false; LONG seenAt = 0; } replayed;
     /** SendInput's dwExtraInfo on a replayed key: GetMessageExtraInfo() gives it back while the app
      *  handles that key's message, on this thread. */
     static constexpr ULONG_PTR REPLAY_TOKEN = 0x4B6F456E; // 'KoEn'
@@ -613,6 +620,9 @@ public:
     int tapped = 0;
     /** Whether the open conversion's list shows: the first Space converts in place, the next opens it. */
     bool listOpen = false;
+    /** The field privacy() last read successfully, and what it said (kept for a read that fails). */
+    mutable ComPtr<ITfContext> scopedContext;
+    mutable int scoped = 0;
 
     virtual ~Tip() = default;
 
@@ -707,12 +717,15 @@ public:
     STDMETHODIMP OnUninitDocumentMgr(ITfDocumentMgr*) override { return S_OK; }
     STDMETHODIMP OnSetFocus(ITfDocumentMgr*, ITfDocumentMgr*) override {
         finish();
+        scopedContext.Reset();
         readSettings();
         if (session) session->activate();
         return S_OK;
     }
-    STDMETHODIMP OnPushContext(ITfContext*) override { return S_OK; }
-    STDMETHODIMP OnPopContext(ITfContext*) override { return S_OK; }
+    /** A context pushed or popped (a dialog's field over the document, say): the word goes in where it
+     *  is shown, so its offsets never land in the other context. */
+    STDMETHODIMP OnPushContext(ITfContext*) override { finish(); scopedContext.Reset(); return S_OK; }
+    STDMETHODIMP OnPopContext(ITfContext*) override { finish(); scopedContext.Reset(); return S_OK; }
 
     // ITfKeyEventSink
 
@@ -723,18 +736,18 @@ public:
         return S_OK;
     }
     STDMETHODIMP OnTestKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override {
-        if (isReplayed(vk)) { *eaten = FALSE; log("TestDown replayed", vk, lParam, *eaten); return S_OK; }
+        if (isReplayed(vk)) { *eaten = FALSE; log(context, "TestDown replayed", vk, lParam, *eaten); return S_OK; }
         replayed = {}; // another key: the replayed one is done with (or never came)
         trackTap(vk, lParam);
         *eaten = actionFor(context, physicalKey(keyboard, vk, lParam), lParam).has_value();
-        log("TestDown", vk, lParam, *eaten);
+        log(context, "TestDown", vk, lParam, *eaten);
         return S_OK;
     }
     STDMETHODIMP OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override;
     STDMETHODIMP OnTestKeyUp(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override {
         *eaten = (eatenSwitch && physicalKey(keyboard, vk, lParam) == eatenSwitch) || isTap(context, vk, lParam);
         if (!*eaten && tapPart(vk, lParam)) tapped = 0;
-        log("TestUp", vk, lParam, *eaten);
+        log(context, "TestUp", vk, lParam, *eaten);
         return S_OK;
     }
     STDMETHODIMP OnKeyUp(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* eaten) override;
@@ -752,6 +765,7 @@ public:
         if (session && (composition || typing())) return;
         try {
             if (session) {
+                saveLearning();
                 session = makeSession(languages);
                 session->activate();
             }
@@ -778,6 +792,7 @@ public:
         bool japanese = !japaneseFirst(order);
         std::vector<Language> next{japanese ? Language::JAPANESE : Language::KOREAN, Language::ENGLISH,
                                    japanese ? Language::KOREAN : Language::JAPANESE};
+        saveLearning();
         try {
             session = makeSession(next);
             session->activate();
@@ -816,9 +831,10 @@ public:
         return session && tapParts() && (tapPart(vk, lParam) & tapParts()) && tapped == tapParts() && !disabled(context);
     }
 
-    /** One line in keys.log per key event, when KeyLog is on: what reached the TIP in a real app. */
-    void log(const char* event, WPARAM vk, LPARAM lParam, BOOL eaten) const {
-        if (!keyLog) return;
+    /** One line in keys.log per key event, when KeyLog is on: what reached the TIP in a real app.
+     *  Never a key of a field KoEnJa stays out of (a password, no field: disabled()) or a private one. */
+    void log(ITfContext* context, const char* event, WPARAM vk, LPARAM lParam, BOOL eaten) const {
+        if (!keyLog || disabled(context) || privacy(context)) return;
         wchar_t local[MAX_PATH];
         if (!GetEnvironmentVariableW(L"LOCALAPPDATA", local, MAX_PATH)) return;
         auto folder = std::wstring(local) + L"\\KoEnJa";
@@ -838,8 +854,8 @@ public:
                          extended(lParam), int((lParam >> 29) & 1), int((lParam >> 30) & 1), int((lParam >> 31) & 1), unsigned(lParam),
                          int(eaten), int(typing()), int(isOpen()), GetKeyState(VK_CONTROL) < 0, GetKeyState(VK_SHIFT) < 0,
                          GetKeyState(VK_MENU) < 0, SWITCH_NAMES[int(switchKey)]);
-        DWORD written;
-        WriteFile(file, line, DWORD(std::max(0, n)), &written, nullptr);
+        DWORD written; // snprintf's n is what it needed: a 255-character exe name runs past the line
+        WriteFile(file, line, DWORD(std::clamp(n, 0, int(sizeof line) - 1)), &written, nullptr);
         CloseHandle(file);
     }
 
@@ -1005,10 +1021,12 @@ public:
     }
 
 private:
-    /** TSF's flags for a field the keyboard mustn't compose in (a password, IME off) or no field at all. */
-    static bool disabled(ITfContext* context) {
+    /** TSF's flags for a field the keyboard mustn't compose in (IME off) or no field at all, or a
+     *  password or PIN by its input scope (privacy). */
+    bool disabled(ITfContext* context) const {
         ComPtr<ITfCompartmentMgr> compartments;
         if (!context || FAILED(context->QueryInterface(IID_PPV_ARGS(&compartments)))) return true;
+        if (privacy(context) == 2) return true;
         for (auto guid : {&GUID_COMPARTMENT_KEYBOARD_DISABLED, &GUID_COMPARTMENT_EMPTYCONTEXT}) {
             ComPtr<ITfCompartment> compartment;
             VARIANT value{};
@@ -1020,6 +1038,73 @@ private:
     }
 
     bool typing() const { return session && (!session->keys.empty() || session->conversion); }
+
+    /** What [context]'s input scopes say at the selection: 2 a password or PIN (KoEnJa stays out, as
+     *  Microsoft's IMEs do), 1 private data (an InPrivate window: typing goes on, nothing learned or
+     *  logged), 0 neither or no scope given. Read on every call (the app may change it in place);
+     *  a read that fails (the app busy, no lock) keeps the last read of the same field, else 0.
+     *  ponytail: a few read-only sync edit sessions per key; one per key event if that shows. */
+    int privacy(ITfContext* context) const {
+        if (!context) return 0;
+        if (auto read = readPrivacy(context)) {
+            scopedContext = context;
+            scoped = *read;
+            return *read;
+        }
+        return context == scopedContext.Get() ? scoped : 0;
+    }
+
+    /** privacy's read; nullopt: it failed (no lock, no position to read at), as against an app
+     *  that gives no scope (no such property or value: 0, as a field without one is). */
+    std::optional<int> readPrivacy(ITfContext* context) const {
+        std::optional<int> out;
+        auto reader = new EditSession([&](TfEditCookie ec) {
+            ComPtr<ITfReadOnlyProperty> property;
+            ComPtr<ITfRange> at;
+            TF_SELECTION selection;
+            ULONG fetched = 0;
+            if (SUCCEEDED(context->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &selection, &fetched)) && fetched) at.Attach(selection.range);
+            else if (FAILED(context->GetStart(ec, &at))) return;
+            VARIANT value{};
+            int found = 0;
+            if (FAILED(context->GetAppProperty(INPUTSCOPE_PROPERTY, &property))) { out = 0; return; } // the app has no scopes
+            if (FAILED(property->GetValue(ec, at.Get(), &value))) return; // unknown: the last read stands
+            ComPtr<ITfInputScope> scope;
+            InputScope* scopes = nullptr;
+            UINT count = 0;
+            if (value.vt == VT_UNKNOWN && value.punkVal && SUCCEEDED(value.punkVal->QueryInterface(IID_PPV_ARGS(&scope)))) {
+                if (FAILED(scope->GetInputScopes(&scopes, &count))) { VariantClear(&value); return; } // unknown
+                for (UINT i = 0; i < count; i++) {
+                    switch (scopes[i]) {
+                        case IS_PASSWORD: case IS_NUMERIC_PASSWORD: case IS_NUMERIC_PIN: case IS_ALPHANUMERIC_PIN: case IS_ALPHANUMERIC_PIN_SET:
+                            found = 2; break;
+                        case IS_PRIVATE: found = std::max(found, 1); break;
+                        default: break;
+                    }
+                }
+                CoTaskMemFree(scopes);
+            }
+            VariantClear(&value);
+            out = found; // VT_EMPTY: the app gives no scope
+        });
+        HRESULT result = E_FAIL;
+        HRESULT hr = context->RequestEditSession(client, reader, TF_ES_SYNC | TF_ES_READ, &result);
+        reader->Release();
+        return SUCCEEDED(hr) && result == S_OK ? out : std::nullopt;
+    }
+
+    /** No learning in a private field: the engine's dictionary and the converter's both (the
+     *  field the key came to decides; finish() commits under the field's own setting). */
+    void applyPrivacy(ITfContext* context) {
+        bool learning = privacy(context) == 0;
+        if (session && session->engine) session->engine->learning = learning;
+        if (session && session->converter) session->converter->learning = learning;
+    }
+
+    /** The converter's learning to its file (the focus leaves, the session is replaced). */
+    void saveLearning() {
+        try { if (session && session->converter) session->converter->save(); } catch (...) {}
+    }
 
     /** What a key-down does: keys for the session, a listed candidate picked, KoEnJa off/on, an F8–F10
      *  form of the reading, or nothing (the key just eaten). */
@@ -1078,10 +1163,9 @@ private:
             return std::nullopt;
         bool chord = GetKeyState(VK_CONTROL) < 0 || GetKeyState(VK_MENU) < 0;
         bool shift = GetKeyState(VK_SHIFT) < 0;
-        if (!chord && vk >= 'A' && vk <= 'Z') {
-            bool upper = shift != ((GetKeyState(VK_CAPITAL) & 1) != 0);
-            return type(InputSession::Key::letter(char16_t(upper ? vk : vk + ('a' - 'A'))));
-        }
+        // Caps Lock is left out: the word reads as Shift alone types it (RJATK is 검사); perform hands
+        // the session the Caps Lock state, as Swift's controller does.
+        if (!chord && vk >= 'A' && vk <= 'Z') return type(InputSession::Key::letter(char16_t(shift ? vk : vk + ('a' - 'A'))));
         // On 3-set the session sees the other keys too, as on the Mac: a digit or symbol starts a word
         // (ㅋ on 0, ㅂ on ;) or types 3-set's symbol after a Korean word (⇧/ is !), until a key that isn't one.
         if (!typing() && (chord || !rea::isSebeolsik())) return std::nullopt;
@@ -1151,10 +1235,33 @@ private:
      *  (WPF hands keys without one: the layout's) and a token in its extra info; it comes back and
      *  goes to the app (isReplayed). Only while this app is in front: elsewhere the key would land in
      *  another app (tip_test has no window, and keeps the not-eaten way). False: not sent. */
-    bool replay(WPARAM vk, LPARAM lParam) {
+    /** Where a key went: the thread's focus window, the foreground one and TSF's focused document. */
+    struct Target {
+        HWND focus, front;
+        ComPtr<ITfDocumentMgr> document;
+        /** The key's context, then the focused document's top one: a field swapped in the same
+         *  window and document (a context pushed or popped) is another target. */
+        ComPtr<ITfContext> context;
+        bool operator==(const Target& o) const {
+            return focus == o.focus && front == o.front && document == o.document && context == o.context;
+        }
+    };
+    /** Where a key goes now: [key]'s context if given (the key's own), else the focused document's top. */
+    Target target(ITfContext* key = nullptr) const {
+        Target t{GetFocus(), GetForegroundWindow()};
+        if (threadMgr) threadMgr->GetFocus(&t.document);
+        if (key) t.context = key;
+        else if (t.document) t.document->GetTop(&t.context);
+        return t;
+    }
+    /** [from]: where the key went before the commit; the commit's SetText may move the focus (a
+     *  dialog in the same app), and the key would land there: not sent then.
+     *  ponytail: SendInput goes to whatever has the focus when it is read; the window between this
+     *  check and that can't be closed from here. */
+    bool replay(WPARAM vk, LPARAM lParam, const Target& from) {
         DWORD owner = 0;
         GetWindowThreadProcessId(GetForegroundWindow(), &owner);
-        if (owner != GetCurrentProcessId()) return false;
+        if (owner != GetCurrentProcessId() || !(target() == from)) return false;
         INPUT input{};
         input.type = INPUT_KEYBOARD;
         input.ki.wVk = WORD(vk);
@@ -1171,10 +1278,23 @@ private:
     /** The replayed key coming back: the same key within a second, carrying the token, or (an app
      *  whose message isn't the thread's last) with nothing being typed and Ctrl/Alt as they were (a
      *  word typed since, or a plain A after a replayed Ctrl+A, takes the key as usual). The app may
-     *  test it more than once before its key-down, so only OnKeyDown, or another key, forgets it. */
-    bool isReplayed(WPARAM vk) const {
+     *  test it more than once before its key-down, so only OnKeyDown, or another key, forgets it;
+     *  without the token, only the one message (GetMessageTime) counts: the same key pressed
+     *  again within the second is the user's. */
+    bool isReplayed(WPARAM vk) {
+        if (GetMessageExtraInfo() == LPARAM(REPLAY_TOKEN)) {
+            // Ours, even after another key came first. The fallback ends here: TSF may skip OnKeyDown, and
+            // the same key pressed again within the second is the user's. Each test of this message still
+            // carries the token.
+            replayed = {};
+            return true;
+        }
         if (!replayed.vk || replayed.vk != vk || GetTickCount() - replayed.at >= 1000) return false;
-        return GetMessageExtraInfo() == LPARAM(REPLAY_TOKEN) || (!typing() && chordHeld() == replayed.chord);
+        if (typing() || chordHeld() != replayed.chord) return false;
+        LONG at = GetMessageTime();
+        if (replayed.seen && replayed.seenAt != at) return false; // a later message: a real key
+        replayed.seen = true; replayed.seenAt = at;
+        return true;
     }
 
     /** Forgets the word being typed, its text left as shown. */
@@ -1215,9 +1335,21 @@ struct Client : rea::TextClient {
         return {int(start), int(length)};
     }
 
+    /** An edit the app refused (no ACP ranges, a read-only or full field); nothing is written after
+     *  it. [keyWritten]: text went in since the key's own text began (keyTextBegins; the key's start
+     *  if never called): none, and the key is the app's again (perform); some (a segment committed
+     *  on Return, the rest refused), and the key did its part: sent again it would act twice. */
+    bool failed = false;
+    bool keyWritten = false;
+
+    void keyTextBegins() override { keyWritten = false; }
+
     TextRange markedRange() override {
         ComPtr<ITfRange> r;
-        if (!tip.composition || FAILED(tip.composition->GetRange(&r))) return {TextRange::NOT_FOUND, 0};
+        ComPtr<ITfContext> owner;
+        // Another context's composition (one pushed over it) is no marked text here: its offsets aren't this one's.
+        if (!tip.composition || FAILED(tip.composition->GetRange(&r)) || FAILED(r->GetContext(&owner)) || owner.Get() != context)
+            return {TextRange::NOT_FOUND, 0};
         return extent(r.Get());
     }
 
@@ -1249,6 +1381,7 @@ struct Client : rea::TextClient {
     /** [text] in place of [replacing] and the marked text (or the selection, if neither), then the
      *  caret after it; [marked] keeps it the composition, underlined, else the composition ends. */
     void replace(const std::u16string& text, std::optional<TextRange> replacing, bool marked) {
+        if (failed) return;
         TextRange target = replacing ? *replacing : markedRange();
         if (target.location == TextRange::NOT_FOUND) target = selectedRange();
         TextRange shown = markedRange();
@@ -1257,18 +1390,24 @@ struct Client : rea::TextClient {
             target = {start, int(std::max(target.end(), shown.end()) - start)};
         }
         auto r = range(target);
-        if (!r || FAILED(r->SetText(ec, 0, reinterpret_cast<const WCHAR*>(text.data()), LONG(text.size())))) return;
+        if (!r || FAILED(r->SetText(ec, 0, reinterpret_cast<const WCHAR*>(text.data()), LONG(text.size())))) {
+            failed = true;
+            return;
+        }
+        keyWritten = true;
         auto done = range({target.location, int(text.size())});
-        if (!done) return;
+        if (!done) { failed = true; return; }
         if (marked && !text.empty()) {
+            // The text went in, but unmarked the engine's offsets would be wrong from here: a failure too.
             if (tip.composition) {
-                tip.composition->ShiftStart(ec, done.Get());
-                tip.composition->ShiftEnd(ec, done.Get());
+                failed = FAILED(tip.composition->ShiftStart(ec, done.Get())) || FAILED(tip.composition->ShiftEnd(ec, done.Get()));
             } else {
                 ComPtr<ITfContextComposition> compositions;
-                if (SUCCEEDED(context->QueryInterface(IID_PPV_ARGS(&compositions))))
-                    compositions->StartComposition(ec, done.Get(), static_cast<ITfCompositionSink*>(&tip), &tip.composition);
+                failed = FAILED(context->QueryInterface(IID_PPV_ARGS(&compositions))) ||
+                         FAILED(compositions->StartComposition(ec, done.Get(), static_cast<ITfCompositionSink*>(&tip), &tip.composition)) ||
+                         !tip.composition;
             }
+            if (failed) return;
             tip.setUnderline(context, ec, done.Get(), true);
         } else {
             tip.setUnderline(context, ec, done.Get(), false);
@@ -1291,28 +1430,44 @@ bool Tip::perform(ITfContext* context, const Action& action, bool* edited) {
     if (action.what == Action::Toggle) { setOpen(!isOpen()); return true; }
     if (action.what == Action::Priority) { prioritize(context); return true; }
     if (action.what == Action::Nothing) return true;
+    // A word shown in another context (TSF didn't say it changed) goes in there first.
+    if (ComPtr<ITfRange> shown; composition && SUCCEEDED(composition->GetRange(&shown))) {
+        ComPtr<ITfContext> owner;
+        if (FAILED(shown->GetContext(&owner)) || owner.Get() != context) finish();
+    }
+    applyPrivacy(context);
     bool handled = false;
     HRESULT hr = edit(context, client, TF_ES_SYNC, [&](TfEditCookie ec) {
         Client field(*this, ec, context);
+        // Caps Lock goes to the session as its own state (Swift's handle(_:client:capsLock:)): a word
+        // begun with it on reads as without it and goes in through session->cased(), English in
+        // capitals; Caps Lock changing on a letter (or a 3-set key with a jamo) starts a new word.
+        bool caps = (GetKeyState(VK_CAPITAL) & 1) != 0;
+        auto handle = [&](InputSession::Key key) { return session->handle(key, field, caps); };
         if (action.what == Action::Pick) {
-            if (session->conversion) session->choose(action.index, field);
-            else session->choose(candidates[action.index], field);
+            if (session->conversion) session->choose(action.index, session->cased(field));
+            else session->choose(candidates[action.index], session->cased(field));
             handled = true;
         } else if (action.what == Action::Form) {
             // The engine's katakana form, then this one in its place (Return commits it, as F7's).
-            handled = session->handle({Kind::Katakana}, field);
+            handled = handle({Kind::Katakana});
             if (auto& c = session->conversion; handled && c) {
+                // F9/F10 type the romaji, and a number taken in before it (3じ is 3ji, not ji): what of the
+                // reading the keys don't spell (the form drops numberPrefix, as Swift's does).
+                auto spelled = rea::RomajiComposer::compose(c->keys).text;
+                auto number = c->kana.size() > spelled.size() && c->kana.ends_with(spelled) ? c->kana.substr(0, c->kana.size() - spelled.size()) : std::u16string();
                 auto form = action.index == 8 ? mapped(c->current().text, LCMAP_HALFWIDTH)
-                          : mapped(c->keys, action.index == 9 ? LCMAP_FULLWIDTH : LCMAP_HALFWIDTH);
+                          : mapped(number + c->keys, action.index == 9 ? LCMAP_FULLWIDTH : LCMAP_HALFWIDTH);
                 c->candidates = {{form, int(c->kana.size())}};
                 c->selected = 0;
-                field.setMarkedText(c->display());
+                session->cased(field).setMarkedText(c->display());
             }
         } else {
             bool converting = session->conversion.has_value();
-            handled = session->handle(action.key, field);
+            handled = handle(action.key);
             // The word went in and the app would type the key, as its layout reads it: KoEnJa types it.
             if (!handled && action.insert) {
+                field.keyTextBegins(); // the word's commit above wasn't this key's text
                 field.insertText(std::u16string(1, action.key.ch), std::nullopt);
                 handled = true;
             }
@@ -1322,9 +1477,21 @@ bool Tip::perform(ITfContext* context, const Action& action, bool* edited) {
                             action.key.kind == Kind::Left || action.key.kind == Kind::Right;
             if (auto& c = session->conversion; converts && c && c->candidates.size() > 1 &&
                                                   c->current().text == c->kana.substr(0, c->current().kanaCount))
-                session->handle({Kind::Down}, field);
+                handle({Kind::Down});
             // Return: every segment, each as converted (64: a reading is never that long).
-            for (int i = 1; action.index < 0 ? session->conversion && i < 64 : i < action.index; i++) session->handle(action.key, field);
+            for (int i = 1; action.index < 0 ? session->conversion && i < 64 : i < action.index; i++) handle(action.key);
+        }
+        if (field.failed) {
+            // The app refused an edit: the word is forgotten as shown, its composition ended. None of the
+            // key's own text in (only the word before it committed, say): the key is the app's, as one the
+            // session leaves (OnKeyDown replays it where the app needs that, CUAS). Some of it in: the key
+            // did its part; sent again it would act twice.
+            if (composition) composition->EndComposition(ec);
+            composition.Reset();
+            session->commitForNewContext(nullptr);
+            closeList();
+            handled = field.keyWritten;
+            return;
         }
         if (action.showList) listOpen = *action.showList;
         // The segment being converted underlined thick, the rest of the reading thin.
@@ -1335,6 +1502,7 @@ bool Tip::perform(ITfContext* context, const Action& action, bool* edited) {
         }
         listCandidates(ec, context);
     });
+    // Whether the edit session ran (false: nothing committed, the word as it was).
     if (edited) *edited = SUCCEEDED(hr);
     return handled;
 }
@@ -1343,7 +1511,7 @@ STDMETHODIMP Tip::OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL*
     if (isReplayed(vk)) {
         replayed = {};
         *eaten = FALSE;
-        log("Down replayed", vk, lParam, *eaten);
+        log(context, "Down replayed", vk, lParam, *eaten);
         return S_OK;
     }
     trackTap(vk, lParam);
@@ -1353,10 +1521,11 @@ STDMETHODIMP Tip::OnKeyDown(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL*
     // sent again (replay); where it can't be sent, the key goes on as not eaten. Not after an edit
     // session that didn't run (the word is still there: a replay would come back to the same).
     bool edited = false;
+    Target from = target(context);
     *eaten = action && perform(context, *action, &edited);
-    if (action && !*eaten && edited && action->what == Action::Type) *eaten = replay(vk, lParam);
+    if (action && !*eaten && edited && action->what == Action::Type) *eaten = replay(vk, lParam, from);
     if (*eaten && isSwitchDown(key)) eatenSwitch = key;
-    log("Down", vk, lParam, *eaten);
+    log(context, "Down", vk, lParam, *eaten);
     return S_OK;
 }
 
@@ -1371,7 +1540,7 @@ STDMETHODIMP Tip::OnKeyUp(ITfContext* context, WPARAM vk, LPARAM lParam, BOOL* e
         *eaten = TRUE;
     }
     if (tapPart(vk, lParam)) tapped = 0;
-    log("Up", vk, lParam, *eaten);
+    log(context, "Up", vk, lParam, *eaten);
     return S_OK;
 }
 
@@ -1381,13 +1550,24 @@ void Tip::finish() {
     closeList();
     ComPtr<ITfRange> range;
     ComPtr<ITfContext> context;
-    if (!composition || FAILED(composition->GetRange(&range)) || FAILED(range->GetContext(&context))) return drop();
+    if (!composition || FAILED(composition->GetRange(&range)) || FAILED(range->GetContext(&context))) {
+        drop();
+        return saveLearning();
+    }
     ComPtr<Tip> self(this);
     ComPtr<ITfComposition> ended = composition;
     HRESULT hr = edit(context.Get(), client, TF_ES_ASYNCDONTCARE, [self, context, ended](TfEditCookie ec) {
         if (self->composition == ended) {
             Client field(*self.Get(), ec, context.Get());
-            self->session->commitForNewContext(&field);
+            self->session->commitForNewContext(&self->session->cased(field));
+            // The commit refused (field.failed) or not, this composition is done with: ended here, in its
+            // own context, so the next field never finds it.
+            if (self->composition == ended) {
+                ComPtr<ITfRange> shown;
+                if (SUCCEEDED(ended->GetRange(&shown))) self->setUnderline(context.Get(), ec, shown.Get(), false);
+                ended->EndComposition(ec);
+                self->composition.Reset();
+            }
         } else { // the lock came late (below): just end it, as shown
             ComPtr<ITfRange> shown;
             if (SUCCEEDED(ended->GetRange(&shown))) self->setUnderline(context.Get(), ec, shown.Get(), false);
@@ -1396,6 +1576,7 @@ void Tip::finish() {
     });
     // Async or refused: the next field's keys must not reach this word or its offsets.
     if (hr != S_OK) drop();
+    saveLearning(); // after the commit, which may have learned
 }
 
 /** CoCreateInstance's way in; static, so it only counts LockServer. */

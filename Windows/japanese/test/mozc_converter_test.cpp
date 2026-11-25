@@ -19,6 +19,8 @@
 #include <psapi.h>
 #else
 #include <mach/mach.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #endif
 
 using namespace rea;
@@ -181,6 +183,92 @@ int main(int argc, char** argv) {
             learner.learn({u"事故", 2}, u"じこ");
             check(learner.candidates(u"じこ").front().text == u"事故", "learning latest wins");
         }
+        // Two apps on the one file: each save keeps what the other saved (the TIP has a converter per app).
+        std::filesystem::remove(file);
+        {
+            MozcConverter one(argv[1], file), two(argv[1], file);
+            auto pick = [&](MozcConverter& c, const std::u16string& kana) {
+                auto all = c.candidates(kana);
+                auto second = all.size() > 1 ? all[1] : all[0];
+                c.learn(second, kana);
+                return second.text;
+            };
+            auto jiko = pick(one, u"じこ"), kisha = pick(two, u"きしゃ");
+            one.save();
+            two.save();
+            MozcConverter fresh(argv[1], file);
+            check(fresh.candidates(u"じこ").front().text == jiko && fresh.candidates(u"きしゃ").front().text == kisha,
+                  "learning merged across converters");
+        }
+        // The same word learned in two apps: counted on, not set back (4 + 1 is 5).
+        std::filesystem::remove(file);
+        {
+            MozcConverter a(argv[1], file), b(argv[1], file);
+            for (int i = 0; i < 4; i++) a.learn({u"事故", 2}, u"じこ");
+            a.save();
+            b.learn({u"事故", 2}, u"じこ");
+            b.save();
+            std::ifstream saved(file, std::ios::binary);
+            std::string all((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+            check(all.find("じこ\t事故\t5\n") != std::string::npos, "learning counts added across converters");
+        }
+#ifndef _WIN32
+        // The lock not taken (its file unwritable): nothing written, nothing lost; the next save writes it.
+        std::filesystem::remove(file);
+        {
+            auto lock = file;
+            lock += ".lock";
+            { std::ofstream{lock}; }
+            std::filesystem::permissions(lock, std::filesystem::perms::none);
+            MozcConverter a(argv[1], file);
+            a.learn({u"事故", 2}, u"じこ");
+            a.save();
+            bool skipped = !std::filesystem::exists(file);
+            std::filesystem::permissions(lock, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+            a.save();
+            check(skipped && MozcConverter(argv[1], file).candidates(u"じこ").front().text == u"事故", "learning kept until the lock is taken");
+            std::filesystem::remove(lock);
+        }
+#endif
+#ifndef _WIN32
+        // Two processes saving at the same instant over a large file: the lock keeps both readings.
+        {
+            int lost = 0;
+            for (int trial = 0; trial < 5; trial++) {
+                std::filesystem::remove(file);
+                {
+                    std::ofstream big(file, std::ios::binary);
+                    for (int i = 0; i < 30000; i++) big << "よみ" << i << "\t語" << i << "\t1\n";
+                }
+                auto go = file;
+                go += ".go";
+                std::filesystem::remove(go);
+                pid_t children[2];
+                const char16_t* kanas[2] = {u"じこ", u"きしゃ"};
+                for (int c = 0; c < 2; c++) {
+                    if ((children[c] = fork()) == 0) {
+                        MozcConverter converter(argv[1], file);
+                        auto all = converter.candidates(kanas[c]);
+                        converter.learn(all.size() > 1 ? all[1] : all[0], kanas[c]);
+                        while (!std::filesystem::exists(go)) usleep(100);
+                        converter.save();
+                        _exit(0);
+                    }
+                }
+                usleep(300000); // both loaded and waiting
+                std::ofstream{go};
+                for (pid_t child : children) waitpid(child, nullptr, 0);
+                std::ifstream saved(file, std::ios::binary);
+                std::string all((std::istreambuf_iterator<char>(saved)), std::istreambuf_iterator<char>());
+                bool both = all.find("じこ\t") != std::string::npos && all.find("きしゃ\t") != std::string::npos;
+                bool kept = all.find("よみ29999\t") != std::string::npos;
+                lost += !(both && kept);
+                std::filesystem::remove(go);
+            }
+            check(lost == 0, "learning kept by two processes saving at once");
+            std::printf("concurrent saves: %d/5 trials lost a reading\n", lost);
+        }
+#endif
         std::filesystem::remove(file);
     }
 

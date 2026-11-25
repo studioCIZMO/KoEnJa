@@ -460,6 +460,7 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
     /// started. Entries for some apps only aren't listed: forgetting from the menu forgets the
     /// entry for every app.
     public func noteApplied(keys: String, text: String, language: Language) {
+        guard learning else { return }
         lock.withLock {
             guard store.entries.contains(where: { $0.keys == keys && $0.language != nil && $0.forEveryApp }) else { return }
             recent.removeAll { $0.keys == keys }
@@ -647,6 +648,7 @@ public final class DictionaryEngine: DecisionEngine, @unchecked Sendable {
 
     /// The word went in as `language` without a correction: a weak entry saying so stays.
     public func used(_ keys: String, as language: Language) {
+        guard learning else { return }
         let day = today()
         persist(lock.withLock { store.used(keys, as: language, today: day) ? store : nil })
     }

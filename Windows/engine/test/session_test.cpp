@@ -58,6 +58,9 @@ struct FakeConverter : JapaneseConverter {
         if (kana == u"へんかん") return {{u"変換", 4}, {u"返還", 4}, {u"編纂", 4}};
         if (kana == u"3じ") return {{u"三時", 2}, {u"３時", 2}, {u"3時", 2}, {u"3", 1}};
         if (kana == u"やま") return {{u"山😀", 2}, {kana, 2}};
+        if (kana == u"てすと") return {{u"test", 3}};
+        if (kana == u"かわ") return {{u"ｶﾞ", 2}, {kana, 2}};
+        if (kana == u"そら") return {{u"ｶﾞﾅ", 2}, {kana, 2}};
         if (kana == u"かず") {
             std::vector<ConversionCandidate> numbered;
             for (int i = 1; i <= 12; i++) numbered.push_back({u"数" + utf16(std::to_string(i)), 2});
@@ -100,8 +103,11 @@ static std::string readFile(const std::filesystem::path& path) {
 }
 
 int main(int argc, char** argv) {
-    if (argc != 2) { fprintf(stderr, "usage: session_test <data dir>\n"); return 2; }
+    if (argc < 2 || argc > 3) { fprintf(stderr, "usage: session_test <data dir> [<test resources dir>]\n"); return 2; }
     Resources::directory = argv[1];
+    // Android/engine/src/test/resources, as golden_test takes it; by default found from this file.
+    std::filesystem::path resources = argc == 3 ? std::filesystem::path(argv[2])
+        : std::filesystem::path(__FILE__).parent_path() / "../../../Android/engine/src/test/resources";
 
     { // Without live conversion, Delete commits the conversion less its last character (変換 → 変).
         Test t(false);
@@ -127,6 +133,62 @@ int main(int argc, char** argv) {
         t.key(DELETE);
         CHECK(t.field.value == u"山");
     }
+    { // The last character as Swift's dropLast() takes it: an extended grapheme cluster.
+        auto drop = InputSession::dropLastCharacter;
+        CHECK(drop(u"山葛\U000E0100") == u"山");          // an ideographic variation selector
+        CHECK(drop(u"山👩🏽") == u"山");                    // a skin tone
+        CHECK(drop(u"山👨\u200D👩\u200D👧") == u"山");     // a ZWJ family
+        CHECK(drop(u"ｶﾞ") == u"" && drop(u"ｶﾞﾅ") == u"ｶﾞ");
+        CHECK(drop(u"山か\u3099") == u"山");              // か + combining dakuten (NFD が)
+        CHECK(drop(u"A\n\u0301") == u"A\n");             // a mark after a newline is a character of its own
+        CHECK(drop(u"山🇯🇵🇰🇷") == u"山🇯🇵");                // flags: regional indicators in pairs
+        CHECK(drop(u"a\r\n") == u"a" && drop(u"한\u1100\u1161\u11A8") == u"한" && drop(u"") == u"");
+        CHECK(drop(u"A\u21A0\u200D\u21A0") == u"A\u21A0\u200D"); // ↠ isn't pictographic
+        CHECK(drop(u"A\u200B\u0301") == u"A\u200B");             // ZWSP is a control
+        CHECK(drop(u"Aका") == u"A");                              // a spacing mark joins
+    }
+    { // Unicode's GraphemeBreakTest.txt: each line less its last cluster.
+        std::ifstream file(resources / "GraphemeBreakTest.txt", std::ios::binary);
+        CHECK(file.good());
+        int lines = 0;
+        for (std::string line; std::getline(file, line);) {
+            line = line.substr(0, line.find('#'));
+            if (line.find_first_not_of(" \t\r") == std::string::npos) continue;
+            // ÷ before each cluster and at the end: the text less its last cluster ends at the one before last.
+            std::u16string text;
+            std::vector<std::u16string> boundaries;
+            std::istringstream fields(line);
+            for (std::string field; fields >> field;) {
+                if (field == "\xC3\xB7") boundaries.push_back(text);
+                else if (field != "\xC3\x97") { // ×: no boundary
+                    char32_t c = char32_t(std::stoul(field, nullptr, 16));
+                    if (c >= 0x10000) text += {char16_t(0xD800 + ((c - 0x10000) >> 10)), char16_t(0xDC00 + ((c - 0x10000) & 0x3FF))};
+                    else text += char16_t(c);
+                }
+            }
+            auto expected = boundaries.size() >= 2 ? boundaries[boundaries.size() - 2] : u"";
+            lines++;
+            if (InputSession::dropLastCharacter(text) != expected) {
+                failures++;
+                fprintf(stderr, "GraphemeBreakTest: %s\n", line.c_str());
+            }
+            checks++;
+        }
+        CHECK(lines == 1093);
+    }
+    { // ... and the marks after it: ｶﾞ is one character, as in Swift.
+        Test t(false);
+        t.type(u"kawa ");
+        CHECK(t.field.value == u"ｶﾞ");
+        t.key(DELETE);
+        CHECK(t.field.value == u"");
+        t.field.clear();
+        t.session->activate();
+        t.type(u"sora ");
+        CHECK(t.field.value == u"ｶﾞﾅ");
+        t.key(DELETE);
+        CHECK(t.field.value == u"ｶﾞ");
+    }
     { // A digit picks from the page of candidates on show.
         Test t(false);
         t.type(u"kazu ");
@@ -143,6 +205,19 @@ int main(int argc, char** argv) {
         CHECK(t.field.value == u"変換3時");
         t.key(DELETE);
         CHECK(t.field.value == u"変換3" && !t.session->conversion);
+    }
+    { // ... and through its katakana form (F7): the 3 is part of the form's kana, as in Swift; Esc then
+      // puts the kana in (the keys no longer spell it) and the next Return is the app's.
+        Test t(false);
+        t.type(u"henkan ");
+        t.key(ENTER);
+        t.type(u"3ji ");
+        CHECK(t.key(KATAKANA));
+        CHECK(t.field.value == u"変換3ジ");
+        CHECK(t.session->conversion && t.session->conversion->kana == u"3じ" && t.session->conversion->keys == u"ji");
+        t.key(ESCAPE);
+        CHECK(t.field.value == u"変換3じ" && t.committed() && !t.session->conversion);
+        CHECK(!t.key(ENTER));
     }
     { // With live conversion: back to typing the phrase, its last clause as kana less one.
         Test t(true);
@@ -297,6 +372,94 @@ int main(int argc, char** argv) {
         engine.learn(u"dkssud", Language::ENGLISH, Language::KOREAN);
         CHECK(engine.learned()[u"dkssud"] == Language::ENGLISH);
     }
+    { // learning off: a word typed again changes nothing, in memory or on disk
+        auto file = std::filesystem::temp_directory_path() / "koenja-session-learning-off.txt";
+        auto saved = "so\tkorean\tlearned\tweak\t" + utf8(UserDictionary::day(UserDictionary::today() - std::chrono::days{1})) + "\n";
+        { std::ofstream(file, std::ios::binary) << saved; }
+        {
+            Test t(false, file);
+            auto& engine = *t.session->engine;
+            auto before = *engine.entry(u"so");
+            engine.learning = false;
+            engine.used(u"so", Language::KOREAN);
+            CHECK(readFile(file) == saved && *engine.entry(u"so") == before);
+            engine.learning = true;
+            engine.used(u"so", Language::KOREAN);
+            CHECK(readFile(file) != saved);
+        }
+        std::filesystem::remove(file);
+    }
+    { // Two apps each correcting a word once: sure, as one app correcting it twice.
+        auto file = std::filesystem::temp_directory_path() / "koenja-session-two-corrections.txt";
+        std::filesystem::remove(file);
+        {
+            Test a(false, file), b(false, file);
+            a.session->engine->learn(u"so", Language::KOREAN, Language::ENGLISH);
+            b.session->engine->learn(u"so", Language::KOREAN, Language::ENGLISH);
+            Test c(false, file);
+            auto entry = c.session->engine->entry(u"so");
+            CHECK(entry && entry->strength == UserDictionary::Entry::Strength::Sure);
+        }
+        std::filesystem::remove(file);
+    }
+    { // Two apps on one learning.txt, one word: another app's promotion to sure, or its removal, stands
+      // when this one only typed the word again (used: its day).
+        auto file = std::filesystem::temp_directory_path() / "koenja-session-same-word.txt";
+        auto weak = "so\tkorean\tlearned\tweak\t" + utf8(UserDictionary::day(UserDictionary::today() - std::chrono::days{1})) + "\n";
+        for (bool forget : {false, true}) {
+            { std::ofstream(file, std::ios::binary) << weak; }
+            {
+                Test a(false, file), b(false, file);
+                if (forget) a.session->engine->learn(u"so", Language::ENGLISH, Language::KOREAN); // back to the engine's: gone
+                else a.session->engine->learn(u"so", Language::KOREAN, Language::ENGLISH);        // the same again: sure
+                b.session->engine->used(u"so", Language::KOREAN);
+                Test c(false, file);
+                auto entry = c.session->engine->entry(u"so");
+                if (forget) CHECK(!entry);
+                else CHECK(entry && entry->strength == UserDictionary::Entry::Strength::Sure);
+            }
+        }
+        std::filesystem::remove(file);
+    }
+#ifndef _WIN32
+    { // The lock not taken (its file unwritable): nothing written, nothing lost; the next save writes it all.
+        auto file = std::filesystem::temp_directory_path() / "koenja-session-locked-out.txt";
+        auto lock = file;
+        lock += ".lock";
+        std::filesystem::remove(file);
+        { std::ofstream{lock}; }
+        std::filesystem::permissions(lock, std::filesystem::perms::none);
+        {
+            Test a(false, file);
+            a.session->engine->learn(u"go", Language::KOREAN, Language::ENGLISH);
+            CHECK(!std::filesystem::exists(file));
+            std::filesystem::permissions(lock, std::filesystem::perms::owner_read | std::filesystem::perms::owner_write);
+            a.session->engine->learn(u"so", Language::KOREAN, Language::ENGLISH);
+            Test b(false, file);
+            CHECK(b.session->engine->entry(u"go") && b.session->engine->entry(u"so"));
+        }
+        std::filesystem::remove(file);
+        std::filesystem::remove(lock);
+    }
+#endif
+    { // Two apps on one learning.txt (the TIP's engine per app): each save keeps what the other saved,
+      // and a word one of them forgets goes from the file too.
+        auto file = std::filesystem::temp_directory_path() / "koenja-session-two-apps.txt";
+        std::filesystem::remove(file);
+        {
+            Test a(false, file), b(false, file);
+            a.session->engine->learn(u"so", Language::KOREAN, Language::ENGLISH);
+            b.session->engine->learn(u"go", Language::KOREAN, Language::ENGLISH);
+            Test c(false, file);
+            CHECK(c.session->engine->entry(u"so") && c.session->engine->entry(u"go"));
+            a.session->engine->learn(u"so", Language::ENGLISH, Language::KOREAN); // back to the engine's: forgotten
+            Test d(false, file);
+            CHECK(!d.session->engine->entry(u"so") && d.session->engine->entry(u"go"));
+        }
+        std::filesystem::remove(file);
+        auto lock = file;
+        std::filesystem::remove(lock += ".lock");
+    }
     { // rememberedWordMovesOnTheSecondSwitch (UserDictionaryTest.kt)
         UserDictionary dictionary;
         auto day = UserDictionary::today();
@@ -335,6 +498,92 @@ int main(int argc, char** argv) {
         CHECK(t.session->engine->decide(u"123", DecisionContext{}).explanation == u"a number");
     }
 
+    { // CapsLockTests.swift: letters arrive as Shift alone types them, words read as without Caps Lock,
+      // English goes in in capitals; loose jamo throughout (two or more) are an acronym unless the
+      // dictionary remembers them. The app types what is passed on, in capitals with Caps Lock.
+        auto fresh = [](std::optional<std::filesystem::path> file = std::nullopt) {
+            return Engines::makeSession({Language::KOREAN, Language::ENGLISH}, nullptr, false, true, false, false, std::move(file));
+        };
+        auto type = [](InputSession& session, Field& field, const std::u16string& s, bool caps) {
+            for (char16_t ch : s) {
+                Key key = ch == u'※' ? CYCLE : isLetter(ch) ? Key::letter(ch) : Key::printable(ch);
+                if (!session.handle(key, field, caps)) field.insertText(caps ? CapsLockClient::capitals(std::u16string(1, ch)) : std::u16string(1, ch), std::nullopt);
+            }
+        };
+        auto typed = [&](const std::u16string& s, bool caps = true) {
+            Field field;
+            auto session = fresh();
+            type(*session, field, s, caps);
+            return field.value;
+        };
+        // readAsWithoutCapsLock
+        CHECK(typed(u"gkaus ") == u"하면 ");
+        CHECK(typed(u"dkssudgktpdy ") == u"안녕하세요 ");
+        CHECK(typed(u"output ") == u"OUTPUT ");
+        CHECK(typed(u"apifmf ") == u"API를 ");
+        CHECK(typed(u"Qks ") == u"빤 ");
+        // acronymsStayEnglish, chatJamoAreAnAcronym, withoutCapsLockLooseJamoStayAsBefore
+        CHECK(typed(u"rst rd ddr ") == u"RST RD DDR ");
+        CHECK(typed(u"output rd ") == u"OUTPUT RD ");
+        CHECK(typed(u"qusghkehlsms rp dho dmd whgdk ") == u"변화되는 게 왜 응 좋아 ");
+        CHECK(typed(u"zz ") == u"ZZ ");
+        CHECK(typed(u"zz ", false) == u"ㅋㅋ ");
+        // switchingTheWordJustCommitted, capsLockOffKeepsTheCase
+        CHECK(typed(u"gkaus ※") == u"GKAUS ");
+        CHECK(typed(u"Hello ", false) == u"Hello ");
+        { // capsLockOffInsideAWordStartsANewOne
+            Field field;
+            auto session = fresh();
+            type(*session, field, u"dk", true);
+            type(*session, field, u"ssud ", false);
+            CHECK(field.value == u"아ㄴ녕 ");
+        }
+        // previewAsWithoutCapsLock, commitAsWithoutCapsLock
+        for (std::u16string keys : {u"gkaus", u"dkssudgktpdy", u"rjatk", u"dkssudr", u"whgdkgg"}) {
+            auto shown = [&](bool caps) {
+                Field field;
+                auto session = fresh();
+                std::vector<std::u16string> out;
+                for (char16_t ch : keys) {
+                    session->handle(Key::letter(ch), field, caps);
+                    out.push_back(caps ? field.value : CapsLockClient::capitals(field.value));
+                }
+                return out;
+            };
+            CHECK(shown(true) == shown(false));
+            CHECK(typed(keys + u" ") == CapsLockClient::capitals(typed(keys + u" ", false)));
+        }
+        CHECK(typed(u"dkssudr ").find(u"DKSSUDR") == std::u16string::npos);
+        CHECK(typed(u"whgdkgg ").find(u"WHGDKGG") == std::u16string::npos);
+        // theDictionaryWins: a word added by hand keeps its language with Caps Lock.
+        auto file = std::filesystem::temp_directory_path() / "koenja-session-caps.txt";
+        { std::ofstream(file, std::ios::binary) << "hello\tkorean\tuser\ngd\tkorean\tuser\ndz\tkorean\tuser\n"; }
+        for (auto [keys, text] : {std::pair{u"hello ", u"ㅗ디ㅣㅐ "}, {u"gd ", u"ㅎㅇ "}, {u"dz ", u"ㅇㅋ "}}) {
+            Field field;
+            auto session = fresh(file);
+            type(*session, field, keys, true);
+            CHECK(field.value == text);
+        }
+        std::filesystem::remove(file);
+        { // aCandidateGoesInAsItWasTyped
+            Test t(false);
+            type(*t.session, t.field, u"tesuto ", false);
+            CHECK(t.session->conversion.has_value());
+            type(*t.session, t.field, u"a", true);
+            CHECK(t.field.value.starts_with(u"test"));
+        }
+        { // sebeolsikJamoKeysStartANewWordToo
+            currentKoreanLayout = KoreanLayout::SEBEOLSIK_FINAL;
+            Field one, two;
+            type(*fresh(), one, u"kf2 ", true);
+            auto session = fresh();
+            type(*session, two, u"kf", true);
+            type(*session, two, u"2 ", false);
+            currentKoreanLayout = KoreanLayout::DUBEOLSIK;
+            CHECK(one.value == u"갔 ");
+            CHECK(two.value != one.value && two.value.starts_with(u"가"));
+        }
+    }
     { // SebeolsikTests.swift: Korean on 3-set final and 390, digits and symbols arriving as the app's printable keys.
         auto compose = [](const std::u16string& keys) {
             currentKoreanLayout = KoreanLayout::SEBEOLSIK_FINAL;

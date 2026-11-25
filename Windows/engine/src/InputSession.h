@@ -40,6 +40,30 @@ public:
     virtual TextRange selectedRange() = 0;
     virtual TextRange markedRange() = 0;
     virtual std::optional<std::u16string> text(TextRange range) = 0;
+    /** What follows is the current key's own text; what came before in this key was the previous
+     *  word's commit. Not called: all of it is the key's. (The Windows TIP: a key whose own text the
+     *  app refused goes back to the app; one whose text went in doesn't.) */
+    virtual void keyTextBegins() {}
+};
+
+/** The field as a word typed with Caps Lock on sees it (Swift's CapsLockClient): ASCII letters go
+ *  in as capitals and read back in lower case, so a word just committed still matches what the
+ *  session inserted; Hangul, kana and everything else as they are. */
+class CapsLockClient : public TextClient {
+public:
+    TextClient* base = nullptr;
+    static std::u16string capitals(std::u16string text);
+    static std::u16string lowercase(std::u16string text);
+    void setMarkedText(const std::u16string& text) override { base->setMarkedText(capitals(text)); }
+    void setMarkedText(const std::u16string& text, TextRange replacing) override { base->setMarkedText(capitals(text), replacing); }
+    void insertText(const std::u16string& text, std::optional<TextRange> replacing) override { base->insertText(capitals(text), replacing); }
+    TextRange selectedRange() override { return base->selectedRange(); }
+    TextRange markedRange() override { return base->markedRange(); }
+    void keyTextBegins() override { base->keyTextBegins(); }
+    std::optional<std::u16string> text(TextRange range) override {
+        auto out = base->text(range);
+        return out ? std::optional(lowercase(*out)) : std::nullopt;
+    }
 };
 
 class JapaneseSegmenter;
@@ -196,6 +220,19 @@ public:
     /** Returns true when the key was consumed. */
     bool handle(Key key, TextClient& client);
 
+    /** `handle` for a key typed with Caps Lock on or off (Swift's handle(_:client:capsLock:)). The
+     *  letter comes in the case Shift alone gives it, so a word reads the same either way (GKAUS is
+     *  하면); what the word puts in the field goes through [cased]. Caps Lock changing inside a word
+     *  commits what came before, and a new word starts. */
+    bool handle(Key key, TextClient& client, bool capsLock);
+
+    /** Caps Lock was on when the word being typed (or the one just committed) started. */
+    bool capsWord() const { return caps; }
+
+    /** The field as the word being typed sees it: through a CapsLockClient when [capsWord]. For
+     *  commit/choose/commitForNewContext called from outside `handle`; valid until the next call. */
+    TextClient& cased(TextClient& client);
+
     /** Commits whatever is in progress as-is (focus change, shortcut, deactivation). */
     void commit(TextClient* client);
 
@@ -218,6 +255,12 @@ public:
      *  something (an email; `@홍길동` is a mention) or `localhost:`. A lone `.` or `/` isn't one:
      *  L.A.로, TV/라디오 and 남/여 are Korean. */
     static bool hasURLMarker(const std::u16string& run);
+
+    /** [text] less its last character as Swift's String.dropLast() takes it: an extended grapheme
+     *  cluster (UAX #29) — with the marks after it (ｶﾞ, か + ゙, 葛 + an ideographic variation
+     *  selector), a whole emoji sequence (👩🏽, 👨‍👩‍👧, a flag), CR LF, a jamo syllable. Every rule
+     *  of UAX #29 on the tables in GraphemeTables.h (Unicode's GraphemeBreakTest passes). */
+    static std::u16string dropLastCharacter(const std::u16string& text);
 
     /** What a number reading is made of: digits and the punctuation inside numbers, either width. */
     static bool isNumberCharacter(char16_t c);
@@ -356,6 +399,11 @@ private:
     bool readsAsKoreanWord();
     void typeKoreanSymbol(char16_t symbol, char16_t typed, TextClient& client);
     std::u16string run(TextClient& client);
+    /** Swift's capsWord, and the wrapper [cased] hands out. */
+    bool caps = false;
+    CapsLockClient capsClient;
+    /** On 3-set a digit or symbol key with a jamo goes on with the word where the jamo fits. */
+    bool printableContinuesWord(char16_t ch, TextClient& client);
     void noteRun(const std::u16string& text);
     void noteDeleted();
     void resetRun();

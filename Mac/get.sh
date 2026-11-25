@@ -51,12 +51,52 @@ fi
 
 # One install at a time (the input method and the settings window can both start one).
 lock="$app/.install"
-find "$app" -maxdepth 1 -name '.install' -mmin +10 -exec rm -rf {} + 2>/dev/null || true  # one left by a crash
-mkdir "$lock" 2>/dev/null || { echo "Another KoEnJa install is running." >&2; exit 1; }
+# One install at a time, shared by get.sh and the package's postinstall (the same code in both).
+# The lock is the folder $lock, made with mkdir (atomic), with its owner's PID in "pid":
+# - One whose owner is gone (SIGKILL, power off: no EXIT trap ran) is taken over; a live one never
+#   is. ps, not kill -0: that fails for another user's process (get.sh runs as the user, the
+#   postinstall as root).
+# - One without a PID is an older get.sh's (or one this instant being made): taken over after 10
+#   minutes, as older get.sh copies (bundled in installed KoEnJa) take over any lock. So that they
+#   never take a live one, its time is kept fresh while the install runs.
+# - Taking over is one installer at a time, under "$lock.take" (held for a moment; one left by a
+#   kill goes after a minute), looking at the lock again there: one late by a moment then can't
+#   remove the lock the first has made since.
+# - It is the bundle owner's (the postinstall runs as root), so get.sh can take over one the
+#   postinstall left. Released, the loop keeping it fresh is stopped first (its trap: no
+#   "Terminated" in the install's output), and it is removed only while it holds this PID; a
+#   release finding it taken over says so (fails).
+keeper=""
+take_lock() {
+  if mkdir "$lock" 2>/dev/null; then
+    echo $$ >"$lock/pid"; chown "$(stat -f %Su "$app")" "$lock" 2>/dev/null
+    # touch -c: a lock removed meanwhile isn't made again (as a file, blocking every install).
+    (trap 'exit 0' TERM
+     while [ "$(cat "$lock/pid" 2>/dev/null)" = $$ ] && kill -0 $$ 2>/dev/null; do
+       touch -c "$lock"; sleep 30 & wait $!; done) </dev/null >/dev/null 2>&1 &
+    keeper=$!; return 0
+  fi
+  owner=$(cat "$lock/pid" 2>/dev/null) || owner=""
+  stale_lock "$owner" || return 1
+  find "$lock.take" -maxdepth 0 -mmin +1 -exec rm -rf {} + 2>/dev/null
+  mkdir "$lock.take" 2>/dev/null || return 1
+  if [ "$(cat "$lock/pid" 2>/dev/null)" = "$owner" ] && stale_lock "$owner"; then rm -rf "$lock"; fi
+  rmdir "$lock.take"; return 1  # the next try makes it
+}
+stale_lock() {  # $1: the lock's PID, or nothing
+  if [ -n "$1" ]; then ! ps -p "$1" >/dev/null 2>&1
+  else [ -n "$(find "$lock" -maxdepth 0 -mmin +10 2>/dev/null)" ]; fi
+}
+release_lock() {
+  if [ -n "$keeper" ]; then kill "$keeper" 2>/dev/null; wait "$keeper" 2>/dev/null; keeper=""; fi
+  [ "$(cat "$lock/pid" 2>/dev/null)" = $$ ] || return 1
+  rm -rf "$lock"
+}
+take_lock || take_lock || { echo "Another KoEnJa install is running." >&2; exit 1; }
 # The old Contents stays until the new one is in place, and comes back if the move fails or
 # this script is stopped between the two moves.
 old=""; staged=""
-trap '[ -n "$old" ] && [ ! -d "$app/Contents" ] && mv "$old" "$app/Contents"; rm -rf "$work" "$lock" "$staged"' EXIT
+trap '[ -n "$old" ] && [ ! -d "$app/Contents" ] && mv "$old" "$app/Contents"; rm -rf "$work" "$staged"; release_lock || true' EXIT
 trap 'exit 1' HUP INT TERM
 # Staging left by a crash: its Contents.old is the install if the bundle has none.
 for left in "$app"/.new.*; do

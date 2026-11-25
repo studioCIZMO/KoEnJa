@@ -93,7 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh 
 둘 다 `/Library/Input Methods`에 설치합니다(설치 패키지는 설치 때, get.sh는 그 폴더를 만드는 한 단계에서만 관리자 암호를 묻습니다; 이전의 `~/Library` 복사본은 옮겨 줍니다). `KoEnJa-Mac.zip`을 받아 풀어 `KoEnJa.app`을 `/Library/Input Methods`로 직접 옮겨도 됩니다. 그다음 시스템 설정 → 키보드 → 입력 소스 → 편집… → + → 한국어 → **한영일**을
 추가합니다(목록에 없으면 한 번 로그아웃했다 다시 로그인). 앱과 설치 패키지는 CIZMO의 Developer ID로 서명하고 Apple 공증을 받았습니다.
 Araso와 함께 설치해도 설정과 학습한 단어는 따로 둡니다(`~/Library/Application Support/KoEnJa`).
-업데이트는 입력 메뉴의 「한영일 x.y.z로 업데이트…」나 설정 → 정보에서 합니다. 한국어 단어를 한 글자 잘못 쳤을 때 오른쪽 ⌥ 키를 길게 누르면 고친 후보를 보여 줍니다(설정 → 오타 고치기, 기본은 꺼짐). 소스는 `Mac/`에 있습니다.
+업데이트는 입력 메뉴의 「한영일 x.y.z로 업데이트…」나 설정 → 정보에서 합니다. 한국어 단어를 한 글자 잘못 쳤을 때 오른쪽 ⌥ 키를 길게 누르면 고친 후보를 보여 줍니다. 확실한 오타를 단어 끝에서 바로 고쳐 넣게 하려면 설정 → 오타 고치기(기본은 꺼짐). 소스는 `Mac/`에 있습니다.
 
 <details>
 <summary>완전 삭제</summary>
@@ -551,9 +551,9 @@ Araso 원본과 KoEnJa 엔진의 값이 같습니다. Android와 Windows는 Mozc
 | 엔진 | 결과 |
 | --- | --- |
 | Swift (iOS) | `golden.tsv`를 다시 만들면 1,950줄 모두 같음 |
-| Kotlin (Android) | 1932/1932 |
-| C++ clang (macOS) | 1932/1932, 키당 8.3 µs (Apple M4) |
-| C++ MSVC (CI, GitHub windows-2022) | 1932/1932, 키당 25.7–26.1 µs (최근 3회) |
+| Kotlin (Android) | 1950/1950 |
+| C++ clang (macOS) | 1950/1950, 키당 8.3 µs (Apple M4, 1,932줄 때 측정) |
+| C++ MSVC (CI, GitHub windows-2022) | 1950/1950, 키당 25.7–26.1 µs (1,932줄 때의 3회) |
 
 MSVC 골든 테스트는 `main`에 push할 때마다 [CI](.github/workflows/windows.yml)에서 돕니다.
 

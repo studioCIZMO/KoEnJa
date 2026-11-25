@@ -6,6 +6,7 @@
 #include <fstream>
 #include <unordered_set>
 
+#include "../engine/src/FileLock.h"
 #include "../engine/src/Text.h"
 
 #ifdef _WIN32
@@ -311,10 +312,10 @@ struct MozcConverter::Lattice {
     }
 };
 
-MozcConverter::MozcConverter(const std::filesystem::path& dictionary, std::optional<std::filesystem::path> learningFile)
-    : dict(Dictionary::map(dictionary)), learningFile(std::move(learningFile)) {
-    if (!this->learningFile) return;
-    std::ifstream file(*this->learningFile, std::ios::binary);
+/** A learning file's "reading\tsurface\tcount" lines; none if it isn't there. */
+static std::unordered_map<std::u16string, int> readLearned(const std::filesystem::path& path) {
+    std::unordered_map<std::u16string, int> out;
+    std::ifstream file(path, std::ios::binary);
     std::string line;
     while (std::getline(file, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -324,8 +325,14 @@ MozcConverter::MozcConverter(const std::filesystem::path& dictionary, std::optio
         if (second == std::u16string::npos) continue;
         auto third = parts.find(u'\t', second + 1);
         auto count = toInt(parts.substr(second + 1, third == std::u16string::npos ? third : third - second - 1));
-        if (count) learned[parts.substr(0, second)] = *count;
+        if (count) out[parts.substr(0, second)] = *count;
     }
+    return out;
+}
+
+MozcConverter::MozcConverter(const std::filesystem::path& dictionary, std::optional<std::filesystem::path> learningFile)
+    : dict(Dictionary::map(dictionary)), learningFile(std::move(learningFile)) {
+    if (this->learningFile) learned = readLearned(*this->learningFile);
 }
 
 MozcConverter::~MozcConverter() = default;
@@ -367,20 +374,40 @@ void MozcConverter::learn(const ConversionCandidate& candidate, const std::u16st
         auto prefix = word.reading + u"\t";
         std::erase_if(learned, [&](auto& e) { return startsWith(e.first, prefix) && e.first != key; }); // the latest choice wins
         learned[key]++;
+        std::erase_if(added, [&](auto& e) { return startsWith(e.first, prefix) && e.first != key; });
+        added[key]++;
     }
 }
 
 void MozcConverter::save() {
-    if (!learningFile) return;
-    auto temp = *learningFile;
-    temp += ".tmp"; // a crash mid-write keeps the old file
+    if (!learningFile || added.empty()) return;
+    // Every app the TIP is in has its own converter on the one file: under the lock, this one's
+    // commits since the last save go onto what the file has now: counted on for the same word, and
+    // a word chosen for a reading puts out the file's other word for it (the latest choice wins, as
+    // in learn).
+    FileLock lock(*learningFile);
+    if (!lock.locked()) return; // unlocked it could drop another app's: [added] waits for the next save
+    auto merged = readLearned(*learningFile);
+    for (auto& [key, count] : added) {
+        auto prefix = key.substr(0, key.find(u'\t') + 1);
+        std::erase_if(merged, [&](auto& e) { return startsWith(e.first, prefix) && e.first != key; });
+        merged[key] += count;
+    }
+    auto temp = FileLock::temp(*learningFile); // written whole, then renamed over: a crash keeps the old file
+    bool written = false;
     {
         std::ofstream out(temp, std::ios::binary);
-        for (auto& [key, count] : learned) out << utf8(key) << '\t' << count << '\n';
-        if (!out) return;
+        for (auto& [key, count] : merged) out << utf8(key) << '\t' << count << '\n';
+        written = bool(out);
     }
     std::error_code error;
-    std::filesystem::rename(temp, *learningFile, error);
+    if (written) std::filesystem::rename(temp, *learningFile, error); // MoveFileEx, REPLACE_EXISTING, on Windows
+    if (!written || error) {
+        std::filesystem::remove(temp, error);
+        return; // [added] stays: the next save tries again
+    }
+    learned = std::move(merged);
+    added.clear();
 }
 
 } // namespace rea

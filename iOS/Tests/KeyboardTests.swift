@@ -5,17 +5,19 @@ import XCTest
 /// A text field as the keyboard sees it: text before the cursor, plus marked text.
 final class FakeProxy: NSObject, UITextDocumentProxy {
     var text = "", marked = ""
+    /// Selected text, after `text`: typing or ⌫ replaces it, as in a real field.
+    var selected = ""
     var documentContextBeforeInput: String? { text + marked }
     var documentContextAfterInput: String? { nil }
-    var selectedText: String? { nil }
+    var selectedText: String? { selected.isEmpty ? nil : selected }
     var documentInputMode: UITextInputMode? { nil }
     var documentIdentifier: UUID { UUID() }
     var hasText: Bool { !(text + marked).isEmpty }
     func adjustTextPosition(byCharacterOffset offset: Int) {}
     func setMarkedText(_ markedText: String, selectedRange: NSRange) { marked = markedText }
     func unmarkText() { text += marked; marked = "" }
-    func insertText(_ s: String) { text += marked + s; marked = "" } // ponytail: real fields replace marked; ours never insert while marked
-    func deleteBackward() { if !marked.isEmpty { marked.removeLast() } else if !text.isEmpty { text.removeLast() } }
+    func insertText(_ s: String) { text += marked + s; marked = ""; selected = "" } // ponytail: real fields replace marked; ours never insert while marked
+    func deleteBackward() { if !selected.isEmpty { selected = "" } else if !marked.isEmpty { marked.removeLast() } else if !text.isEmpty { text.removeLast() } }
 }
 
 @MainActor
@@ -112,6 +114,22 @@ final class KeyboardTests: XCTestCase {
         session.commitForNewContext(client: nil)
         type("s", into: session, client)
         XCTAssertEqual(proxy.text, "helloㄴ")
+    }
+
+    /// Text selected right after the word being composed: the next key replaces the selection
+    /// and starts a new word, it doesn't go on with the word (가X with X selected gave 가간).
+    func testSelectionAfterComposingWord() {
+        let session = KeyboardViewController.makeSession(converter: nil, preferences: Self.all)
+        let proxy = FakeProxy(), client = ProxyClient(proxy: proxy)
+        session.activate(app: nil)
+        type("rk", into: session, client)
+        proxy.selected = "X"
+        XCTAssertEqual(client.selectedRange().length, 1)
+        XCTAssertTrue(client.resetIfMovedAway())
+        session.commitForNewContext(client: nil)
+        type("s", into: session, client)
+        XCTAssertEqual(proxy.text, "가ㄴ")
+        XCTAssertEqual(proxy.selected, "")
     }
 
         /// Typing correction: the neighbor key wins only when it makes a much likelier word.

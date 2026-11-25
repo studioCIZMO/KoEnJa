@@ -728,7 +728,8 @@ final class KeyboardViewController: UIInputViewController {
     /// much more likely (fgem → fhem, 로드). Mozc and azooKey also correct by touch position.
     /// ponytail: one key at a time, a fixed band and margin; tune them with traces.
     private func corrected(_ letter: Character) -> Character {
-        guard Self.preferences?.touchCorrection != false, !numbers, !session.keys.isEmpty, let keyStack, let point = keyStack.lastTouch,
+        // A password or a one-time code goes in as pressed: nothing to guess a likelier word from.
+        guard !sensitive, Self.preferences?.touchCorrection != false, !numbers, !session.keys.isEmpty, let keyStack, let point = keyStack.lastTouch,
               letterKeys.contains(where: { $0.letter == letter }) else { return letter }
         let neighbor = letterKeys.filter { $0.letter != letter }
             .map { (letter: $0.letter, distance: keyStack.distance(point, $0.button)) }
@@ -740,7 +741,7 @@ final class KeyboardViewController: UIInputViewController {
         let neighborScore = Self.plausibility(keys + shift(neighbor.letter), heuristic)
         TraceLog.write("NEAR-EDGE \(letter)/\(neighbor.letter) \(typedScore) \(neighborScore)")
         let taken = neighborScore > typedScore + Self.correctionMargin
-        if taken, !sensitive { SlipLog.write(String(format: "EDGE %@→%@ %.1fpt after %@", String(letter), String(neighbor.letter), neighbor.distance, keys)) }
+        if taken { SlipLog.write(String(format: "EDGE %@→%@ %.1fpt after %@", String(letter), String(neighbor.letter), neighbor.distance, keys)) }
         return taken ? neighbor.letter : letter
     }
 

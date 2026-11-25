@@ -232,6 +232,7 @@ class DictionaryEngine(
 
     /** The word went in as [language] without a correction: a weak entry saying so stays. */
     fun used(keys: String, language: Language) {
+        if (!learning) return
         val day = today()
         persist(synchronized(this) {
             val before = store.entries.toList()

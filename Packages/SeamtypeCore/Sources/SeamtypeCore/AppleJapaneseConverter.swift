@@ -142,7 +142,11 @@ public final class AppleJapaneseConverter: JapaneseConverter {
         return out
     }
 
+    /// Off in a password field: a conversion picked there isn't remembered (as `AzooKeyConverter`).
+    public var learning = true
+
     public func learn(_ candidate: ConversionCandidate, for kana: String) {
+        guard learning else { return }
         let reading = String(kana.prefix(candidate.kanaCount))
         var texts = learned[reading] ?? []
         guard texts.first != candidate.text else { return }

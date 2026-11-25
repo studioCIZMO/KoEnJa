@@ -54,8 +54,11 @@ final class ProxyClient: TextClient {
         }
     }
 
+    /// The proxy's text before the cursor ends where a selection starts; its length matters to
+    /// the session, which leaves words alone (cycle, fixes) while text is selected.
     func selectedRange() -> NSRange {
-        NSRange(location: (committed as NSString).length + (marked as NSString).length, length: 0)
+        NSRange(location: (committed as NSString).length + (marked as NSString).length,
+                length: ((proxy.selectedText ?? "") as NSString).length)
     }
 
     func markedRange() -> NSRange {
@@ -73,10 +76,15 @@ final class ProxyClient: TextClient {
     /// After the app says the text or selection changed: whether the word being composed is
     /// no longer right before the cursor (the user moved it, an undo, autofill). Then it's
     /// forgotten as typed, so the session can start afresh without deleting anything.
+    /// Text selected (even right after the word) counts too: the next key replaces the selection,
+    /// as the system keyboard does, instead of going on with the word and deleting the selection
+    /// along with its end (가 composing, X after it selected, s gave 가간).
     /// ponytail: a suffix check, not azooKey's log of expected edits; the cursor moved to
     /// right after the same text again isn't noticed.
     func resetIfMovedAway() -> Bool {
-        guard !marked.isEmpty, let before = proxy.documentContextBeforeInput, !before.hasSuffix(marked) else { return false }
+        guard !marked.isEmpty else { return false }
+        let before = proxy.documentContextBeforeInput
+        guard proxy.selectedText?.isEmpty == false || (before.map { !$0.hasSuffix(marked) } ?? false) else { return false }
         TraceLog.write("moved away from [\(marked)] \(context)")
         marked = ""
         return true

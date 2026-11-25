@@ -93,7 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/studioCIZMO/KoEnJa/main/Mac/get.sh 
 どちらも `/Library/Input Methods` にインストールします（パッケージはインストール時に、get.sh はそのフォルダを作る一度だけ管理者パスワードを求めます。以前の `~/Library` のコピーは移動します）。`KoEnJa-Mac.zip` を展開して `KoEnJa.app` を `/Library/Input Methods` に直接移しても構いません。続いてシステム設定 → キーボード → 入力ソース → 編集… → ＋ → 韓国語 → **KoEnJa** を
 追加します（一覧にない場合は一度ログアウトして再ログイン）。アプリとパッケージは CIZMO の Developer ID で署名し、Apple の公証を受けています。
 Araso と一緒にインストールしても、設定と学習した単語は別に保存します（`~/Library/Application Support/KoEnJa`）。
-アップデートは入力メニューの「KoEnJa x.y.z にアップデート…」か設定 → 情報から行います。韓国語の単語を1文字打ち間違えたときは、右 ⌥ キーを長押しすると直した候補が出ます（設定 → Fix typos、初期設定はオフ）。ソースは `Mac/` にあります。
+アップデートは入力メニューの「KoEnJa x.y.z にアップデート…」か設定 → 情報から行います。韓国語の単語を1文字打ち間違えたときは、右 ⌥ キーを長押しすると直した候補が出ます。明らかな打ち間違いを単語の終わりで自動的に直すには、設定 → Fix typos（初期設定はオフ）。ソースは `Mac/` にあります。
 
 <details>
 <summary>完全に削除する</summary>
@@ -580,9 +580,9 @@ Araso 本家と KoEnJa のエンジンで同じ値です。Android と Windows �
 | エンジン | 結果 |
 | --- | --- |
 | Swift（iOS） | `golden.tsv` を作り直すと 1,950 行すべて一致 |
-| Kotlin（Android） | 1932/1932 |
-| C++ clang（macOS） | 1932/1932、1 キーあたり 8.3 µs（Apple M4） |
-| C++ MSVC（CI、GitHub windows-2022） | 1932/1932、1 キーあたり 25.7–26.1 µs（直近 3 回） |
+| Kotlin（Android） | 1950/1950 |
+| C++ clang（macOS） | 1950/1950、1 キーあたり 8.3 µs（Apple M4、1,932 行の時点で計測） |
+| C++ MSVC（CI、GitHub windows-2022） | 1950/1950、1 キーあたり 25.7–26.1 µs（1,932 行の時点の 3 回） |
 
 MSVC のゴールデンテストは `main` への push のたびに [CI](.github/workflows/windows.yml) で実行されます。
 

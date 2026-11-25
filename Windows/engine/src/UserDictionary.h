@@ -145,6 +145,17 @@ private:
      *  follow) up instead of going through every entry. */
     std::unordered_map<std::u16string, UserDictionary::Entry> byKeys;
     std::optional<std::filesystem::path> storeFile;
+    /** What this instance did to the dictionary since it last wrote [storeFile]: done again, in order,
+     *  on what the file has then (persist), so what other apps saved meanwhile stands under it (two
+     *  apps each correcting a word once make it sure, as one app correcting it twice does). */
+    struct Change {
+        enum class Kind { Learn, Forget, Used, Expire } kind;
+        std::u16string keys;
+        Language language = Language::ENGLISH;
+        Language shown = Language::ENGLISH;
+        std::chrono::sys_days day;
+    };
+    std::vector<Change> pending;
 
     bool readsAsKoreanWord(const std::u16string& keys) const;
     void persist();

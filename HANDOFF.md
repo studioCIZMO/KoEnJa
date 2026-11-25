@@ -7,10 +7,10 @@
 
 | 플랫폼 | 공개 버전 | 이 커밋의 버전 | 상태 |
 |---|---|---|---|
-| Mac 입력기 | **0.3.14 (GitHub v0.3.14, Latest, 11/24)** | 0.3.15 (18) | v0.3.14 공개됨(zip ×2 + **KoEnJa.pkg / KoEnJa-0.3.14.pkg**, Developer ID Installer 서명·공증). 0.3.13 → 0.3.14 자동 업데이트는 사용자 Mac에서 11/24 20:04 암호 없이 성공 확인. **0.3.15 (18)**: 메뉴 막대 아이콘을 KoEnJa 레터링 타일(컬러, `Mac/icon/menu.jpeg` → `scripts/make-menu-icon.swift`)로 바꾼 빌드. 공증·에셋(`.build/mac0315/release/`: zip ×2, 서명 pkg ×2) 완료, 사용자 Mac에 get.sh로 설치됨, **GitHub 공개는 사용자 확인 대기**(v0.3.15 태그 + 에셋 4개 + Windows 0.3.4 exe·APK 0.2.8 재첨부, `docs/release/0.3.15-notes.md`) |
-| iOS 키보드 | 1.0.5 (App Store), 1.0.6 (16) 심사 중, 1.0.7 (17) TestFlight | **1.0.8 (19)** | 11/24 20:35 ASC 업로드(TestFlight). **(18)은 키보드가 뜨자마자 크래시** → 시스템 키보드로 되돌아감: `applySensitive()`가 `textDidChange`/`selectionDidChange`에서 세션이 만들어지기 전(`viewWillAppear` 이전)에 `Self.session!`을 풀었음. (19)에서 `Self.session != nil` 가드(`documentChanged()`와 같은 이유). 시뮬레이터 `REAUITests/TypingTests/testKoreanEnglishJapanese` 통과. (18)의 내용: 비밀번호 칸 학습 차단, 개인 교정 원문 보존, 오타 기록 백업 제외. 1.0.7: 키 라벨, 여백 귀속, ⌫ 교정 터치 학습, 개인 교정, 오타 기록 |
-| Android 키보드 | **0.2.7 (9) Play 공개(11/23)**, APK **0.2.8 (GitHub v0.3.14, 11/24)** | 0.2.8 (10) (.build/KoEnJa-Android-0.2.8.aab, Play 미제출) | 0.2.8: 비밀번호 칸 학습·추천·자동 고침 차단(Codex P1), 개인정보 안내+처리방침 링크(Play 정책, P1), 단축어 총량 한도 = 복원 한도. Play 업로드는 사용자 확인 후 |
-| Windows 입력기 | **0.3.4 (GitHub v0.3.14, 11/24)** | 0.3.4 | 이슈 #1(LINE에서 한글 뒤 Space/Enter 사라짐) 수정: 커밋 뒤 통과 키를 SendInput으로 재전송(Tip.cpp replay). 11/24 이슈에 0.3.4 확인 요청 댓글 달았음(답 기다림) |
+| Mac 입력기 | **0.3.14 (GitHub v0.3.14, Latest, 11/24)** | 0.3.15 (19 예정) | v0.3.14 공개됨(zip ×2 + **KoEnJa.pkg / KoEnJa-0.3.14.pkg**, Developer ID Installer 서명·공증). 0.3.13 → 0.3.14 자동 업데이트는 사용자 Mac에서 11/24 20:04 암호 없이 성공 확인. **0.3.15**: 메뉴 막대 아이콘을 KoEnJa 레터링 타일(컬러, `Mac/icon/menu.jpeg` → `scripts/make-menu-icon.swift`)로 바꿈. (18)은 공증·에셋까지 만들어 사용자 Mac에 설치했으나 그 뒤 11/25 Codex 전체 리뷰 수정(Secure Input 학습 차단, postinstall/get.sh 잠금·등록 확인, Registration)이 들어가 **(19)로 다시 빌드·공증·pkg 필요**, **GitHub 공개는 사용자 확인 대기**(v0.3.15 태그 + 에셋 4개 + Windows 0.3.4 exe·APK 0.2.8 재첨부, `docs/release/0.3.15-notes.md`) |
+| iOS 키보드 | 1.0.5 (App Store), 1.0.6 (16) 심사 중, 1.0.7 (17) TestFlight | **1.0.8 (19)** TestFlight, (20) 예정 | 11/24 20:35 (19) ASC 업로드(TestFlight). 11/25 리뷰 수정(선택 영역 reset, 민감 필드 터치 교정 차단, 1.0.7 slips.log 백업 제외)은 (20)으로 다시 올려야 함. **(18)은 키보드가 뜨자마자 크래시** → 시스템 키보드로 되돌아감: `applySensitive()`가 `textDidChange`/`selectionDidChange`에서 세션이 만들어지기 전(`viewWillAppear` 이전)에 `Self.session!`을 풀었음. (19)에서 `Self.session != nil` 가드(`documentChanged()`와 같은 이유). 시뮬레이터 `REAUITests/TypingTests/testKoreanEnglishJapanese` 통과. (18)의 내용: 비밀번호 칸 학습 차단, 개인 교정 원문 보존, 오타 기록 백업 제외. 1.0.7: 키 라벨, 여백 귀속, ⌫ 교정 터치 학습, 개인 교정, 오타 기록 |
+| Android 키보드 | **0.2.7 (9) Play 공개(11/23)**, APK **0.2.8 (GitHub v0.3.14, 11/24)** | 0.2.8 (10) (.build/KoEnJa-Android-0.2.8.aab, Play 미제출); 엔진에 11/25 리뷰 수정(learning=false 사용 기록 차단, Caps Lock 규칙 API, grapheme Delete)이 들어가 0.2.9 빌드 필요 | 0.2.8: 비밀번호 칸 학습·추천·자동 고침 차단(Codex P1), 개인정보 안내+처리방침 링크(Play 정책, P1), 단축어 총량 한도 = 복원 한도. Play 업로드는 사용자 확인 후 |
+| Windows 입력기 | **0.3.4 (GitHub v0.3.14, 11/24)** | 0.3.5 (미공개) | 이슈 #1(LINE에서 한글 뒤 Space/Enter 사라짐) 수정: 커밋 뒤 통과 키를 SendInput으로 재전송(Tip.cpp replay). 11/24 이슈에 0.3.4 확인 요청 댓글 달았음(답 기다림). **0.3.5**(11/25, Codex 전체 리뷰): 재전송 판정(토큰 우선·한 메시지만), 쓰기 실패 시 키 복구, context push/pop, Caps Lock 분리+약어 규칙, F9/F10 숫자, 학습·Mozc 영속 저장(FileLock 병합), 비밀번호/IS_PRIVATE 학습·로그 차단, 키 로그 버퍼; PC MSVC 빌드·tip_test 통과, CI는 push 뒤 확인 |
 
 엔진·Mac 기준 = **Araso 0.6.2 = 97e0075** (11/24 확인: b19e054 뒤 커밋은 0.6.2 버전 올림(Info.plist)만이라 코드 변경 없음, UPSTREAM 표식만 갱신). b19e054 동기화 내용(0.6.1 → main 3커밋, 2026-11-14):
 - 엔진(Swift): 전환 키로 고른 읽기를 그 글자들만 즉시 학습(`switchedKeys`/`switchLearned`/`learnSwitchBeforeMore`), ↑/↓는 커서가 단어 끝일 때만(`listApplies`), 전각 스페이스 뒤 `noteRun`, `rememberedLanguage(keys, app:)`, `vimSignal`.
@@ -57,7 +57,7 @@ clang++ -std=c++20 -O2 -Wall -ffp-contract=off Windows/engine/src/*.cpp Windows/
 
 ### Mac 릴리스 (0.3.14)
 ```sh
-cd Mac && xcodegen && M=$PWD/../.build/mac0315 && mkdir -p $M
+cd Mac && xcodegen && M=$PWD/../.build/mac0315b && mkdir -p $M
 xcodebuild archive -project KoEnJaMac.xcodeproj -scheme KoEnJa -configuration Release -archivePath $M/KoEnJa.xcarchive -allowProvisioningUpdates
 xcodebuild -exportArchive -archivePath $M/KoEnJa.xcarchive -exportOptionsPlist export.plist -exportPath $M/export   # 공증 업로드
 while ! xcodebuild -exportNotarizedApp -archivePath $M/KoEnJa.xcarchive -exportPath $M/notarized 2>/dev/null; do sleep 30; done
@@ -102,6 +102,8 @@ gh release create v0.3.13 -R studioCIZMO/KoEnJa --target main --title "KoEnJa 0.
 `Packages/SeamtypeCore/UPSTREAM`, `Mac/UPSTREAM` 첫 줄이 동기화된 sha. 파일별 `git merge-file ours base(upstream old) theirs(upstream new)`, 경로 `Sources/ArasoCore`→`SeamtypeCore`, `Sources/Araso`→`Mac/Sources`. 충돌은 보통 REA 표시(`REA:`) 부분(KoreanModel 해시 리스트, Resources, Updater noMac). 포트(Kotlin/C++)는 git 머지가 아니라 **골든이 바뀐 변경만 손으로** 포팅. UPSTREAM 파일에 로컬 변경 목록이 있음.
 
 ## 5. 남은 일 (우선순위순)
+
+0. **11/25 Codex 전체 코드리뷰(gpt-6-astra, max) 20건 + 재검토 3회 반영 완료** — 보고서 `docs/review/2026-11-2[45]-codex-*.md`. 후속: Mac 0.3.15 (19) 재빌드·공증·pkg → iOS 1.0.8 (20) TestFlight → Android 0.2.9 AAB/APK → Windows 0.3.5 CI exe → v0.3.15 릴리스(사용자 확인). 실기기 미검증 항목: Windows 실제 앱(LINE·CUAS·context push/pop·SendInput), Windows LockFileEx, Inno 제거(languages.ps1 다른 사용자 hive), Mac Installer 실제 실행, iOS 선택 영역 실기기.
 
 1. ~~Codex 리뷰 1회 → 지적 수정 → 테스트 재실행~~ 11/18 완료: 지적 1건(Kotlin/C++ `startConversion`이 `switchLearned`를 지워 변환 취소 후 전체 단어를 학습) 수정, 세 포트에 회귀 테스트(ConversionAfterSwitchTests / JapaneseSessionTest / session_test) 추가. Swift 560, Kotlin 전부, C++ 171/171, 골든 1950 통과.
 2. ~~Mac 0.3.13 공증 빌드 → Android 0.2.6 AAB/APK → CI Setup 0.3.2 → GitHub v0.3.13 릴리스~~ 11/18 완료. 빌드 뒤 `sh Mac/lsclean.sh` 잊지 말 것.
