@@ -121,8 +121,8 @@ Then remove KoEnJa in System Settings → Keyboard → Input Sources (log out an
 
 ### Windows
 
-1. Download `KoEnJa-Setup-0.3.4.exe` from [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) and run it.
-2. 0.3.4 isn't code-signed yet, so SmartScreen shows **Windows protected your PC**. Click **More info** →
+1. Download `KoEnJa-Setup-0.3.5.exe` from [Releases](https://github.com/studioCIZMO/KoEnJa/releases/latest) and run it.
+2. 0.3.5 isn't code-signed yet, so SmartScreen shows **Windows protected your PC**. Click **More info** →
    **Run anyway**, then **Yes** at the administrator prompt.
 3. Leave **Open KoEnJa settings** checked on the last page and finish: pick your keyboard, your languages and the
    switch key. You can change them later in **KoEnJa 설정** in the Start menu.
@@ -149,7 +149,7 @@ and use haptics ([Privacy](#privacy)).
 
 ### Android
 
-Get it on [Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja) (Android 8.0 or later, free). You can also install `KoEnJa-Android-0.2.8.apk` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest).
+Get it on [Google Play](https://play.google.com/store/apps/details?id=com.cizmo.koenja) (Android 8.0 or later, free). You can also install `KoEnJa-Android-0.2.9.apk` from the [release](https://github.com/studioCIZMO/KoEnJa/releases/latest).
 After installing, turn on 한영일 with 키보드 설정 열기 (open keyboard settings) in the app and pick it with 입력 방법 고르기 (choose input method); the app's screens are in Korean only for now.
 The Play version is signed by Google, so to move to it from the APK, uninstall the APK first. The source is in `Android/`.
 
@@ -614,7 +614,7 @@ The MSVC golden test runs in [CI](.github/workflows/windows.yml) on every push t
 
 ## Known limitations
 
-- Windows 0.3.4 is not code-signed ([Code signing policy](#code-signing-policy)). It's x64 only; ARM64 Windows isn't supported.
+- Windows 0.3.5 is not code-signed ([Code signing policy](#code-signing-policy)). It's x64 only; ARM64 Windows isn't supported.
 - Keys that are words in two languages (`go`/해, `so`/내) can come out wrong; fix them with the switch key.
 - An English word with a Japanese particle can be read as Japanese (`sitede` → `してで`, `tokenwo` → `とけんを`).
 - The top kanji candidate matches the original in about 4 of 5 phrases and 2 of 3 sentences (the iOS path); pick the others from the list.
@@ -678,7 +678,7 @@ We are grateful to Araso's author for publishing the engine under the MIT Licens
 
 ## Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.3.4 is unsigned; signing starts once SignPath Foundation accepts the project.)
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). (0.3.5 is unsigned; signing starts once SignPath Foundation accepts the project.)
 
 - Committers and reviewers: [studioCIZMO](https://github.com/studioCIZMO)
 - Approvers: [studioCIZMO](https://github.com/studioCIZMO)
