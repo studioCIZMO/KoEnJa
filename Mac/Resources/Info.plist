@@ -24,7 +24,7 @@
 	<key>CFBundleShortVersionString</key>
 	<string>0.3.15</string>
 	<key>CFBundleVersion</key>
-	<string>18</string>
+	<string>19</string>
 	<key>InputMethodConnectionName</key>
 	<string>com.cizmo.inputmethod.KoEnJa_Connection</string>
 	<key>InputMethodServerControllerClass</key>
