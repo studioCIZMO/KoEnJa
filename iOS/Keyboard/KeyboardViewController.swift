@@ -1061,8 +1061,10 @@ final class KeyStack: UIStackView {
             guard let o = offsets[ObjectIdentifier(key)] else { return distance(shifted, key) }
             return distance(CGPoint(x: shifted.x - o.dx, y: shifted.y - o.dy), key) - 0.001
         }
-        guard let nearest = keys.min(by: { area($0) < area($1) }),
-              area(nearest) < reach || ownsMargin(nearest, shifted) else { return hit }
+        // a touch on a key (its learned area counted) is that key; then an end letter's margin; then the nearest
+        let onKey = keys.filter { area($0) <= 0 }.min { area($0) < area($1) } // a learned area over a neighbour's wins
+        guard let nearest = onKey ?? endLetterOwning(shifted) ?? keys.min(by: { area($0) < area($1) }).flatMap({ area($0) < reach ? $0 : nil })
+        else { return hit }
         if nearest !== hit {
             TraceLog.write("NEAR \(nearest.accessibilityLabel ?? "") (was \((hit as? UIButton)?.accessibilityLabel ?? "gap"))")
             if !sensitive { SlipLog.write("NEAR \(nearest.accessibilityLabel ?? "") (was \((hit as? UIButton)?.accessibilityLabel ?? "gap"))") }
@@ -1070,16 +1072,40 @@ final class KeyStack: UIStackView {
         return nearest
     }
 
-    /// The key at the end of its row owns the space beside it to the keyboard's edge, as on the
-    /// system keyboard (UITests/HitAreas edges): the half-key margins beside a (ㅁ) and l (ㅣ)
-    /// were dead past `reach`, and ㅣ and ㅏ are typed at the right edge with the thumb.
-    func ownsMargin(_ key: UIButton, _ point: CGPoint) -> Bool {
-        let frame = key.convert(key.bounds, to: self)
-        guard point.y >= frame.minY - reach, point.y <= frame.maxY + reach else { return false }
-        let row = keys.filter { abs($0.convert($0.bounds, to: self).midY - frame.midY) < 1 }
-        if point.x < frame.minX { return !row.contains { $0.convert($0.bounds, to: self).minX < frame.minX } }
-        if point.x > frame.maxX { return !row.contains { $0.convert($0.bounds, to: self).maxX > frame.maxX } }
-        return false
+    /// The letter at the end of its row owns the space beside it: the half-key margins beside a (ㅁ)
+    /// and l (ㅣ) to the keyboard's edge, as on the system keyboard (UITests/HitAreas edges; they were
+    /// dead past `reach`, and ㅣ and ㅏ are typed at the right edge with the thumb), and the gaps
+    /// between shift and z and between m and delete, which went to the side key when nearer. Only at
+    /// the row's own height (plus half the gap to the rows beside it); a touch on, or beyond, a side
+    /// key (shift, delete, the bottom row) at that key's height stays the side key's. With the rows
+    /// bending or the iPad's spacing, the row whose end key is nearest.
+    func endLetterOwning(_ point: CGPoint) -> UIButton? {
+        func frame(_ key: UIView) -> CGRect { key.convert(key.bounds, to: self) }
+        func isLetter(_ key: UIButton) -> Bool { key.accessibilityLabel.map { $0.count == 1 && $0.first!.isLetter } ?? false }
+        func band(_ f: CGRect) -> ClosedRange<CGFloat> {
+            // half of the gap to the nearest row above and below (the keyboard's edges: `reach`)
+            let frames = keys.map(frame)
+            let above = frames.filter { $0.maxY <= f.minY + 1 && abs($0.midY - f.midY) > 1 }.map { f.minY - $0.maxY }.min() ?? reach * 2
+            let below = frames.filter { $0.minY >= f.maxY - 1 && abs($0.midY - f.midY) > 1 }.map { $0.minY - f.maxY }.min() ?? reach * 2
+            return (f.minY - above / 2)...(f.maxY + below / 2)
+        }
+        let sides = keys.filter { !isLetter($0) }.map(frame)
+        var best: UIButton?, bestDy = CGFloat.infinity
+        for key in keys where isLetter(key) {
+            let f = frame(key)
+            guard band(f).contains(point.y) else { continue }
+            let letters = keys.filter { isLetter($0) && abs(frame($0).midY - f.midY) < 1 }
+            let left = point.x < f.minX && !letters.contains { frame($0).minX < f.minX }
+            let right = point.x > f.maxX && !letters.contains { frame($0).maxX > f.maxX }
+            guard left || right else { continue }
+            let blocked = sides.contains { b in
+                band(b).contains(point.y) && (left ? b.minX < f.minX && point.x < b.maxX : b.maxX > f.maxX && point.x > b.minX)
+            }
+            if blocked { continue }
+            let dy = abs(point.y - f.midY)
+            if dy < bestDy { best = key; bestDy = dy }
+        }
+        return best
     }
 
     /// Where the touch was from the key's center, for calibrating `touchShift`.

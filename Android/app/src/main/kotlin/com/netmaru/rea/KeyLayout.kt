@@ -3,8 +3,11 @@ package com.netmaru.rea
 import kotlin.math.hypot
 
 /** A key's id ("q", "⇧", "⌫", "123", "switch", "space", ".", "return") and frame, in dp. */
-data class KeyFrame(val id: String, val x: Float, val y: Float, val w: Float, val h: Float) {
+data class KeyFrame(val id: String, val x: Float, val y: Float, val w: Float, val h: Float, val row: Int = 0) {
     val midX get() = x + w / 2
+    val midY get() = y + h / 2
+    /** A letter key (a jamo in Korean), as against shift, delete and the bottom row. */
+    val isLetter get() = id.length == 1 && id[0].isLetter()
 
     /** From a point to the key's edge (0 inside). */
     fun distance(px: Float, py: Float) =
@@ -59,12 +62,12 @@ object KeyLayout {
         // a centered run of keys, each `units` wide
         fun row(row: Int, keys: List<Pair<String, Float>>, h: Float = keyHeight): List<KeyFrame> {
             var x = (width - keys.sumOf { it.second.toDouble() }.toFloat() * pitch + gap) / 2
-            return keys.map { (id, units) -> KeyFrame(id, x, top(row), w(units), h).also { x += units * pitch } }
+            return keys.map { (id, units) -> KeyFrame(id, x, top(row), w(units), h, row).also { x += units * pitch } }
         }
         fun letters(s: String) = s.map { it.toString() to 1f }
         // shift and delete at the edges, the third row's letters centered between them
         val side = minOf(shape.sideKeys, 1.5f) // the letters start 1.5 pitches in: never into z or m
-        val shift = KeyFrame("⇧", MARGIN, top(2), w(side), keyHeight)
+        val shift = KeyFrame("⇧", MARGIN, top(2), w(side), keyHeight, 2)
         val delete = shift.copy(id = "⌫", x = width - MARGIN - shift.w)
         val flat = row(0, letters("qwertyuiop")) + row(1, letters("asdfghjkl")) +
             listOf(shift) + row(2, letters("zxcvbnm")) + delete +
@@ -85,9 +88,43 @@ object KeyLayout {
         // a learned key's touch area moved by where this person touches it (TouchCalibration)
         fun area(k: KeyFrame) = offsets[k.id]?.let { (dx, dy) -> k.copy(x = k.x + dx, y = k.y + dy) } ?: k
         // a key touched where it is drawn first: with the rows curved, a gap below one key can lie over the next
-        return keys.firstOrNull { area(it).distance(x, y) == 0f } ?: keys.minBy {
+        keys.firstOrNull { area(it).distance(x, y) == 0f }?.let { return it }
+        endLetterOwning(keys, x, y, shape, ::area)?.let { return it }
+        return keys.minBy {
             area(it).let { a -> a.copy(x = a.x - shape.gap / 2, w = a.w + shape.gap, h = a.h + shape.rowGap) }.distance(x, y)
         }
+    }
+
+    /** The letter at the end of a row owns the space beside it, as iOS's KeyStack does: the
+     *  half-key margins next to a (ㅁ) and l (ㅣ) and the gaps between shift and z and between m and
+     *  delete are typed at a letter's height, so they are that letter, not the key above or the side
+     *  key. A touch on, or beyond, a side key (shift, delete, the bottom row) at that key's height
+     *  stays the side key's. The row is the one whose keys (with the gap under them, as Gboard
+     *  counts it) hold the touch's height; with the rows curved, the one whose end key is nearest. */
+    private fun endLetterOwning(keys: List<KeyFrame>, x: Float, y: Float, shape: KeyShape, area: (KeyFrame) -> KeyFrame): KeyFrame? {
+        val sides = keys.filter { !it.isLetter }.map(area)
+        var best: KeyFrame? = null
+        var bestDy = Float.MAX_VALUE
+        for (row in keys.filter { it.isLetter }.groupBy { it.row }.values) {
+            val left = row.minBy { area(it).x }
+            val right = row.maxBy { area(it).x }
+            for (end in listOf(left, right)) {
+                val a = area(end)
+                if (y < a.y || y >= a.y + a.h + shape.rowGap) continue
+                val toLeft = end === left && x < a.x
+                val toRight = end === right && x > a.x + a.w
+                if (!toLeft && !toRight) continue
+                // not on or beyond a side key at this height (its learned frame may overlap the letter's)
+                val blocked = sides.any { b ->
+                    y >= b.y - shape.rowGap / 2 && y < b.y + b.h + shape.rowGap / 2 &&
+                        if (toLeft) b.x < a.x && x < b.x + b.w else b.x + b.w > a.x + a.w && x > b.x
+                }
+                if (blocked) continue
+                val dy = kotlin.math.abs(y - a.midY)
+                if (dy < bestDy) { best = end; bestDy = dy }
+            }
+        }
+        return best
     }
 
     /** What the letter keys type in 123 mode, like the system keyboard's first symbol page. */

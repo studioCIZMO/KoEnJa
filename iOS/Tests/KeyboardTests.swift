@@ -354,6 +354,17 @@ final class KeyboardTests: XCTestCase {
         XCTAssertEqual(hit(CGPoint(x: 2, y: frame("a").midY)), "a", "left margin on the home row")
         XCTAssertEqual(hit(CGPoint(x: 400, y: frame("p").midY)), "p")
         XCTAssertEqual(hit(CGPoint(x: 400, y: frame("delete").midY)), "delete", "the side key, not m")
+        XCTAssertEqual(hit(CGPoint(x: 2, y: frame("a").minY + 2)), "a", "left margin, top of the home row")
+        XCTAssertEqual(hit(CGPoint(x: (frame("shift").maxX + frame("z").minX) / 2, y: frame("z").midY)), "z", "gap between shift and z")
+        XCTAssertEqual(hit(CGPoint(x: frame("shift").maxX + 0.5, y: frame("z").midY)), "z", "gap right next to shift")
+        XCTAssertEqual(hit(CGPoint(x: frame("shift").midX, y: frame("z").midY)), "shift", "on shift")
+        XCTAssertEqual(hit(CGPoint(x: (frame("m").maxX + frame("delete").minX) / 2, y: frame("m").midY)), "m", "gap between m and delete")
+        XCTAssertEqual(hit(CGPoint(x: frame("delete").minX - 0.5, y: frame("m").midY)), "m", "gap right next to delete")
+        XCTAssertEqual(hit(CGPoint(x: 2, y: frame("shift").minY + 0.2)), "shift", "beyond shift at its height, not a")
+        XCTAssertEqual(hit(CGPoint(x: frame("m").midX + 4, y: (frame("m").maxY + frame("return").minY) / 2 + 2)), "return", "row gap nearer the bottom row")
+        stack.offsets[ObjectIdentifier(stack.keys.first { $0.accessibilityLabel == "q" }!)] = CGVector(dx: 0, dy: 12)
+        XCTAssertEqual(hit(CGPoint(x: frame("q").midX, y: frame("q").maxY + 8)), "q", "a learned area wins over a margin")
+        stack.offsets = [:]
         XCTAssertEqual(hit(CGPoint(x: frame("k").midX, y: (frame("k").maxY + frame("m").minY) / 2 - 2)), "k", "row gap, nearer k")
         XCTAssertNil(hit(CGPoint(x: 200, y: 10)), "the candidate bar")
         window.rootViewController = nil

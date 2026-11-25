@@ -33,6 +33,42 @@ class KeyLayoutTest {
         assertEquals("s", KeyLayout.nearest(all, s.midX, s.y + 0.5f).id)
     }
 
+    @Test fun marginsAndSideGapsBelongToTheEndLetters() {
+        val all = KeyLayout.keys(412f)
+        val a = keys.getValue("a"); val l = keys.getValue("l"); val z = keys.getValue("z"); val m = keys.getValue("m")
+        val shift = keys.getValue("⇧"); val delete = keys.getValue("⌫")
+        // the half-key margins beside the home row, at any height of the row (and the gap under it)
+        assertEquals("a", KeyLayout.nearest(all, 2f, a.y + 2).id)
+        assertEquals("a", KeyLayout.nearest(all, 2f, a.midY).id)
+        assertEquals("a", KeyLayout.nearest(all, a.x - 1, a.y + a.h + KeyLayout.ROW_GAP / 2).id)
+        assertEquals("l", KeyLayout.nearest(all, 410f, l.y + 2).id)
+        assertEquals("l", KeyLayout.nearest(all, 410f, l.midY).id)
+        assertEquals("q", KeyLayout.nearest(all, 2f, a.y - 1).id) // the gap under q is q's
+        // the gaps beside shift and delete are z's and m's; the keys themselves stay theirs
+        assertEquals("z", KeyLayout.nearest(all, shift.x + shift.w + 0.5f, z.midY).id)
+        assertEquals("z", KeyLayout.nearest(all, z.x - 0.5f, z.midY).id)
+        assertEquals("⇧", KeyLayout.nearest(all, shift.midX, z.midY).id)
+        assertEquals("⇧", KeyLayout.nearest(all, 2f, z.midY).id)
+        assertEquals("m", KeyLayout.nearest(all, delete.x - 0.5f, m.midY).id)
+        assertEquals("m", KeyLayout.nearest(all, m.x + m.w + 0.5f, m.midY).id)
+        assertEquals("⌫", KeyLayout.nearest(all, 410f, m.midY).id)
+        // curved rows too, and the side keys' outer margins stay theirs however the rows bend
+        for (arc in listOf(12f, -12f)) {
+            val shape = KeyShape(arc = arc)
+            val curved = KeyLayout.keys(412f, shape).associateBy { it.id }
+            val all2 = curved.values.toList()
+            assertEquals("arc $arc", "a", KeyLayout.nearest(all2, 2f, curved.getValue("a").midY, shape).id)
+            assertEquals("arc $arc", "m", KeyLayout.nearest(all2, curved.getValue("⌫").x - 0.5f, curved.getValue("m").midY, shape).id)
+            assertEquals("arc $arc", "⇧", KeyLayout.nearest(all2, 2f, curved.getValue("⇧").y + 0.5f, shape).id)
+            assertEquals("arc $arc", "⌫", KeyLayout.nearest(all2, 410f, curved.getValue("⌫").y + 0.5f, shape).id)
+        }
+        // a learned z area overlapping shift doesn't hand shift's margin to z
+        val shape = KeyShape(sideKeys = 1.5f)
+        val wide = KeyLayout.keys(412f, shape)
+        assertEquals("⇧", KeyLayout.nearest(wide, 2f, z.midY, shape, mapOf("z" to (-10f to 0f))).id)
+        assertEquals("⌫", KeyLayout.nearest(wide, 410f, m.midY, shape, mapOf("m" to (10f to 0f))).id)
+    }
+
     @Test fun curvedRowsTypeTheKeyTouched() {
         for (arc in listOf(12f, -12f)) {
             val shape = KeyShape(arc = arc)
