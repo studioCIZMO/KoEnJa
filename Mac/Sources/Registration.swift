@@ -32,7 +32,31 @@ enum Registration {
         // Only once this copy is registered: the other copies' registrations go now, and a failed
         // run leaves the copy the user had working (the pkg then keeps its files too).
         if status == noErr { forgetOtherCopies(ours) }
+        // Here, not in the install scripts: an update runs the old copy's get.sh, and this is the
+        // new copy's code.
+        if status == noErr, listed() != nil { _ = reselect() }
         return status
+    }
+
+    /// Apps that were typing through the process an update stopped can keep a session with it
+    /// (Slack, LINE): their keys go nowhere and the input menu shows no items while they are in
+    /// front, until the input source changes. Switching to another enabled source and back tells
+    /// every app, and each opens a session with the new process; it is what the user does by
+    /// hand to recover. Nothing is done when Araso isn't the source in use, and the way back is
+    /// taken only if nothing else chose a source meanwhile (a document with its own, the user).
+    /// True when Araso is the source in use at the end.
+    static func reselect() -> Bool {
+        guard ArasoSource.isCurrent else { return true }
+        guard let other = Uninstaller.fallbackSource(), TISSelectInputSource(other) == noErr,
+              !ArasoSource.isCurrent else { return false }
+        // Two switches in one instant can reach an app as none: the first is let land.
+        Thread.sleep(forTimeInterval: 0.5)
+        let otherID = TISGetInputSourceProperty(other, kTISPropertyInputSourceID)
+            .map { Unmanaged<CFString>.fromOpaque($0).takeUnretainedValue() as String }
+        guard ArasoSource.currentID == otherID else { return false }
+        ArasoSource.select()
+        Thread.sleep(forTimeInterval: 0.5)
+        return ArasoSource.isCurrent
     }
 
     /// `Araso --registered`: whether macOS lists the input source, enabled or not, and launches it

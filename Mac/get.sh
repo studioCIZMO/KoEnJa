@@ -114,9 +114,6 @@ if [ -d "$legacy" ]; then rm -rf "$legacy" || echo "Couldn't remove the old copy
 pkill -x KoEnJa 2>/dev/null || true
 "$app/Contents/MacOS/KoEnJa" --register ||
   echo "KoEnJa is installed but couldn't register; log out and back in once." >&2
-# Apps that were typing through the old process keep a session with it (keys go nowhere, no
-# menu items) until the input source changes: switched away and back when KoEnJa is in use.
-"$app/Contents/MacOS/KoEnJa" --reselect 2>/dev/null || true
 killall TextInputMenuAgent 2>/dev/null || true
 cat <<'MSG'
 KoEnJa is installed. If it isn't in the input menu yet: System Settings → Keyboard → Input Sources →

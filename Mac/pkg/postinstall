@@ -134,9 +134,6 @@ if [ -n "$user" ] && [ "$user" != root ]; then
       kept=1
     fi
   fi
-  # Apps that were typing through the old process keep a session with it (keys go nowhere, no
-  # menu items) until the input source changes: switched away and back when KoEnJa is in use.
-  [ -z "$registered" ] || as_user "$app/Contents/MacOS/KoEnJa" --reselect 2>/dev/null || true
   as_user killall TextInputMenuAgent 2>/dev/null || true
   # The switch indicator by the caret keeps the icon it read first (they ignore SIGTERM).
   as_user killall -KILL CursorUIViewService TextInputSwitcher 2>/dev/null || true

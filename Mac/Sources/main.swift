@@ -58,30 +58,11 @@ if CommandLine.arguments.contains("--registered") {
     exit(MainActor.assumeIsolated { Registration.isListed() } ? 0 : 1)
 }
 
-// `Araso --reselect`: after an update stopped the old process, apps that were typing through it
-// keep a session with a process that is gone: their keys go nowhere and the input menu shows no
-// items while they are in front (Slack, LINE), until the input source changes. Switching to
-// another source and back tells every app, and each one opens a session with the new process.
-// Run by get.sh and the pkg's postinstall once the new copy is registered; nothing is done
-// when KoEnJa isn't the source in use.
+// `Araso --reselect`: what `--register` ends with, on its own (to recover an app by hand).
 if CommandLine.arguments.contains("--reselect") {
-    MainActor.assumeIsolated {
-        guard ArasoSource.isCurrent, let other = Uninstaller.fallbackSource() else { exit(0) }
-        guard TISSelectInputSource(other) == noErr, !ArasoSource.isCurrent else {
-            print("could not switch away from KoEnJa")
-            exit(1)
-        }
-        // Two switches in one instant can reach an app as none: the first is let land.
-        Thread.sleep(forTimeInterval: 0.5)
-        // Back only if nothing else chose a source meanwhile (a document with its own, the user).
-        let otherID = TISGetInputSourceProperty(other, kTISPropertyInputSourceID)
-            .map { Unmanaged<CFString>.fromOpaque($0).takeUnretainedValue() as String }
-        guard ArasoSource.currentID == otherID else { exit(0) }
-        ArasoSource.select()
-        Thread.sleep(forTimeInterval: 0.5)
-        print(ArasoSource.isCurrent ? "reselected KoEnJa" : "could not reselect KoEnJa")
-        exit(ArasoSource.isCurrent ? 0 : 1)
-    }
+    let ok = MainActor.assumeIsolated { Registration.reselect() }
+    print(ok ? "reselected KoEnJa" : "could not reselect KoEnJa")
+    exit(ok ? 0 : 1)
 }
 
 // `Araso --uninstall [--delete-data]`: what About's Uninstall… does, for the install scripts.
