@@ -213,8 +213,8 @@ final class Updater: ObservableObject {
 
     /// Runs get.sh on the downloaded zip; nil when it installed. Its output goes to a file, not a
     /// pipe: get.sh stops this process, and a pipe with no reader would stop get.sh with it. A
-    /// successful install stops this process before it can clean up, so each run first removes
-    /// what earlier ones left.
+    /// successful install stops this process before it can clean up (or `finishInstall` does), so
+    /// each run first removes what earlier ones left.
     nonisolated private static func run(_ script: URL, zip: URL) -> InstallFailure? {
         let temp = FileManager.default.temporaryDirectory
         for old in (try? FileManager.default.contentsOfDirectory(at: temp, includingPropertiesForKeys: nil)) ?? []
@@ -242,7 +242,12 @@ final class Updater: ObservableObject {
 
     private func finishInstall(_ failure: InstallFailure?) {
         switch failure {
-        case nil: state = .idle
+        case nil:
+            // get.sh stops this process (the new copy's --register does too); still here, this is a
+            // copy whose get.sh couldn't (pkill leaves out its ancestors; 0.3.16 and before), and the
+            // next tick would install the same release again. Stop now: macOS starts the new copy on
+            // the next key. The settings window, which can run an install too, closes with it.
+            exit(0)
         case .download: state = .failed(L("Couldn't download the update. Try again later."))
         case .unsigned: state = .failed(L("The download isn't KoEnJa signed by CIZMO and notarized, so nothing was installed."))
         case .locked:

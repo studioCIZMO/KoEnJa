@@ -8,6 +8,7 @@ import SeamtypeCore
 enum Registration {
     /// Registers this bundle as an input method and enables its input source; returns the status.
     static func run() -> OSStatus {
+        stopOtherCopies()
         let ours = Bundle.main.bundleURL.resolvingSymlinksInPath().standardizedFileURL
         Uninstaller.launch(lsregister, ["-f", ours.path])
         let filter = [kTISPropertyInputSourceID as String: ArasoSource.id] as CFDictionary
@@ -36,6 +37,24 @@ enum Registration {
         // new copy's code.
         if status == noErr, listed() != nil { _ = reselect() }
         return status
+    }
+
+    /// The copies of Araso still running (the input method an update replaced, a settings window)
+    /// are stopped before this one registers, so macOS starts this copy on the next key. get.sh's
+    /// `pkill -x` doesn't reach them when the input method itself runs get.sh (its updater): pkill
+    /// leaves out its own ancestors. The old process then lived on with the old code, and its
+    /// updater, still seeing the release as newer than itself, installed it again every ten
+    /// minutes (0.3.13–0.3.16). SIGTERM, then SIGKILL whatever is left, as the pkg's postinstall does.
+    /// Here, not only in get.sh: an update runs the old copy's get.sh, and this is the new copy's code.
+    private static func stopOtherCopies() {
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: ArasoSource.id)
+            .map(\.processIdentifier).filter { $0 > 0 && $0 != getpid() } // -1: no pid known; kill(-1) would reach every process
+        let alive = { others.filter { kill($0, 0) == 0 } }
+        func wait() { var i = 0; while !alive().isEmpty, i < 30 { Thread.sleep(forTimeInterval: 0.1); i += 1 } }
+        for pid in others { kill(pid, SIGTERM) }
+        wait()
+        for pid in alive() { kill(pid, SIGKILL) }
+        wait()
     }
 
     /// Apps that were typing through the process an update stopped can keep a session with it

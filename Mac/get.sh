@@ -110,8 +110,16 @@ if [ -d "$app/Contents" ]; then old="$staged/Contents.old"; mv "$app/Contents" "
 mv "$staged/Contents" "$app/Contents" || exit 1
 # A copy of earlier versions left in ~/Library would be a second input method to macOS.
 if [ -d "$legacy" ]; then rm -rf "$legacy" || echo "Couldn't remove the old copy $legacy; remove it yourself." >&2; fi
-# The running copy is the old one: macOS starts the new one on the next key.
-pkill -x KoEnJa 2>/dev/null || true
+# The running copy is the old one: macOS starts the new one on the next key. SIGTERM, then SIGKILL
+# whatever is left, and wait until it is gone (as Araso's get.sh does). -a: run by the input method's
+# own updater, this script is its descendant, and pkill/pgrep leave out their ancestors without it,
+# so the old process lived on and installed the update again every ten minutes (0.3.13–0.3.16).
+# The new copy's --register stops it too (Registration.stopOtherCopies), for the older get.sh copies
+# that updates run.
+pkill -a -x KoEnJa 2>/dev/null || true
+i=0; while pgrep -a -x KoEnJa >/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
+pkill -9 -a -x KoEnJa 2>/dev/null || true
+i=0; while pgrep -a -x KoEnJa >/dev/null && [ $i -lt 30 ]; do sleep 0.1; i=$((i+1)); done
 "$app/Contents/MacOS/KoEnJa" --register ||
   echo "KoEnJa is installed but couldn't register; log out and back in once." >&2
 killall TextInputMenuAgent 2>/dev/null || true
